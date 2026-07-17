@@ -1,17 +1,17 @@
-import { APP_CONFIG } from "./config.js?v=20260717-rubric";
+import { APP_CONFIG } from "./config.js?v=20260717-widths";
 import {
   TRIGGERED_LABEL,
   buildNewIssueUrl,
   parseAlertIssue,
-} from "./lib/alerts.js?v=20260717-rubric";
+} from "./lib/alerts.js?v=20260717-widths";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260717-rubric";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260717-rubric";
+} from "./lib/hyperliquid.js?v=20260717-widths";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260717-widths";
 
 const QUOTE_STALE_MS = 3_500;
 const QUOTE_RECONNECT_COOLDOWN_MS = 5_000;
