@@ -4,12 +4,18 @@ import {
   buildNewIssueUrl,
   parseAlertIssue,
 } from "./lib/alerts.js";
-import { fetchAllMarkets, fetchMarketsByDex } from "./lib/hyperliquid.js";
+import {
+  fetchAllMarkets,
+  fetchAverageDailyVolume,
+  fetchMarketsByDex,
+} from "./lib/hyperliquid.js";
 
 const state = {
   catalog: [],
+  averageVolumes: new Map(),
   markets: new Map(),
   watchlist: loadWatchlist(),
+  initialized: false,
   refreshing: false,
 };
 
@@ -26,6 +32,8 @@ const elements = {
   lastSync: document.querySelector("#last-sync"),
   marketList: document.querySelector("#market-list"),
   refreshButton: document.querySelector("#refresh-button"),
+  tabs: [...document.querySelectorAll("[data-tab]")],
+  views: [...document.querySelectorAll("[role=tabpanel]")],
   watchlistForm: document.querySelector("#watchlist-form"),
 };
 
@@ -38,8 +46,10 @@ async function initialize() {
     state.catalog = markets.sort((a, b) => a.id.localeCompare(b.id));
     updateMarketMap(markets);
     ensureValidWatchlist();
+    await refreshAverageVolumes();
     renderCatalog();
     render();
+    state.initialized = true;
     setConnection(true);
     await loadAlerts();
   } catch (error) {
@@ -50,6 +60,9 @@ async function initialize() {
 
 function wireEvents() {
   elements.refreshButton.addEventListener("click", refreshWatchlist);
+  elements.tabs.forEach((tab) => {
+    tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
+  });
 
   elements.watchlistForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -61,10 +74,12 @@ function wireEvents() {
       elements.catalogCount.textContent = "Choose an asset from the list.";
       return;
     }
-    if (!state.watchlist.includes(market.id)) state.watchlist.push(market.id);
+    const added = !state.watchlist.includes(market.id);
+    if (added) state.watchlist.push(market.id);
     persistWatchlist();
     elements.assetSearch.value = "";
     render();
+    if (added) refreshAverageVolumes([market.id]).then(render);
   });
 
   elements.marketList.addEventListener("click", (event) => {
@@ -108,15 +123,22 @@ function wireEvents() {
 }
 
 async function refreshWatchlist() {
-  if (state.refreshing || !state.watchlist.length) return;
+  if (!state.initialized || state.refreshing || !state.watchlist.length) return;
   state.refreshing = true;
   elements.refreshButton.disabled = true;
   try {
-    const dexIds = state.watchlist
-      .map((id) => state.markets.get(id)?.dexId)
-      .filter((dex) => dex !== undefined);
-    updateMarketMap(await fetchMarketsByDex(dexIds));
-    render();
+    const dexIds = [...new Set(
+      state.watchlist
+        .map((id) => state.markets.get(id)?.dexId)
+        .filter((dex) => dex !== undefined),
+    )];
+    const [markets] = await Promise.all([
+      fetchMarketsByDex(dexIds),
+      refreshAverageVolumes(),
+    ]);
+    updateMarketMap(markets);
+    renderMarkets();
+    renderAlertOptions();
     setConnection(true);
   } catch (error) {
     setConnection(false, error.message);
@@ -124,6 +146,21 @@ async function refreshWatchlist() {
     state.refreshing = false;
     elements.refreshButton.disabled = false;
   }
+}
+
+async function refreshAverageVolumes(assetIds = state.watchlist) {
+  const results = await Promise.allSettled(
+    [...new Set(assetIds)].map(async (asset) => [
+      asset,
+      await fetchAverageDailyVolume(asset),
+    ]),
+  );
+  results.forEach((result) => {
+    if (result.status === "fulfilled") {
+      const [asset, volume] = result.value;
+      state.averageVolumes.set(asset, volume);
+    }
+  });
 }
 
 function updateMarketMap(markets) {
@@ -163,10 +200,10 @@ function renderMarkets() {
     .filter(Boolean)
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
-      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="price">${formatPrice(market.markPrice)}</span><span class="change ${direction}">${formatPercent(market.changePercent)}</span><button type="button" data-remove="${escapeHtml(market.id)}">Remove</button></div>`;
+      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${formatPrice(market.markPrice)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span><button class="remove-button" type="button" data-remove="${escapeHtml(market.id)}" aria-label="Remove ${escapeHtml(market.id)}" title="Remove ${escapeHtml(market.id)}">×</button></div>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="price">Mark</span><span class="change">24h</span><span class="remove"></span></div>${rows}`;
+  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span><span></span></div>${rows}`;
 }
 
 function renderAlertOptions() {
@@ -210,6 +247,15 @@ function removeFromWatchlist(id) {
   render();
 }
 
+function setActiveView(viewName) {
+  elements.tabs.forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === viewName));
+  });
+  elements.views.forEach((view) => {
+    view.hidden = view.id !== `${viewName}-view`;
+  });
+}
+
 function setConnection(connected, detail = "") {
   elements.connectionLabel.textContent = connected
     ? "Hyperliquid connected"
@@ -242,6 +288,24 @@ function formatPrice(value) {
 function formatPercent(value) {
   if (value === null || !Number.isFinite(value)) return "—";
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function formatUsdCompact(value) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function formatCompact(value) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 function escapeHtml(value) {
