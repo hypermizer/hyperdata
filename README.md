@@ -1,6 +1,6 @@
 # Hyperdata
 
-Hyperdata is a free, GitHub-hosted dashboard for monitoring Hyperliquid perpetual markets and creating one-time mark-price email alerts. It supports the default perp DEX and HIP-3 markets such as `xyz:ORCL` and `xyz:XYZ100`.
+Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time email alerts for assets such as `xyz:ORCL` and `xyz:XYZ100`.
 
 ## How it works
 
@@ -58,8 +58,6 @@ GitHub automatically disables scheduled workflows in public repositories after 6
 - `npm run alerts` — run the monitor (requires the workflow environment variables)
 - `npm run serve` — serve the dashboard locally
 
-## Data and privacy
+## Notes
 
-The dashboard does not collect wallet data or credentials. Active alert conditions are public because they are GitHub issues in a public repository. Email and SMTP credentials are encrypted GitHub Actions secrets and never shipped to the browser.
-
-Market data comes from Hyperliquid. Hyperdata is an independent project and is not affiliated with Hyperliquid. Nothing here is financial advice.
+Active alert conditions are public GitHub issues. SMTP credentials are GitHub Actions secrets and never ship to the browser.
