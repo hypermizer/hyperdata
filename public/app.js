@@ -18,6 +18,7 @@ const state = {
   supabase: createWatchlistClient(APP_CONFIG),
   stream: null,
   reconnectTimer: null,
+  signingIn: false,
   user: null,
   watchlist: [...APP_CONFIG.initialWatchlist],
 };
@@ -150,17 +151,21 @@ async function handleAccountAction() {
     if (error) setWatchlistMessage(error.message);
     return;
   }
-  const email = window.prompt("Email address for your sign-in link");
-  if (!email) return;
-  if (email.toLowerCase() !== APP_CONFIG.allowedEmail.toLowerCase()) {
-    setWatchlistMessage("Use your configured personal email address.");
-    return;
+  state.signingIn = true;
+  renderAccount();
+  setWatchlistMessage("Sending sign-in link…");
+  try {
+    const { error } = await state.supabase.auth.signInWithOtp({
+      email: APP_CONFIG.allowedEmail,
+      options: { emailRedirectTo: window.location.href.split("#")[0] },
+    });
+    setWatchlistMessage(error ? error.message : "Sign-in link sent. Open it in this browser.");
+  } catch (error) {
+    setWatchlistMessage(error instanceof Error ? error.message : "Unable to send sign-in link.");
+  } finally {
+    state.signingIn = false;
+    renderAccount();
   }
-  const { error } = await state.supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.href.split("#")[0] },
-  });
-  setWatchlistMessage(error ? error.message : "Sign-in link sent. Open it in this browser.");
 }
 
 async function loadCloudWatchlist() {
@@ -186,7 +191,7 @@ async function loadCloudWatchlist() {
 
 function renderAccount() {
   const storageReady = Boolean(state.supabase);
-  elements.accountButton.disabled = !storageReady;
+  elements.accountButton.disabled = !storageReady || state.signingIn;
   elements.assetSearch.disabled = !state.user;
   elements.addAssetButton.disabled = !state.user;
   elements.accountButton.textContent = state.user ? "Sign out" : "Sign in";
