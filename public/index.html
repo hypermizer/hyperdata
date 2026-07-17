@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Personal Hyperliquid price monitor and alert utility." />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#101214" />
     <title>Hyperdata</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
@@ -29,16 +29,16 @@
       <section id="watchlist-view" role="tabpanel" aria-labelledby="watchlist-tab">
         <div class="section-header">
           <h2 id="watchlist-heading">Watchlist</h2>
+          <form id="watchlist-form" class="inline-form watchlist-actions">
+            <label for="asset-search">Add asset</label>
+            <input id="asset-search" name="asset" list="asset-options" placeholder="xyz:ORCL" autocomplete="off" disabled />
+            <datalist id="asset-options"></datalist>
+            <button id="add-asset-button" type="submit" disabled>Add</button>
+          </form>
         </div>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
 
-        <form id="watchlist-form" class="inline-form">
-          <label for="asset-search">Add asset</label>
-          <input id="asset-search" name="asset" list="asset-options" placeholder="xyz:ORCL" autocomplete="off" disabled />
-          <datalist id="asset-options"></datalist>
-          <button id="add-asset-button" type="submit" disabled>Add</button>
-        </form>
         <p id="watchlist-message" class="message" role="status"></p>
       </section>
 
