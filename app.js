@@ -1,17 +1,17 @@
-import { APP_CONFIG } from "./config.js?v=20260717-realtime";
+import { APP_CONFIG } from "./config.js?v=20260717-settings";
 import {
   TRIGGERED_LABEL,
   buildNewIssueUrl,
   parseAlertIssue,
-} from "./lib/alerts.js?v=20260717-realtime";
+} from "./lib/alerts.js?v=20260717-settings";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260717-realtime";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260717-realtime";
+} from "./lib/hyperliquid.js?v=20260717-settings";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260717-settings";
 
 const QUOTE_STALE_MS = 3_500;
 const QUOTE_RECONNECT_COOLDOWN_MS = 5_000;
@@ -21,6 +21,7 @@ const state = {
   averageVolumes: new Map(),
   catalog: [],
   markets: new Map(),
+  openDot: null,
   priceHistories: new Map(),
   quoteUpdatedAt: new Map(),
   supabase: createWatchlistClient(APP_CONFIG),
@@ -46,6 +47,11 @@ const elements = {
   connectionLabel: document.querySelector("#connection-label"),
   lastSync: document.querySelector("#last-sync"),
   marketList: document.querySelector("#market-list"),
+  removeAsset: document.querySelector("#remove-asset"),
+  removeAssetButton: document.querySelector("#remove-asset-button"),
+  removeAssetForm: document.querySelector("#remove-asset-form"),
+  settingsButton: document.querySelector("#settings-button"),
+  settingsDialog: document.querySelector("#watchlist-settings"),
   tabs: [...document.querySelectorAll("[data-tab]")],
   views: [...document.querySelectorAll("[role=tabpanel]")],
   watchlistForm: document.querySelector("#watchlist-form"),
@@ -76,14 +82,32 @@ async function initialize() {
 
 function wireEvents() {
   elements.accountButton.addEventListener("click", handleAccountAction);
+  elements.settingsButton.addEventListener("click", openSettings);
+  elements.settingsDialog.addEventListener("click", (event) => {
+    if (event.target === elements.settingsDialog) elements.settingsDialog.close();
+  });
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
   });
 
   elements.watchlistForm.addEventListener("submit", addToWatchlist);
+  elements.removeAssetForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    removeFromWatchlist(elements.removeAsset.value);
+  });
   elements.marketList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-remove]");
-    if (button) removeFromWatchlist(button.dataset.remove);
+    const button = event.target.closest(".signal-dot-button");
+    if (!button) return;
+    const asset = button.dataset.asset;
+    const label = button.dataset.label;
+    const willOpen = state.openDot?.asset !== asset || state.openDot?.label !== label;
+    closeDotTooltips();
+    state.openDot = willOpen ? { asset, label } : null;
+    button.classList.toggle("is-open", willOpen);
+    button.setAttribute("aria-expanded", String(willOpen));
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".signal-dot-button")) closeDotTooltips();
   });
 
   elements.alertForm.addEventListener("submit", (event) => {
@@ -209,6 +233,8 @@ function renderAccount() {
   elements.accountButton.disabled = !storageReady || state.signingIn;
   elements.assetSearch.disabled = !state.user;
   elements.addAssetButton.disabled = !state.user;
+  elements.removeAsset.disabled = !state.user || state.watchlist.length <= 1;
+  elements.removeAssetButton.disabled = !state.user || state.watchlist.length <= 1;
   elements.accountButton.textContent = state.user ? "Sign out" : "Sign in";
   const status = state.user
     ? state.user.email
@@ -320,11 +346,13 @@ function ensureValidWatchlist() {
 function render() {
   renderMarkets();
   renderAlertOptions();
+  renderWatchlistSettings();
+  renderAccount();
 }
 
 function renderCatalog() {
   elements.assetOptions.innerHTML = state.catalog
-    .map((market) => `<option value="${escapeHtml(market.id)}"></option>`)
+    .map((market) => `<option value="${escapeHtml(displayAssetName(market.id))}"></option>`)
     .join("");
 }
 
@@ -334,13 +362,10 @@ function renderMarkets() {
     .filter(Boolean)
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
-      const removeButton = state.user
-        ? `<button class="remove-button" type="button" data-remove="${escapeHtml(market.id)}" aria-label="Remove ${escapeHtml(market.id)}" title="Remove ${escapeHtml(market.id)}">×</button>`
-        : "";
-      return `<tr><td>${escapeHtml(market.id)}</td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric">${formatCompact(market.openInterest)}</td><td>${removeButton}</td></tr>`;
+      return `<tr><td class="asset-cell">${escapeHtml(displayAssetName(market.id))}</td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th>Asset</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>Mark price</th><th>24h</th><th>24h vol</th><th>Avg vol (30d)</th><th>OI</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th class="asset-cell">Asset</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>Mark price</th><th>24h</th><th>24h vol</th><th>Avg vol (30d)</th><th>OI</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPriceSignals(market) {
@@ -348,13 +373,14 @@ function renderPriceSignals(market) {
     market.markPrice,
     state.priceHistories.get(market.id) ?? [],
   );
-  const description = signals
-    .map(({ label, changePercent }) => `${label} ${formatPercent(changePercent)}`)
-    .join(", ");
   const dots = signals
-    .map(({ direction, intensity }) => `<span class="signal-slot"><span class="change-dot ${direction} ${intensity}"></span></span>`)
+    .map((signal) => {
+      const detail = formatDotDetail(signal);
+      const isOpen = state.openDot?.asset === market.id && state.openDot?.label === signal.label;
+      return `<span class="signal-slot"><button class="signal-dot-button${isOpen ? " is-open" : ""}" type="button" data-asset="${escapeHtml(market.id)}" data-label="${escapeHtml(signal.label)}" aria-label="${escapeHtml(detail)}" aria-expanded="${isOpen}"><span class="change-dot ${signal.direction} ${signal.intensity}"></span><span class="dot-tooltip" role="tooltip">${escapeHtml(detail)}</span></button></span>`;
+    })
     .join("");
-  return `<span class="signal-grid price-dots" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${dots}</span>`;
+  return `<span class="signal-grid price-dots">${dots}</span>`;
 }
 
 function renderSignalLabels() {
@@ -368,10 +394,34 @@ function renderAlertOptions() {
   elements.alertAsset.innerHTML = `<option value="">Choose asset</option>${state.watchlist
     .map((id) => {
       const market = state.markets.get(id);
-      return `<option value="${escapeHtml(id)}">${escapeHtml(market.id)} (${formatPrice(market.markPrice)})</option>`;
+      return `<option value="${escapeHtml(id)}">${escapeHtml(displayAssetName(market.id))} (${formatPrice(market.markPrice)})</option>`;
     })
     .join("")}`;
   if (state.watchlist.includes(selected)) elements.alertAsset.value = selected;
+}
+
+function renderWatchlistSettings() {
+  const selected = elements.removeAsset.value;
+  elements.removeAsset.innerHTML = state.watchlist
+    .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(displayAssetName(id))}</option>`)
+    .join("");
+  if (state.watchlist.includes(selected)) elements.removeAsset.value = selected;
+}
+
+function openSettings() {
+  if (typeof elements.settingsDialog.showModal === "function") {
+    elements.settingsDialog.showModal();
+  } else {
+    elements.settingsDialog.setAttribute("open", "");
+  }
+}
+
+function closeDotTooltips() {
+  state.openDot = null;
+  elements.marketList.querySelectorAll(".signal-dot-button.is-open").forEach((button) => {
+    button.classList.remove("is-open");
+    button.setAttribute("aria-expanded", "false");
+  });
 }
 
 async function loadAlerts() {
@@ -485,6 +535,17 @@ function checkQuoteHealth() {
 function sendStreamHeartbeat() {
   if (state.stream?.readyState !== WebSocket.OPEN) return;
   state.stream.send(JSON.stringify({ method: "ping" }));
+}
+
+function formatDotDetail({ label, referencePrice, changePercent }) {
+  if (referencePrice === null || changePercent === null) {
+    return `${label.toUpperCase()} reference unavailable`;
+  }
+  return `${label.toUpperCase()} reference ${formatPrice(referencePrice)} · ${formatPercent(changePercent)}`;
+}
+
+function displayAssetName(asset) {
+  return asset.startsWith("xyz:") ? asset.slice(4) : asset;
 }
 
 function formatPrice(value) {
