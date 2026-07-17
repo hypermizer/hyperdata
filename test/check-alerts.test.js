@@ -22,6 +22,19 @@ test("only trusted, untriggered alert issues are eligible", () => {
   );
 });
 
+test("an empty alert queue does not require SMTP configuration", async () => {
+  const result = await checkAlerts({
+    env: {
+      GITHUB_TOKEN: "token",
+      GITHUB_REPOSITORY: "owner/repo",
+    },
+    fetchImpl: async () => jsonResponse([]),
+    logger: { log() {} },
+  });
+
+  assert.deepEqual(result, { checked: 0, triggered: 0 });
+});
+
 test("triggered alert sends email, records the event, and closes the issue", async () => {
   const issueBody = createAlertIssue({
     asset: "xyz:ORCL",
