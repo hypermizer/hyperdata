@@ -1,6 +1,7 @@
 :root {
   color-scheme: dark;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 500;
   color: #eceff1;
   background: #101214;
 }
@@ -20,17 +21,18 @@ header, section { border-bottom: 1px solid #34383d; }
 header { padding-bottom: 16px; }
 
 h1, h2, h3, p { margin: 0; }
-h1 { font-size: 20px; font-weight: 600; }
-h2 { font-size: 16px; font-weight: 600; }
-h3 { font-size: 14px; font-weight: 600; }
+h1 { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 750; letter-spacing: 0.04em; }
+h1 img { width: 22px; height: 22px; }
+h2 { font-size: 16px; font-weight: 700; }
+h3 { font-size: 14px; font-weight: 700; }
 
 header p, .hint { color: #a8afb7; font-size: 13px; }
 header p { margin-top: 6px; }
 
 .tab-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 .tabs { display: flex; gap: 6px; }
-.tabs button { min-height: 30px; padding: 3px 8px; }
-.tabs button[aria-selected="true"] { background: #eceff1; color: #101214; border-color: #eceff1; }
+.tabs button { min-height: 30px; padding: 3px 8px; background: transparent; border-color: #eceff1; color: #eceff1; }
+.tabs button[aria-selected="true"] { background: #2c8881; color: #101214; border-color: transparent; }
 
 section { padding: 20px 0; }
 
@@ -77,20 +79,31 @@ input, select { min-width: 0; }
 .market-list { overflow-x: auto; border-top: 1px solid #34383d; }
 .market-table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .market-table th, .market-table td {
-  padding: 0 12px 0 0;
+  padding: 0 8px 0 0;
   height: 44px;
   border-bottom: 1px solid #2b3035;
   text-align: left;
   white-space: nowrap;
   font-weight: 400;
 }
-.market-table th { color: #a8afb7; font-size: 12px; }
+.market-table th { color: #a8afb7; font-size: 12px; font-weight: 650; }
 .market-table th:first-child, .market-table td:first-child { width: 100%; }
 .market-table th:not(:first-child), .market-table td:not(:first-child) { width: 1%; }
 .market-table th:last-child, .market-table td:last-child { padding-right: 0; }
 .metric { font-variant-numeric: tabular-nums; text-align: left; white-space: nowrap; }
-.price-dots { display: inline-flex; align-items: center; gap: 3px; }
-.change-dot { width: 6px; height: 6px; border-radius: 50%; background: #606870; }
+.signal-cell { padding: 0 !important; }
+.signal-grid { display: grid; grid-template-columns: repeat(7, 44px); width: 308px; }
+.signal-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  border-left: 1px solid rgb(236 239 241 / 0.06);
+}
+.signal-slot:last-child { border-right: 1px solid rgb(236 239 241 / 0.06); }
+.signal-labels .signal-slot { color: #a8afb7; font-size: 10px; font-weight: 700; }
+.price-dots { align-items: center; }
+.change-dot { width: 10px; height: 10px; border-radius: 50%; background: #606870; }
 .change-dot.up.light { background: #4f8d5e; }
 .change-dot.up.medium { background: #2ed45c; }
 .change-dot.up.strong { background: #b7ffbf; }
