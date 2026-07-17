@@ -331,7 +331,7 @@ function renderMarkets() {
       return `<tr><td>${escapeHtml(market.id)}</td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric">${formatCompact(market.openInterest)}</td><td>${removeButton}</td></tr>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th>Asset</th><th title="1w, 1d, 6h, 1h, 30m, 10m, 5m">Δ</th><th>Mark price</th><th>24h</th><th>24h vol</th><th>Avg vol (30d)</th><th>OI</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th>Asset</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>Mark price</th><th>24h</th><th>24h vol</th><th>Avg vol (30d)</th><th>OI</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPriceSignals(market) {
@@ -343,9 +343,15 @@ function renderPriceSignals(market) {
     .map(({ label, changePercent }) => `${label} ${formatPercent(changePercent)}`)
     .join(", ");
   const dots = signals
-    .map(({ direction, intensity }) => `<span class="change-dot ${direction} ${intensity}"></span>`)
+    .map(({ direction, intensity }) => `<span class="signal-slot"><span class="change-dot ${direction} ${intensity}"></span></span>`)
     .join("");
-  return `<span class="price-dots" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${dots}</span>`;
+  return `<span class="signal-grid price-dots" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${dots}</span>`;
+}
+
+function renderSignalLabels() {
+  return `<span class="signal-grid signal-labels">${["1W", "1D", "6H", "1H", "30M", "10M", "5M"]
+    .map((label) => `<span class="signal-slot">${label}</span>`)
+    .join("")}</span>`;
 }
 
 function renderAlertOptions() {
