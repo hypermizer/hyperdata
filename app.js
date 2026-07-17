@@ -9,26 +9,37 @@ import {
   fetchAllMarkets,
   fetchAverageDailyVolume,
 } from "./lib/hyperliquid.js";
+import { createWatchlistClient } from "./lib/supabase.js";
 
 const state = {
   averageVolumes: new Map(),
+  catalog: [],
   markets: new Map(),
-  watchlist: [...APP_CONFIG.watchlist],
+  supabase: createWatchlistClient(APP_CONFIG),
   stream: null,
   reconnectTimer: null,
+  user: null,
+  watchlist: [...APP_CONFIG.initialWatchlist],
 };
 
 const elements = {
+  accountButton: document.querySelector("#account-button"),
+  accountStatus: document.querySelector("#account-status"),
+  addAssetButton: document.querySelector("#add-asset-button"),
   alertAsset: document.querySelector("#alert-asset"),
   alertCount: document.querySelector("#alert-count"),
   alertForm: document.querySelector("#alert-form"),
   alertList: document.querySelector("#alert-list"),
   alertMessage: document.querySelector("#alert-message"),
+  assetOptions: document.querySelector("#asset-options"),
+  assetSearch: document.querySelector("#asset-search"),
   connectionLabel: document.querySelector("#connection-label"),
   lastSync: document.querySelector("#last-sync"),
   marketList: document.querySelector("#market-list"),
   tabs: [...document.querySelectorAll("[data-tab]")],
   views: [...document.querySelectorAll("[role=tabpanel]")],
+  watchlistForm: document.querySelector("#watchlist-form"),
+  watchlistMessage: document.querySelector("#watchlist-message"),
 };
 
 wireEvents();
@@ -37,9 +48,12 @@ initialize();
 async function initialize() {
   try {
     const markets = await fetchAllMarkets();
+    state.catalog = markets.sort((a, b) => a.id.localeCompare(b.id));
     updateMarketMap(markets);
+    await initializeWatchlistStorage();
     ensureValidWatchlist();
     await refreshAverageVolumes();
+    renderCatalog();
     render();
     setConnection(true);
     connectMarketStream();
@@ -51,8 +65,15 @@ async function initialize() {
 }
 
 function wireEvents() {
+  elements.accountButton.addEventListener("click", handleAccountAction);
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
+  });
+
+  elements.watchlistForm.addEventListener("submit", addToWatchlist);
+  elements.marketList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove]");
+    if (button) removeFromWatchlist(button.dataset.remove);
   });
 
   elements.alertForm.addEventListener("submit", (event) => {
@@ -88,6 +109,135 @@ function wireEvents() {
 
   setInterval(refreshAverageVolumes, APP_CONFIG.averageVolumeRefreshIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
+}
+
+async function initializeWatchlistStorage() {
+  if (!state.supabase) {
+    renderAccount();
+    return;
+  }
+  const { data: { session }, error } = await state.supabase.auth.getSession();
+  if (error) throw error;
+  await setSession(session);
+  state.supabase.auth.onAuthStateChange((_event, nextSession) => {
+    window.setTimeout(() => {
+      setSession(nextSession).catch((error) => setWatchlistMessage(error.message));
+    }, 0);
+  });
+}
+
+async function setSession(session) {
+  state.user = session?.user ?? null;
+  if (state.user && state.user.email !== APP_CONFIG.allowedEmail) {
+    await state.supabase.auth.signOut();
+    state.user = null;
+    setWatchlistMessage("This is a personal watchlist.");
+  }
+  if (state.user) await loadCloudWatchlist();
+  else state.watchlist = [...APP_CONFIG.initialWatchlist];
+  ensureValidWatchlist();
+  renderAccount();
+  render();
+}
+
+async function handleAccountAction() {
+  if (!state.supabase) {
+    setWatchlistMessage("Add your Supabase URL and publishable key in public/config.js.");
+    return;
+  }
+  if (state.user) {
+    const { error } = await state.supabase.auth.signOut();
+    if (error) setWatchlistMessage(error.message);
+    return;
+  }
+  const email = window.prompt("Email address for your sign-in link");
+  if (!email) return;
+  if (email.toLowerCase() !== APP_CONFIG.allowedEmail.toLowerCase()) {
+    setWatchlistMessage("Use your configured personal email address.");
+    return;
+  }
+  const { error } = await state.supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href.split("#")[0] },
+  });
+  setWatchlistMessage(error ? error.message : "Sign-in link sent. Open it in this browser.");
+}
+
+async function loadCloudWatchlist() {
+  const { data, error } = await state.supabase
+    .from("watchlist_items")
+    .select("asset")
+    .order("created_at");
+  if (error) throw error;
+  if (data.length) {
+    state.watchlist = data.map((item) => item.asset);
+    return;
+  }
+  const { data: seeded, error: seedError } = await state.supabase
+    .from("watchlist_items")
+    .upsert(
+      APP_CONFIG.initialWatchlist.map((asset) => ({ user_id: state.user.id, asset })),
+      { onConflict: "user_id,asset" },
+    )
+    .select("asset");
+  if (seedError) throw seedError;
+  state.watchlist = seeded.map((item) => item.asset);
+}
+
+function renderAccount() {
+  const storageReady = Boolean(state.supabase);
+  elements.accountButton.disabled = !storageReady;
+  elements.assetSearch.disabled = !state.user;
+  elements.addAssetButton.disabled = !state.user;
+  elements.accountButton.textContent = state.user ? "Sign out" : "Sign in";
+  elements.accountStatus.textContent = state.user
+    ? state.user.email
+    : storageReady
+      ? "Sign in to edit"
+      : "Storage not configured";
+}
+
+async function addToWatchlist(event) {
+  event.preventDefault();
+  if (!state.user) return;
+  const query = elements.assetSearch.value.trim().toLowerCase();
+  const market = state.catalog.find(
+    (item) => item.id.toLowerCase() === query || item.symbol.toLowerCase() === query,
+  );
+  if (!market) {
+    setWatchlistMessage("Choose an asset from the list.");
+    return;
+  }
+  const { error } = await state.supabase.from("watchlist_items").insert({
+    user_id: state.user.id,
+    asset: market.id,
+  });
+  if (error && error.code !== "23505") {
+    setWatchlistMessage(error.message);
+    return;
+  }
+  elements.assetSearch.value = "";
+  await loadCloudWatchlist();
+  ensureValidWatchlist();
+  await refreshAverageVolumes();
+  render();
+}
+
+async function removeFromWatchlist(asset) {
+  if (!state.user) return;
+  if (state.watchlist.length === 1) return;
+  const { error } = await state.supabase
+    .from("watchlist_items")
+    .delete()
+    .eq("user_id", state.user.id)
+    .eq("asset", asset);
+  if (error) {
+    setWatchlistMessage(error.message);
+    return;
+  }
+  await loadCloudWatchlist();
+  ensureValidWatchlist();
+  render();
 }
 
 async function refreshAverageVolumes(assetIds = state.watchlist) {
@@ -130,16 +280,25 @@ function render() {
   renderAlertOptions();
 }
 
+function renderCatalog() {
+  elements.assetOptions.innerHTML = state.catalog
+    .map((market) => `<option value="${escapeHtml(market.id)}"></option>`)
+    .join("");
+}
+
 function renderMarkets() {
   const rows = state.watchlist
     .map((id) => state.markets.get(id))
     .filter(Boolean)
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
-      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${formatPrice(market.markPrice)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span></div>`;
+      const removeButton = state.user
+        ? `<button class="remove-button" type="button" data-remove="${escapeHtml(market.id)}" aria-label="Remove ${escapeHtml(market.id)}" title="Remove ${escapeHtml(market.id)}">×</button>`
+        : "<span></span>";
+      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${formatPrice(market.markPrice)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span>${removeButton}</div>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span></div>${rows}`;
+  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span><span></span></div>${rows}`;
 }
 
 function renderAlertOptions() {
@@ -190,6 +349,10 @@ function setConnection(connected, detail = "") {
     ? "Hyperliquid connected"
     : `Connection error${detail ? `: ${detail}` : ""}`;
   elements.connectionLabel.className = connected ? "positive" : "negative";
+}
+
+function setWatchlistMessage(message) {
+  elements.watchlistMessage.textContent = message;
 }
 
 function connectMarketStream() {
