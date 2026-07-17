@@ -327,14 +327,14 @@ function renderMarkets() {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
       const removeButton = state.user
         ? `<button class="remove-button" type="button" data-remove="${escapeHtml(market.id)}" aria-label="Remove ${escapeHtml(market.id)}" title="Remove ${escapeHtml(market.id)}">×</button>`
-        : "<span></span>";
-      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${renderMarkPrice(market)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span>${removeButton}</div>`;
+        : "";
+      return `<tr><td>${escapeHtml(market.id)}</td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric">${formatCompact(market.openInterest)}</td><td>${removeButton}</td></tr>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span><span></span></div>${rows}`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th>Asset</th><th title="1w, 1d, 6h, 1h, 30m, 10m, 5m">Δ</th><th>Mark price</th><th>24h</th><th>24h vol</th><th>Avg vol (30d)</th><th>OI</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function renderMarkPrice(market) {
+function renderPriceSignals(market) {
   const signals = buildPriceChangeSignals(
     market.markPrice,
     state.priceHistories.get(market.id) ?? [],
@@ -345,7 +345,7 @@ function renderMarkPrice(market) {
   const dots = signals
     .map(({ direction, intensity }) => `<span class="change-dot ${direction} ${intensity}"></span>`)
     .join("");
-  return `<span class="price-cell"><span class="price-dots" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${dots}</span><span>${formatPrice(market.markPrice)}</span></span>`;
+  return `<span class="price-dots" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${dots}</span>`;
 }
 
 function renderAlertOptions() {
