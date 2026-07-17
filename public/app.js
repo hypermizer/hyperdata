@@ -1,17 +1,17 @@
-import { APP_CONFIG } from "./config.js";
+import { APP_CONFIG } from "./config.js?v=20260717-assetfix";
 import {
   TRIGGERED_LABEL,
   buildNewIssueUrl,
   parseAlertIssue,
-} from "./lib/alerts.js";
+} from "./lib/alerts.js?v=20260717-assetfix";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js";
-import { createWatchlistClient } from "./lib/supabase.js";
+} from "./lib/hyperliquid.js?v=20260717-assetfix";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260717-assetfix";
 
 const state = {
   accountMessage: "",
