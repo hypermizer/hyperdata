@@ -11,14 +11,14 @@
 body { margin: 0; background: #101214; }
 
 main {
-  max-width: 1170px;
+  max-width: 1000px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 24px 0 48px;
 }
 
-header, section { border-bottom: 1px solid #34383d; }
+header, main > section { border-bottom: 1px solid #34383d; }
 
-header { padding-bottom: 16px; }
+header { padding: 0 16px 16px; }
 
 h1, h2, h3, p { margin: 0; }
 h1 { display: flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 750; letter-spacing: 0.04em; }
@@ -47,7 +47,7 @@ header p { margin-top: 6px; text-transform: uppercase; }
 .tabs button[aria-selected="true"] { background: #2c8881; color: #101214; border-color: transparent; }
 #account-button { font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase; }
 
-section { padding: 20px 0; }
+main > section { padding: 20px 16px; }
 
 .section-header {
   display: flex;
@@ -98,12 +98,23 @@ input, select { min-width: 0; }
 .inline-form select { width: 150px; }
 .inline-form #alert-target { width: 140px; }
 
-.market-list { overflow-x: auto; border-top: 1px solid #34383d; }
-.market-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.market-list {
+  width: calc(100% + 32px);
+  margin-left: -16px;
+  overflow-x: auto;
+  border-top: 1px solid #34383d;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 43px,
+    #2b3035 43px,
+    #2b3035 44px
+  );
+}
+.market-table { border-collapse: collapse; width: 900px; margin: 0 auto; font-size: 14px; }
 .market-table th, .market-table td {
   padding: 0 8px 0 0;
   height: 44px;
-  border-bottom: 1px solid #2b3035;
   text-align: left;
   white-space: nowrap;
   font-weight: 400;
@@ -218,8 +229,7 @@ input, select { min-width: 0; }
   .inline-form { align-items: stretch; }
   .inline-form label { width: 100%; }
   .inline-form input, .inline-form select, .inline-form #alert-target { width: calc(50% - 4px); }
-  .market-list { margin: 0 -16px; }
-  .market-table { width: max-content; min-width: 840px; }
+  .market-table { width: max-content; min-width: 840px; margin: 0; }
   .market-table th:first-child,
   .market-table td:first-child {
     position: sticky;
@@ -228,6 +238,7 @@ input, select { min-width: 0; }
     width: 116px;
     min-width: 116px;
     background: #101214;
+    border-bottom: 1px solid #2b3035;
     box-shadow: 1px 0 0 #34383d;
   }
   .market-table th:first-child { z-index: 3; }
