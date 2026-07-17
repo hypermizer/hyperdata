@@ -17,7 +17,7 @@ export async function checkAlerts({
 } = {}) {
   const config = readConfig(env);
   const github = createGitHubClient(config, fetchImpl);
-  const transport = mailer ?? createMailer(config);
+  let transport = mailer;
   const issues = await github.listAlertIssues();
   const eligibleIssues = issues.filter(isEligibleIssue);
 
@@ -42,6 +42,8 @@ export async function checkAlerts({
     await github.setLabels(issue.number, [...new Set([...originalLabels, TRIGGERED_LABEL])]);
 
     try {
+      requireEmailConfig(config);
+      transport ??= createMailer(config);
       await sendAlertEmail(transport, config, issue, alert, market.markPrice);
     } catch (error) {
       await github.setLabels(issue.number, originalLabels);
@@ -82,7 +84,7 @@ async function loadRequiredMarkets(parsedIssues, fetchImpl) {
 }
 
 function readConfig(env) {
-  const missing = ["GITHUB_TOKEN", "GITHUB_REPOSITORY", "ALERT_EMAIL", "SMTP_USERNAME", "SMTP_PASSWORD"]
+  const missing = ["GITHUB_TOKEN", "GITHUB_REPOSITORY"]
     .filter((name) => !env[name]);
   if (missing.length) {
     throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
@@ -97,6 +99,20 @@ function readConfig(env) {
     smtpUsername: env.SMTP_USERNAME,
     smtpPassword: env.SMTP_PASSWORD,
   };
+}
+
+function requireEmailConfig(config) {
+  const missing = [
+    ["ALERT_EMAIL", config.alertEmail],
+    ["SMTP_USERNAME", config.smtpUsername],
+    ["SMTP_PASSWORD", config.smtpPassword],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length) {
+    throw new Error(`Cannot deliver a triggered alert; missing: ${missing.join(", ")}`);
+  }
 }
 
 function createMailer(config) {
