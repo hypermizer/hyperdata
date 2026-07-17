@@ -12,12 +12,14 @@
   <body>
     <main>
       <header>
-        <h1>Hyperdata</h1>
+        <h1><img src="./favicon.svg" alt="" aria-hidden="true" />HYPERDATA</h1>
         <p><span id="connection-label">Loading market data</span> · updated <time id="last-sync">—</time></p>
         <div class="tab-bar">
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
             <button id="watchlist-tab" type="button" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</button>
             <button id="alerts-tab" type="button" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</button>
+            <button id="audio-tab" type="button" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</button>
+            <button id="paper-tab" type="button" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</button>
           </div>
           <div class="account-actions">
             <span id="account-status" class="hint">Storage unavailable</span>
@@ -73,6 +75,10 @@
         </div>
         <div id="alert-list" class="alert-list"><p class="hint">Loading…</p></div>
       </section>
+
+      <section id="audio-view" role="tabpanel" aria-labelledby="audio-tab" hidden></section>
+
+      <section id="paper-view" role="tabpanel" aria-labelledby="paper-tab" hidden></section>
     </main>
     <script type="module" src="./app.js"></script>
   </body>
