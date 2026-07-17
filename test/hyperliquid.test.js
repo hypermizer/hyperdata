@@ -117,41 +117,58 @@ test("fetchAverageDailyVolume estimates trailing daily notional volume from cand
   assert.equal(result, 5800 / 3);
 });
 
-test("fetchPriceHistory requests one 5-minute snapshot for all dot intervals", async () => {
+test("fetchPriceHistory requests compact hourly and five-minute snapshots", async () => {
   const now = Date.UTC(2026, 6, 17, 12);
-  let request;
+  const requests = [];
   const points = await fetchPriceHistory(
     "xyz:ORCL",
     async (_url, options) => {
-      request = JSON.parse(options.body);
+      const request = JSON.parse(options.body);
+      requests.push(request);
       return jsonResponse([{ T: now - 300_000, c: "100" }]);
     },
     now,
   );
 
-  assert.equal(request.type, "candleSnapshot");
-  assert.deepEqual(request.req, {
-    coin: "xyz:ORCL",
-    interval: "5m",
-    startTime: now - (24 * 60 * 60 * 1000) - (5 * 60 * 1000),
-    endTime: now,
-  });
+  assert.deepEqual(requests, [
+    {
+      type: "candleSnapshot",
+      req: {
+        coin: "xyz:ORCL",
+        interval: "1h",
+        startTime: now - (7 * 24 * 60 * 60 * 1000) - (60 * 60 * 1000),
+        endTime: now,
+      },
+    },
+    {
+      type: "candleSnapshot",
+      req: {
+        coin: "xyz:ORCL",
+        interval: "5m",
+        startTime: now - (24 * 60 * 60 * 1000) - (5 * 60 * 1000),
+        endTime: now,
+      },
+    },
+  ]);
   assert.deepEqual(points, [{ time: now - 300_000, price: 100 }]);
 });
 
-test("buildPriceChangeSignals returns ordered changes across all five intervals", () => {
+test("buildPriceChangeSignals returns ordered changes across all seven intervals", () => {
   const now = Date.UTC(2026, 6, 17, 12);
   const signals = buildPriceChangeSignals(120, [
+    { time: now - (7 * 24 * 60 * 60 * 1000), price: 90 },
     { time: now - (24 * 60 * 60 * 1000), price: 100 },
     { time: now - (6 * 60 * 60 * 1000), price: 110 },
     { time: now - (60 * 60 * 1000), price: 115 },
+    { time: now - (30 * 60 * 1000), price: 116 },
     { time: now - (15 * 60 * 1000), price: 117 },
+    { time: now - (10 * 60 * 1000), price: 118 },
     { time: now - (5 * 60 * 1000), price: 119 },
   ], now);
 
-  assert.deepEqual(signals.map(({ label }) => label), ["24h", "6h", "1h", "15m", "5m"]);
-  assert.deepEqual(signals.map(({ direction }) => direction), ["up", "up", "up", "up", "up"]);
-  assert.ok(Math.abs(signals[0].changePercent - 20) < 0.000001);
-  assert.ok(Math.abs(signals[2].changePercent - (120 / 115 - 1) * 100) < 0.000001);
+  assert.deepEqual(signals.map(({ label }) => label), ["1w", "1d", "6h", "1h", "30m", "10m", "5m"]);
+  assert.deepEqual(signals.map(({ direction }) => direction), ["up", "up", "up", "up", "up", "up", "up"]);
+  assert.ok(Math.abs(signals[0].changePercent - (120 / 90 - 1) * 100) < 0.000001);
+  assert.ok(Math.abs(signals[3].changePercent - (120 / 115 - 1) * 100) < 0.000001);
   assert.ok(signals.every(({ intensity }) => ["light", "medium", "strong"].includes(intensity)));
 });
