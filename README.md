@@ -6,14 +6,30 @@ Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time
 
 - The dashboard is a static site deployed with GitHub Pages.
 - The Watchlist tab receives mark price, 24-hour volume, and open interest from Hyperliquid's live WebSocket feed. Average volume is derived from daily candles and refreshed every five minutes in USD.
-- The watchlist is source-controlled in [`public/config.js`](public/config.js); editing and deploying that file changes it for every browser.
+- The watchlist is stored per signed-in user in Supabase, so changes made in the UI follow you across browsers and devices.
 - Creating an alert opens a prefilled GitHub issue. Submitting that issue activates the alert; closing it cancels the alert.
 - A scheduled GitHub Action checks open alert issues every five minutes. Once a target is met, it sends one email or text, comments on the issue, and closes it.
 - Only alerts opened by the repository owner, a member, or a collaborator are processed, preventing public issue spam from sending email.
 
 ## One-time setup
 
-The site deploys automatically after the repository is pushed to GitHub. Configure only the delivery methods you use.
+The site deploys automatically after the repository is pushed to GitHub. Configure only the services you use.
+
+### Watchlist storage (Supabase)
+
+1. Create a Supabase project and open its **SQL Editor**.
+2. Run [`supabase/schema.sql`](supabase/schema.sql).
+3. In **Authentication → URL Configuration**, set both the Site URL and an allowed Redirect URL to `https://hypermizer.github.io/hyperdata/`.
+4. In **Project Settings → API**, copy the Project URL and Publishable key into [`public/config.js`](public/config.js):
+
+   ```js
+   supabaseUrl: "https://your-project.supabase.co",
+   supabasePublishableKey: "your-publishable-key",
+   ```
+
+5. Deploy the updated config. Click **Sign in** in Hyperdata and open the emailed sign-in link in the same browser.
+
+The Publishable key is intended for browser apps. Never put a Supabase secret or service-role key in this repository. The supplied policy permits only `jasonblick@zohomail.com` to read or change this watchlist.
 
 ### Email (Zoho)
 

@@ -6,7 +6,7 @@
   "description": "A free, GitHub-hosted Hyperliquid market dashboard and price alert monitor.",
   "scripts": {
     "test": "node --test",
-    "check": "node --check public/app.js && node --check public/lib/alerts.js && node --check public/lib/hyperliquid.js && node --check scripts/check-alerts.js",
+    "check": "node --check public/app.js && node --check public/lib/alerts.js && node --check public/lib/hyperliquid.js && node --check public/lib/supabase.js && node --check scripts/check-alerts.js",
     "alerts": "node scripts/check-alerts.js",
     "serve": "npx --yes serve public"
   },
