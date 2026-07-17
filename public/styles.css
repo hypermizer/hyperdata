@@ -74,7 +74,7 @@ input, select { min-width: 0; }
 .market-list { overflow-x: auto; border-top: 1px solid #d8d8d8; }
 .market-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) 100px 72px 92px 108px 76px 28px;
+  grid-template-columns: minmax(130px, 1fr) 100px 72px 92px 108px 76px;
   align-items: center;
   gap: 12px;
   min-width: 700px;
@@ -84,13 +84,6 @@ input, select { min-width: 0; }
 }
 .market-row.header { color: #666; font-size: 12px; }
 .metric { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-.remove-button {
-  width: 28px;
-  min-height: 28px;
-  padding: 0;
-  font-size: 18px;
-  line-height: 1;
-}
 .positive { color: #137333; }
 .negative, .message { color: #b3261e; }
 

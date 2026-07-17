@@ -5,8 +5,8 @@ Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time
 ## How it works
 
 - The dashboard is a static site deployed with GitHub Pages.
-- The Watchlist tab refreshes mark price, 24-hour volume, 30-day average daily volume, and open interest every second from Hyperliquid. Average volume is derived from daily candles and shown in USD.
-- Your watchlist is stored only in your browser's local storage.
+- The Watchlist tab receives mark price, 24-hour volume, and open interest from Hyperliquid's live WebSocket feed. Average volume is derived from daily candles and refreshed every five minutes in USD.
+- The watchlist is source-controlled in [`public/config.js`](public/config.js); editing and deploying that file changes it for every browser.
 - Creating an alert opens a prefilled GitHub issue. Submitting that issue activates the alert; closing it cancels the alert.
 - A scheduled GitHub Action checks open alert issues every five minutes. Once a target is met, it sends one email or text, comments on the issue, and closes it.
 - Only alerts opened by the repository owner, a member, or a collaborator are processed, preventing public issue spam from sending email.

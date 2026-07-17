@@ -23,18 +23,9 @@
       <section id="watchlist-view" role="tabpanel" aria-labelledby="watchlist-tab">
         <div class="section-header">
           <h2 id="watchlist-heading">Watchlist</h2>
-          <button id="refresh-button" type="button">Refresh</button>
         </div>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
-
-        <form id="watchlist-form" class="inline-form">
-          <label for="asset-search">Add asset</label>
-          <input id="asset-search" name="asset" list="asset-options" placeholder="xyz:ORCL" autocomplete="off" />
-          <datalist id="asset-options"></datalist>
-          <button type="submit">Add</button>
-          <span id="catalog-count" class="hint"></span>
-        </form>
       </section>
 
       <section id="alerts-view" role="tabpanel" aria-labelledby="alerts-tab" hidden>
