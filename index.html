@@ -48,6 +48,10 @@
             <option value="below">below</option>
           </select>
           <input id="alert-target" name="target" type="number" min="0.00000001" step="any" placeholder="Target price" required />
+          <select id="alert-delivery" name="delivery" aria-label="Alert delivery">
+            <option value="email">email</option>
+            <option value="sms">text</option>
+          </select>
           <button type="submit">Create</button>
         </form>
         <p id="alert-message" class="message" role="alert"></p>

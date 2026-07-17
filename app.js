@@ -78,6 +78,7 @@ function wireEvents() {
     const market = state.markets.get(elements.alertAsset.value);
     const target = Number(document.querySelector("#alert-target").value);
     const direction = document.querySelector("#alert-direction").value;
+    const delivery = document.querySelector("#alert-delivery").value;
 
     try {
       if (market?.markPrice && direction === "above" && target <= market.markPrice) {
@@ -92,6 +93,7 @@ function wireEvents() {
           dex: market?.dexId ?? "",
           direction,
           target,
+          delivery,
         }),
         "_blank",
         "noopener,noreferrer",
@@ -193,7 +195,7 @@ async function loadAlerts() {
 
     elements.alertCount.textContent = String(alerts.length);
     elements.alertList.innerHTML = alerts.length
-      ? alerts.map(({ issue, alert }) => `<div class="alert-card"><span>${escapeHtml(alert.asset)} ${alert.direction} ${formatPrice(alert.target)}</span><a href="${issue.html_url}" target="_blank" rel="noreferrer">Manage</a></div>`).join("")
+      ? alerts.map(({ issue, alert }) => `<div class="alert-card"><span>${escapeHtml(alert.asset)} ${alert.direction} ${formatPrice(alert.target)} · ${alert.delivery === "sms" ? "text" : "email"}</span><a href="${issue.html_url}" target="_blank" rel="noreferrer">Manage</a></div>`).join("")
       : `<p class="hint">No active alerts.</p>`;
   } catch {
     elements.alertCount.textContent = "—";
