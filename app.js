@@ -1,17 +1,17 @@
-import { APP_CONFIG } from "./config.js?v=20260717-settings";
+import { APP_CONFIG } from "./config.js?v=20260717-utility";
 import {
   TRIGGERED_LABEL,
   buildNewIssueUrl,
   parseAlertIssue,
-} from "./lib/alerts.js?v=20260717-settings";
+} from "./lib/alerts.js?v=20260717-utility";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260717-settings";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260717-settings";
+} from "./lib/hyperliquid.js?v=20260717-utility";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260717-utility";
 
 const QUOTE_STALE_MS = 3_500;
 const QUOTE_RECONNECT_COOLDOWN_MS = 5_000;
@@ -83,9 +83,6 @@ async function initialize() {
 function wireEvents() {
   elements.accountButton.addEventListener("click", handleAccountAction);
   elements.settingsButton.addEventListener("click", openSettings);
-  elements.settingsDialog.addEventListener("click", (event) => {
-    if (event.target === elements.settingsDialog) elements.settingsDialog.close();
-  });
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
   });
@@ -362,10 +359,10 @@ function renderMarkets() {
     .filter(Boolean)
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
-      return `<tr><td class="asset-cell">${escapeHtml(displayAssetName(market.id))}</td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      return `<tr><td class="asset-cell"><span class="cell-value">${escapeHtml(displayAssetName(market.id))}</span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric"><span class="cell-value">${formatCompact(market.openInterest)}</span></td></tr>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th class="asset-cell">Asset</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>Mark price</th><th>24h</th><th>24h vol</th><th>Avg vol (30d)</th><th>OI</th></tr></thead><tbody>${rows}</tbody></table>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th class="asset-cell">ASSET</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>MARK</th><th>24H +/-</th><th>24H VOL</th><th>AVG VOL</th><th>OI</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPriceSignals(market) {
@@ -458,8 +455,8 @@ function setActiveView(viewName) {
 
 function setConnection(connected, detail = "") {
   elements.connectionLabel.textContent = connected
-    ? "Hyperliquid connected"
-    : `Connection error${detail ? `: ${detail}` : ""}`;
+    ? "HYPERLIQUID CONNECTED"
+    : `CONNECTION ERROR${detail ? `: ${detail}` : ""}`;
   elements.connectionLabel.className = connected ? "positive" : "negative";
 }
 
