@@ -3,187 +3,63 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta
-      name="description"
-      content="Track Hyperliquid markets and create one-time mark price email alerts."
-    />
-    <meta name="theme-color" content="#090b10" />
-    <title>Hyperdata — Hyperliquid market intelligence</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <meta name="description" content="Personal Hyperliquid price monitor and alert utility." />
+    <meta name="theme-color" content="#ffffff" />
+    <title>Hyperdata</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="noise" aria-hidden="true"></div>
-    <header class="topbar">
-      <a class="brand" href="./" aria-label="Hyperdata home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span>HYPERDATA</span>
-      </a>
-      <div class="market-status">
-        <span class="pulse"></span>
-        <span id="connection-label">Connecting to Hyperliquid</span>
-      </div>
-      <a class="github-link" id="github-link" href="#" target="_blank" rel="noreferrer">
-        View source <span aria-hidden="true">↗</span>
-      </a>
-    </header>
-
     <main>
-      <section class="hero">
-        <div>
-          <p class="eyebrow">MARKET INTELLIGENCE / HIP-3</p>
-          <h1>Know the move<br /><em>before it moves you.</em></h1>
+      <header>
+        <h1>Hyperdata</h1>
+        <p><span id="connection-label">Loading market data</span> · updated <time id="last-sync">—</time></p>
+      </header>
+
+      <section aria-labelledby="watchlist-heading">
+        <div class="section-header">
+          <h2 id="watchlist-heading">Watchlist</h2>
+          <button id="refresh-button" type="button">Refresh</button>
         </div>
-        <div class="hero-copy">
-          <p>
-            Live mark prices, market context, and persistent email alerts for
-            Hyperliquid assets—including tokenized stocks.
-          </p>
-          <p class="timestamp">LAST SYNC <span id="last-sync">—</span></p>
-        </div>
+
+        <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
+
+        <form id="watchlist-form" class="inline-form">
+          <label for="asset-search">Add asset</label>
+          <input id="asset-search" name="asset" list="asset-options" placeholder="xyz:ORCL" autocomplete="off" />
+          <datalist id="asset-options"></datalist>
+          <button type="submit">Add</button>
+          <span id="catalog-count" class="hint"></span>
+        </form>
       </section>
 
-      <section class="ticker-strip" aria-label="Watchlist summary">
-        <div id="ticker-track" class="ticker-track">
-          <div class="ticker-skeleton"></div>
-          <div class="ticker-skeleton"></div>
-          <div class="ticker-skeleton"></div>
+      <section aria-labelledby="alerts-heading">
+        <div class="section-header">
+          <h2 id="alerts-heading">Alerts</h2>
+          <span class="hint">checked every 5 min</span>
         </div>
+
+        <form id="alert-form" class="inline-form">
+          <label for="alert-asset">Create alert</label>
+          <select id="alert-asset" name="asset" required>
+            <option value="">Choose asset</option>
+          </select>
+          <select id="alert-direction" name="direction" aria-label="Alert direction">
+            <option value="above">above</option>
+            <option value="below">below</option>
+          </select>
+          <input id="alert-target" name="target" type="number" min="0.00000001" step="any" placeholder="Target price" required />
+          <button type="submit">Create</button>
+        </form>
+        <p id="alert-message" class="message" role="alert"></p>
+        <p class="hint">Create opens a prefilled GitHub issue. Submit it to activate; close it to cancel.</p>
+
+        <div class="section-header active-header">
+          <h3>Active</h3>
+          <span id="alert-count" class="hint">—</span>
+        </div>
+        <div id="alert-list" class="alert-list"><p class="hint">Loading…</p></div>
       </section>
-
-      <div class="dashboard-grid">
-        <section class="panel markets-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-number">01 / WATCHLIST</p>
-              <h2>Markets</h2>
-            </div>
-            <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh prices">
-              ↻
-            </button>
-          </div>
-
-          <div id="market-list" class="market-list" aria-live="polite">
-            <div class="loading-row"><span></span><span></span><span></span></div>
-            <div class="loading-row"><span></span><span></span><span></span></div>
-          </div>
-
-          <form id="watchlist-form" class="watchlist-form">
-            <label for="asset-search">Add a market</label>
-            <div class="input-action">
-              <input
-                id="asset-search"
-                name="asset"
-                list="asset-options"
-                placeholder="Search ORCL, XYZ100, BTC…"
-                autocomplete="off"
-              />
-              <datalist id="asset-options"></datalist>
-              <button type="submit">Add</button>
-            </div>
-            <p class="field-note" id="catalog-count">Loading the market catalog…</p>
-          </form>
-        </section>
-
-        <section class="panel detail-panel" id="detail-panel">
-          <div class="detail-empty" id="detail-empty">
-            <p class="section-number">02 / MARKET DETAIL</p>
-            <p>Select a market to inspect its live context.</p>
-          </div>
-          <div class="detail-content hidden" id="detail-content">
-            <div class="asset-title-row">
-              <div>
-                <p class="section-number">02 / MARKET DETAIL</p>
-                <p class="asset-dex" id="detail-dex">—</p>
-                <h2 id="detail-symbol">—</h2>
-              </div>
-              <div class="price-block">
-                <strong id="detail-price">—</strong>
-                <span id="detail-change">—</span>
-              </div>
-            </div>
-
-            <div class="chart-wrap">
-              <canvas id="price-chart" width="760" height="220" aria-label="Recent observed mark prices"></canvas>
-              <p>LIVE SESSION / 30 SEC SAMPLES</p>
-            </div>
-
-            <dl class="metric-grid">
-              <div><dt>24H VOLUME</dt><dd id="detail-volume">—</dd></div>
-              <div><dt>OPEN INTEREST</dt><dd id="detail-oi">—</dd></div>
-              <div><dt>FUNDING / HR</dt><dd id="detail-funding">—</dd></div>
-              <div><dt>MAX LEVERAGE</dt><dd id="detail-leverage">—</dd></div>
-            </dl>
-          </div>
-        </section>
-
-        <section class="panel alerts-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-number">03 / AUTOMATION</p>
-              <h2>Price alerts</h2>
-            </div>
-            <span class="schedule-badge">5 MIN CHECKS</span>
-          </div>
-
-          <form id="alert-form" class="alert-form">
-            <label for="alert-asset">When</label>
-            <select id="alert-asset" name="asset" required>
-              <option value="">Choose an asset</option>
-            </select>
-
-            <div class="alert-condition">
-              <select id="alert-direction" name="direction" aria-label="Alert direction">
-                <option value="above">moves above</option>
-                <option value="below">moves below</option>
-              </select>
-              <div class="money-input">
-                <span>$</span>
-                <input
-                  id="alert-target"
-                  name="target"
-                  type="number"
-                  min="0.00000001"
-                  step="any"
-                  placeholder="Target price"
-                  required
-                />
-              </div>
-            </div>
-
-            <button class="primary-button" type="submit">
-              Create alert on GitHub <span aria-hidden="true">↗</span>
-            </button>
-            <p class="field-note">
-              GitHub opens to confirm the alert. Submit the prefilled issue to activate it;
-              closing the issue cancels it.
-            </p>
-            <p class="form-message" id="alert-message" role="alert"></p>
-          </form>
-
-          <div class="active-alerts">
-            <div class="subheading">
-              <h3>Active alerts</h3>
-              <span id="alert-count">—</span>
-            </div>
-            <div id="alert-list" class="alert-list">
-              <p class="muted">Checking GitHub…</p>
-            </div>
-          </div>
-        </section>
-      </div>
     </main>
-
-    <footer>
-      <p>Built on public Hyperliquid market data.</p>
-      <p>Alerts are one-time notifications, not financial advice.</p>
-    </footer>
-
     <script type="module" src="./app.js"></script>
   </body>
 </html>
