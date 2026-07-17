@@ -1,0 +1,82 @@
+HYPERDATA DOT MODEL — BRAINSTORM FOR LATER
+
+Current model
+
+The dots are best described as volatility-normalized endpoint returns, not as
+realized volatility divided by expected volatility.
+
+For a lookback horizon h:
+
+  realized move = abs((current mark - reference price) / reference price) * 100
+
+  expected move = max(
+    median absolute 5-minute return * sqrt(h / 5 minutes),
+    0.05 * sqrt(h / 1 hour)
+  )
+
+  score = realized move / expected move
+
+  score < 1.5       -> light
+  1.5 <= score < 3  -> medium
+  score >= 3        -> strong
+
+The signed endpoint return determines direction: green when the current mark is
+above the reference and red when it is below. The score controls only the shade
+intensity.
+
+What is theoretically sound
+
+- Traders commonly use volatility-normalized returns, expected-move bands,
+  z-scores, and square-root-of-time volatility scaling.
+- Comparing an observed move with a volatility-derived expected move is a
+  reasonable way to make different assets and horizons visually comparable.
+- Median absolute returns are robust to isolated outliers.
+
+Current limitations
+
+- This is one endpoint-to-endpoint return, not realized volatility. Conventional
+  realized variance sums squared high-frequency log returns across the complete
+  interval; realized volatility is the square root of that sum.
+- Median absolute five-minute return is a robust volatility proxy, not a
+  standard-deviation estimate. Under normally distributed zero-mean returns,
+  median(abs(return)) is about 0.6745 times sigma. The current model does not
+  apply that calibration, so its score is not a true z-score.
+- Square-root-of-time scaling assumes approximately independent returns and
+  constant variance. Real markets have volatility clustering, jumps,
+  autocorrelation, changing regimes, and intraday/overnight seasonality.
+- The baseline is primarily derived from roughly the latest 24 hours of
+  five-minute observations and is scaled as far as one week. A short recent
+  regime may be a poor forecast for a long horizon.
+- The current value is a live mark price while historical references come from
+  candle closes, so the comparison is not guaranteed to be mark-to-mark.
+- The 1.5 and 3 thresholds are intuitive visual cutoffs, not calibrated event
+  probabilities. A strong dot does not mean a statistically valid three-sigma
+  event.
+- Dots across adjacent horizons overlap heavily and are therefore correlated;
+  they should not be interpreted as independent signals.
+
+Possible rigorous replacement
+
+1. Persist a timestamped mark-price history and use mark prices for both the
+   current and historical sides of every comparison.
+2. Use log returns.
+3. Estimate volatility with either:
+   - realized variance from summed squared intraperiod log returns;
+   - a calibrated robust estimator such as MAD divided by 0.6745; or
+   - an EWMA, HAR-RV, or GARCH-style forecast when forecasting matters.
+4. Account for volatility regimes, time-of-day effects, market closures, and
+   overnight behavior rather than relying only on square-root-of-time scaling.
+5. Estimate a separate empirical distribution for every asset and horizon.
+6. Assign colors using historical percentiles, so the rubric has a concrete
+   interpretation such as ordinary, unusual, and extreme for that exact asset
+   and horizon.
+7. Backtest stability, false-extreme frequency, and behavior during jumps before
+   treating the dots as more than a visual monitoring aid.
+
+Suggested future definition
+
+  Each dot shows where the asset's current mark-to-mark return ranks within the
+  historical distribution of returns for that same asset and lookback horizon.
+
+This would be easier to interpret and more empirically defensible than treating
+the current heuristic score as a calibrated probability or standard deviation.
