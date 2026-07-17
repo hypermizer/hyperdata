@@ -6,6 +6,7 @@
     <meta name="description" content="Personal Hyperliquid price monitor and alert utility." />
     <meta name="theme-color" content="#ffffff" />
     <title>Hyperdata</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -13,9 +14,13 @@
       <header>
         <h1>Hyperdata</h1>
         <p><span id="connection-label">Loading market data</span> · updated <time id="last-sync">—</time></p>
+        <div class="tabs" role="tablist" aria-label="Hyperdata views">
+          <button id="watchlist-tab" type="button" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</button>
+          <button id="alerts-tab" type="button" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</button>
+        </div>
       </header>
 
-      <section aria-labelledby="watchlist-heading">
+      <section id="watchlist-view" role="tabpanel" aria-labelledby="watchlist-tab">
         <div class="section-header">
           <h2 id="watchlist-heading">Watchlist</h2>
           <button id="refresh-button" type="button">Refresh</button>
@@ -32,7 +37,7 @@
         </form>
       </section>
 
-      <section aria-labelledby="alerts-heading">
+      <section id="alerts-view" role="tabpanel" aria-labelledby="alerts-tab" hidden>
         <div class="section-header">
           <h2 id="alerts-heading">Alerts</h2>
           <span class="hint">checked every 5 min</span>
