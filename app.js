@@ -1,17 +1,20 @@
-import { APP_CONFIG } from "./config.js?v=20260717-assetfix";
+import { APP_CONFIG } from "./config.js?v=20260717-realtime";
 import {
   TRIGGERED_LABEL,
   buildNewIssueUrl,
   parseAlertIssue,
-} from "./lib/alerts.js?v=20260717-assetfix";
+} from "./lib/alerts.js?v=20260717-realtime";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260717-assetfix";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260717-assetfix";
+} from "./lib/hyperliquid.js?v=20260717-realtime";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260717-realtime";
+
+const QUOTE_STALE_MS = 3_500;
+const QUOTE_RECONNECT_COOLDOWN_MS = 5_000;
 
 const state = {
   accountMessage: "",
@@ -19,8 +22,10 @@ const state = {
   catalog: [],
   markets: new Map(),
   priceHistories: new Map(),
+  quoteUpdatedAt: new Map(),
   supabase: createWatchlistClient(APP_CONFIG),
   stream: null,
+  streamConnectedAt: 0,
   reconnectTimer: null,
   signingIn: false,
   user: null,
@@ -115,6 +120,8 @@ function wireEvents() {
   setInterval(refreshAverageVolumes, APP_CONFIG.averageVolumeRefreshIntervalMs);
   setInterval(refreshPriceHistories, APP_CONFIG.priceHistoryRefreshIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
+  setInterval(checkQuoteHealth, 1_000);
+  setInterval(sendStreamHeartbeat, 30_000);
 }
 
 async function initializeWatchlistStorage() {
@@ -237,6 +244,7 @@ async function addToWatchlist(event) {
   ensureValidWatchlist();
   await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
   render();
+  connectMarketStream();
 }
 
 async function removeFromWatchlist(asset) {
@@ -255,6 +263,7 @@ async function removeFromWatchlist(asset) {
   state.priceHistories.delete(asset);
   ensureValidWatchlist();
   render();
+  connectMarketStream();
 }
 
 async function refreshAverageVolumes(assetIds = state.watchlist) {
@@ -423,6 +432,7 @@ function formatAuthError(error) {
 function connectMarketStream() {
   window.clearTimeout(state.reconnectTimer);
   state.stream?.close();
+  state.streamConnectedAt = Date.now();
   const stream = new WebSocket(APP_CONFIG.websocketUrl);
   state.stream = stream;
 
@@ -442,6 +452,7 @@ function connectMarketStream() {
     const market = state.markets.get(message.data.coin);
     if (!market) return;
     state.markets.set(message.data.coin, applyLiveMarketContext(market, message.data.ctx));
+    state.quoteUpdatedAt.set(message.data.coin, Date.now());
     updateLastSync();
     renderMarkets();
     renderAlertOptions();
@@ -454,6 +465,26 @@ function connectMarketStream() {
   });
 
   stream.addEventListener("error", () => stream.close());
+}
+
+function checkQuoteHealth() {
+  if (!state.watchlist.length) return;
+  const now = Date.now();
+  const staleAssets = state.watchlist.filter((asset) => {
+    const updatedAt = state.quoteUpdatedAt.get(asset);
+    return !updatedAt || now - updatedAt > QUOTE_STALE_MS;
+  });
+  if (!staleAssets.length) return;
+
+  setConnection(false, `stale quote: ${staleAssets.join(", ")}`);
+  if (now - state.streamConnectedAt >= QUOTE_RECONNECT_COOLDOWN_MS) {
+    connectMarketStream();
+  }
+}
+
+function sendStreamHeartbeat() {
+  if (state.stream?.readyState !== WebSocket.OPEN) return;
+  state.stream.send(JSON.stringify({ method: "ping" }));
 }
 
 function formatPrice(value) {

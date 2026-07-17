@@ -31,7 +31,17 @@ header p { margin-top: 6px; }
 
 .tab-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 .tabs { display: flex; gap: 6px; }
-.tabs button { min-height: 30px; padding: 3px 8px; background: transparent; border-color: #eceff1; color: #eceff1; }
+.tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  border-color: #eceff1;
+  color: #eceff1;
+  font-size: 12px;
+}
 .tabs button[aria-selected="true"] { background: #2c8881; color: #101214; border-color: transparent; }
 
 section { padding: 20px 0; }
@@ -90,6 +100,11 @@ input, select { min-width: 0; }
 .market-table th:first-child, .market-table td:first-child { width: 100%; }
 .market-table th:not(:first-child), .market-table td:not(:first-child) { width: 1%; }
 .market-table th:last-child, .market-table td:last-child { padding-right: 0; }
+.market-table th:not(:first-child):not(.signal-cell),
+.market-table td:not(:first-child):not(.signal-cell) {
+  padding-left: 8px;
+  border-left: 1px solid rgb(236 239 241 / 0.06);
+}
 .metric { font-variant-numeric: tabular-nums; text-align: left; white-space: nowrap; }
 .signal-cell { padding: 0 !important; }
 .signal-grid { display: grid; grid-template-columns: repeat(7, 44px); width: 308px; }
