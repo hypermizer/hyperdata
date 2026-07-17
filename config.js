@@ -5,6 +5,6 @@ export const APP_CONFIG = {
   averageVolumeRefreshIntervalMs: 300_000,
   alertsRefreshIntervalMs: 300_000,
   allowedEmail: "jasonblick@zohomail.com",
-  supabaseUrl: "",
-  supabasePublishableKey: "",
+  supabaseUrl: "https://itheknkmuutquriojdzt.supabase.co",
+  supabasePublishableKey: "sb_publishable_M28yZeembNrLCMR2B1mICQ_W3Hg4mGd",
 };
