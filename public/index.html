@@ -23,9 +23,21 @@
       <section id="watchlist-view" role="tabpanel" aria-labelledby="watchlist-tab">
         <div class="section-header">
           <h2 id="watchlist-heading">Watchlist</h2>
+          <div class="account-actions">
+            <span id="account-status" class="hint">Storage not configured</span>
+            <button id="account-button" type="button">Sign in</button>
+          </div>
         </div>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
+
+        <form id="watchlist-form" class="inline-form">
+          <label for="asset-search">Add asset</label>
+          <input id="asset-search" name="asset" list="asset-options" placeholder="xyz:ORCL" autocomplete="off" disabled />
+          <datalist id="asset-options"></datalist>
+          <button id="add-asset-button" type="submit" disabled>Add</button>
+        </form>
+        <p id="watchlist-message" class="message" role="status"></p>
       </section>
 
       <section id="alerts-view" role="tabpanel" aria-labelledby="alerts-tab" hidden>
