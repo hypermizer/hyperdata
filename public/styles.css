@@ -11,7 +11,7 @@
 body { margin: 0; background: #101214; }
 
 main {
-  max-width: 1200px;
+  max-width: 1170px;
   margin: 0 auto;
   padding: 24px 16px 48px;
 }
@@ -119,8 +119,6 @@ input, select { min-width: 0; }
   border-left: 1px solid rgb(236 239 241 / 0.06);
 }
 .metric { font-variant-numeric: tabular-nums; text-align: left; white-space: nowrap; }
-.market-table td.asset-cell .cell-value { display: inline-block; transform: translateX(12px); }
-.market-table td:last-child .cell-value { display: inline-block; transform: translateX(-12px); }
 .signal-cell { padding: 0 !important; }
 .signal-grid { display: grid; grid-template-columns: repeat(7, 44px); width: 308px; }
 .signal-slot {
@@ -207,6 +205,9 @@ input, select { min-width: 0; }
 .dot-rubric h3 { margin-bottom: 10px; }
 .rubric-row { display: flex; align-items: center; gap: 10px; min-height: 28px; color: #a8afb7; font-size: 13px; }
 .rubric-dots { display: flex; width: 62px; align-items: center; gap: 6px; }
+.rubric-math { margin-top: 12px; color: #a8afb7; font-size: 12px; line-height: 1.45; }
+.rubric-math p + p { margin-top: 5px; }
+.rubric-math code { color: #eceff1; font: inherit; }
 
 @media (max-width: 600px) {
   main { padding-top: 16px; }
