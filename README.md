@@ -1,6 +1,6 @@
 # Hyperdata
 
-Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time email alerts for assets such as `xyz:ORCL` and `xyz:XYZ100`.
+Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time email or text alerts for assets such as `xyz:ORCL` and `xyz:XYZ100`.
 
 ## How it works
 
@@ -8,12 +8,14 @@ Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time
 - It reads public market contexts directly from Hyperliquid's `metaAndAssetCtxs` API.
 - Your watchlist is stored only in your browser's local storage.
 - Creating an alert opens a prefilled GitHub issue. Submitting that issue activates the alert; closing it cancels the alert.
-- A scheduled GitHub Action checks open alert issues every five minutes. Once a target is met, it sends one email, comments on the issue, and closes it.
+- A scheduled GitHub Action checks open alert issues every five minutes. Once a target is met, it sends one email or text, comments on the issue, and closes it.
 - Only alerts opened by the repository owner, a member, or a collaborator are processed, preventing public issue spam from sending email.
 
 ## One-time setup
 
-The site deploys automatically after the repository is pushed to GitHub. Email delivery needs three repository secrets:
+The site deploys automatically after the repository is pushed to GitHub. Configure only the delivery methods you use.
+
+### Email (Zoho)
 
 1. In Zoho Mail, enable two-factor authentication and create an application-specific password.
 2. In the GitHub repository, open **Settings → Secrets and variables → Actions**.
@@ -26,6 +28,20 @@ The site deploys automatically after the repository is pushed to GitHub. Email d
    | `SMTP_PASSWORD` | The Zoho application-specific password |
 
 The workflow defaults to `smtp.zoho.com` on port `465`. Accounts hosted in another Zoho data center can change `SMTP_HOST` in [`.github/workflows/monitor-alerts.yml`](.github/workflows/monitor-alerts.yml).
+
+### Text messages (Twilio)
+
+1. Create a Twilio account and get an SMS-capable sender number. Complete any registration Twilio requires for your country and sender type.
+2. In **Settings → Secrets and variables → Actions**, add these repository secrets:
+
+   | Secret | Value |
+   | --- | --- |
+   | `TWILIO_ACCOUNT_SID` | Twilio Account SID |
+   | `TWILIO_AUTH_TOKEN` | Twilio Auth Token |
+   | `TWILIO_FROM` | Your Twilio sender number in E.164 format, e.g. `+15555550100` |
+   | `ALERT_SMS_TO` | Your receiving phone number in E.164 format |
+
+The phone number stays in a GitHub secret; it is never placed in the public alert issue or browser code. Twilio charges for SMS; GitHub hosting and Actions are still free within their applicable allowances.
 
 After adding the secrets, run **Actions → Monitor price alerts → Run workflow** once. A run with no active alerts should finish successfully.
 
@@ -41,11 +57,11 @@ Then open the local URL printed by `serve`.
 
 ## Alert lifecycle
 
-1. Choose a watched asset, direction, and target on the dashboard.
+1. Choose a watched asset, direction, target, and delivery method on the dashboard.
 2. Click **Create alert on GitHub**.
 3. Review and submit the prefilled issue. Do not edit the hidden `hyperdata-alert` block.
 4. The scheduled monitor evaluates the asset's mark price. GitHub schedules can occasionally be delayed.
-5. When the condition is met, Hyperdata emails the configured recipient and closes the issue.
+5. When the condition is met, Hyperdata delivers the selected email or text alert and closes the issue.
 
 Alerts are one-time notifications. They are not guaranteed execution signals and should not be used as a substitute for exchange-native risk controls.
 
@@ -60,4 +76,4 @@ GitHub automatically disables scheduled workflows in public repositories after 6
 
 ## Notes
 
-Active alert conditions are public GitHub issues. SMTP credentials are GitHub Actions secrets and never ship to the browser.
+Active alert conditions are public GitHub issues. Email, Twilio, and phone credentials are GitHub Actions secrets and never ship to the browser.

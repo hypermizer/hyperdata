@@ -72,6 +72,52 @@ test("triggered alert sends email, records the event, and closes the issue", asy
   assert.equal(calls.filter((call) => call.options.method === "POST").length, 2);
 });
 
+test("triggered SMS alert sends a text through Twilio and closes the issue", async () => {
+  const issueBody = createAlertIssue({
+    asset: "xyz:ORCL",
+    dex: "xyz",
+    direction: "above",
+    target: 200,
+    delivery: "sms",
+  }).body;
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.includes("api.hyperliquid.xyz")) {
+      return jsonResponse([
+        { universe: [{ name: "xyz:ORCL", maxLeverage: 10 }] },
+        [{ markPx: "205", prevDayPx: "190" }],
+      ]);
+    }
+    if (url.endsWith("issues?state=open&labels=price-alert&per_page=100")) {
+      return jsonResponse([{ number: 9, body: issueBody, html_url: "https://github.com/owner/repo/issues/9", author_association: "OWNER", labels: [{ name: "price-alert" }] }]);
+    }
+    if (url.includes("api.twilio.com")) return jsonResponse({ sid: "SM123" }, 201);
+    return jsonResponse({ ok: true });
+  };
+  const result = await checkAlerts({
+    env: {
+      GITHUB_TOKEN: "token",
+      GITHUB_REPOSITORY: "owner/repo",
+      TWILIO_ACCOUNT_SID: "AC123",
+      TWILIO_AUTH_TOKEN: "secret",
+      TWILIO_FROM: "+15555550100",
+      ALERT_SMS_TO: "+15555550101",
+    },
+    fetchImpl,
+    logger: { log() {} },
+  });
+
+  assert.deepEqual(result, { checked: 1, triggered: 1 });
+  const smsCall = calls.find((call) => call.url.includes("api.twilio.com"));
+  assert.equal(smsCall.options.method, "POST");
+  assert.match(smsCall.options.headers.Authorization, /^Basic /);
+  const body = new URLSearchParams(smsCall.options.body);
+  assert.equal(body.get("To"), "+15555550101");
+  assert.equal(body.get("From"), "+15555550100");
+  assert.match(body.get("Body"), /ORCL/);
+});
+
 test("an alert below its target remains open", async () => {
   const issueBody = createAlertIssue({ asset: "xyz:ORCL", dex: "xyz", direction: "below", target: 100 }).body;
   const fetchImpl = async (url) => {

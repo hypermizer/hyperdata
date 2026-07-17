@@ -24,6 +24,10 @@ jobs:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       SMTP_HOST: smtp.zoho.com
       SMTP_PORT: "465"
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+      ALERT_SMS_TO: ${{ secrets.ALERT_SMS_TO }}
     steps:
       - uses: actions/checkout@v7
 

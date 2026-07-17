@@ -13,11 +13,13 @@ export async function checkAlerts({
   env = process.env,
   fetchImpl = fetch,
   mailer = null,
+  smsSender = null,
   logger = console,
 } = {}) {
   const config = readConfig(env);
   const github = createGitHubClient(config, fetchImpl);
   let transport = mailer;
+  let textSender = smsSender;
   const issues = await github.listAlertIssues();
   const eligibleIssues = issues.filter(isEligibleIssue);
 
@@ -42,9 +44,15 @@ export async function checkAlerts({
     await github.setLabels(issue.number, [...new Set([...originalLabels, TRIGGERED_LABEL])]);
 
     try {
-      requireEmailConfig(config);
-      transport ??= createMailer(config);
-      await sendAlertEmail(transport, config, issue, alert, market.markPrice);
+      if (alert.delivery === "sms") {
+        requireSmsConfig(config);
+        textSender ??= createSmsSender(config, fetchImpl);
+        await sendAlertSms(textSender, config, issue, alert, market.markPrice);
+      } else {
+        requireEmailConfig(config);
+        transport ??= createMailer(config);
+        await sendAlertEmail(transport, config, issue, alert, market.markPrice);
+      }
     } catch (error) {
       await github.setLabels(issue.number, originalLabels);
       throw error;
@@ -52,7 +60,7 @@ export async function checkAlerts({
 
     await github.comment(
       issue.number,
-      `✅ Email sent to the configured recipient. **${alert.asset}** mark price was **${formatUsd(market.markPrice)}** at ${new Date().toISOString()}.`,
+      `✅ ${alert.delivery === "sms" ? "Text message" : "Email"} sent to the configured recipient. **${alert.asset}** mark price was **${formatUsd(market.markPrice)}** at ${new Date().toISOString()}.`,
     );
     await github.close(issue.number);
     triggered += 1;
@@ -98,6 +106,10 @@ function readConfig(env) {
     smtpPort: Number(env.SMTP_PORT || 465),
     smtpUsername: env.SMTP_USERNAME,
     smtpPassword: env.SMTP_PASSWORD,
+    twilioAccountSid: env.TWILIO_ACCOUNT_SID,
+    twilioAuthToken: env.TWILIO_AUTH_TOKEN,
+    twilioFrom: env.TWILIO_FROM,
+    alertSmsTo: env.ALERT_SMS_TO,
   };
 }
 
@@ -124,6 +136,21 @@ function createMailer(config) {
   });
 }
 
+function requireSmsConfig(config) {
+  const missing = [
+    ["TWILIO_ACCOUNT_SID", config.twilioAccountSid],
+    ["TWILIO_AUTH_TOKEN", config.twilioAuthToken],
+    ["TWILIO_FROM", config.twilioFrom],
+    ["ALERT_SMS_TO", config.alertSmsTo],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length) {
+    throw new Error(`Cannot deliver a triggered text alert; missing: ${missing.join(", ")}`);
+  }
+}
+
 async function sendAlertEmail(transport, config, issue, alert, markPrice) {
   const symbol = alert.asset.split(":").at(-1);
   const subject = `Hyperdata alert: ${symbol} is ${alert.direction} ${formatUsd(alert.target)}`;
@@ -146,6 +173,40 @@ async function sendAlertEmail(transport, config, issue, alert, markPrice) {
     text,
     html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:32px;color:#171a20"><p style="font-size:12px;letter-spacing:.12em;color:#637080">HYPERDATA PRICE ALERT</p><h1 style="font-size:26px">${escapeHtml(alert.asset)} reached your target.</h1><p style="font-size:42px;font-weight:700;margin:24px 0">${formatUsd(markPrice)}</p><p>Condition: <strong>${escapeHtml(alert.direction)} ${formatUsd(alert.target)}</strong></p><p style="margin-top:28px"><a href="${issue.html_url}">View alert on GitHub</a></p><p style="margin-top:34px;color:#637080;font-size:12px">This was a one-time alert. Hyperdata is not financial advice.</p></div>`,
   });
+}
+
+function createSmsSender(config, fetchImpl) {
+  const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(config.twilioAccountSid)}/Messages.json`;
+  const authorization = Buffer
+    .from(`${config.twilioAccountSid}:${config.twilioAuthToken}`)
+    .toString("base64");
+
+  return async (message) => {
+    const response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${authorization}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        To: message.to,
+        From: message.from,
+        Body: message.body,
+      }).toString(),
+    });
+    if (!response.ok) throw new Error(`Twilio SMS API returned ${response.status}`);
+  };
+}
+
+async function sendAlertSms(smsSender, config, issue, alert, markPrice) {
+  const symbol = alert.asset.split(":").at(-1);
+  const body = [
+    `Hyperdata: ${symbol} ${alert.direction} ${formatUsd(alert.target)}.`,
+    `Mark: ${formatUsd(markPrice)}.`,
+    issue.html_url,
+  ].join(" ");
+
+  await smsSender({ from: config.twilioFrom, to: config.alertSmsTo, body });
 }
 
 function createGitHubClient(config, fetchImpl) {
