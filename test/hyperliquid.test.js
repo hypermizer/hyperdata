@@ -168,6 +168,7 @@ test("buildPriceChangeSignals returns ordered changes across all seven intervals
 
   assert.deepEqual(signals.map(({ label }) => label), ["1w", "1d", "6h", "1h", "30m", "10m", "5m"]);
   assert.deepEqual(signals.map(({ direction }) => direction), ["up", "up", "up", "up", "up", "up", "up"]);
+  assert.deepEqual(signals.map(({ referencePrice }) => referencePrice), [90, 100, 110, 115, 116, 118, 119]);
   assert.ok(Math.abs(signals[0].changePercent - (120 / 90 - 1) * 100) < 0.000001);
   assert.ok(Math.abs(signals[3].changePercent - (120 / 115 - 1) * 100) < 0.000001);
   assert.ok(signals.every(({ intensity }) => ["light", "medium", "strong"].includes(intensity)));
