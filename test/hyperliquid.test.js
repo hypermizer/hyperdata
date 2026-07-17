@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  applyLiveMarketContext,
   fetchAverageDailyVolume,
   fetchDexNames,
   fetchMarketsForDex,
@@ -61,6 +62,32 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
     maxLeverage: 10,
     isDelisted: false,
   });
+});
+
+test("applyLiveMarketContext replaces a market's live stats from the WebSocket feed", () => {
+  const updated = applyLiveMarketContext(
+    {
+      id: "xyz:ORCL",
+      markPrice: 125,
+      previousPrice: 120,
+      changePercent: 4.17,
+      volume24h: 1000,
+      openInterest: 10,
+    },
+    {
+      markPx: "126.88",
+      prevDayPx: "126.01",
+      dayNtlVlm: "14367445.938",
+      openInterest: "225972.12",
+    },
+  );
+
+  assert.equal(updated.id, "xyz:ORCL");
+  assert.equal(updated.markPrice, 126.88);
+  assert.equal(updated.previousPrice, 126.01);
+  assert.ok(Math.abs(updated.changePercent - 0.6904213951273654) < 0.000001);
+  assert.equal(updated.volume24h, 14367445.938);
+  assert.equal(updated.openInterest, 225972.12);
 });
 
 test("fetchAverageDailyVolume estimates trailing daily notional volume from candles", async () => {
