@@ -27,7 +27,8 @@ h3 { font-size: 14px; font-weight: 600; }
 header p, .hint { color: #666; font-size: 13px; }
 header p { margin-top: 6px; }
 
-.tabs { display: flex; gap: 6px; margin-top: 16px; }
+.tab-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.tabs { display: flex; gap: 6px; }
 .tabs button { min-height: 30px; padding: 3px 8px; }
 .tabs button[aria-selected="true"] { background: #111; color: #fff; border-color: #111; }
 
@@ -40,7 +41,7 @@ section { padding: 20px 0; }
   justify-content: space-between;
   margin-bottom: 12px;
 }
-.account-actions { display: flex; align-items: center; gap: 8px; }
+.account-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 .active-header { margin-top: 20px; margin-bottom: 8px; justify-content: flex-start; }
 
@@ -75,16 +76,25 @@ input, select { min-width: 0; }
 .market-list { overflow-x: auto; border-top: 1px solid #d8d8d8; }
 .market-row {
   display: grid;
-  grid-template-columns: minmax(130px, 1fr) 100px 72px 92px 108px 76px 28px;
+  grid-template-columns: minmax(130px, 1fr) 164px 72px 92px 108px 76px 28px;
   align-items: center;
   gap: 12px;
-  min-width: 700px;
+  min-width: 764px;
   min-height: 44px;
   border-bottom: 1px solid #e6e6e6;
   font-size: 14px;
 }
 .market-row.header { color: #666; font-size: 12px; }
-.metric { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.metric { font-variant-numeric: tabular-nums; text-align: left; white-space: nowrap; }
+.price-cell { display: inline-flex; align-items: center; gap: 8px; }
+.price-dots { display: inline-flex; align-items: center; gap: 3px; }
+.change-dot { width: 6px; height: 6px; border-radius: 50%; background: #c8c8c8; }
+.change-dot.up.light { background: #a8d5b5; }
+.change-dot.up.medium { background: #55a36b; }
+.change-dot.up.strong { background: #137333; }
+.change-dot.down.light { background: #f1b9b5; }
+.change-dot.down.medium { background: #d46a63; }
+.change-dot.down.strong { background: #b3261e; }
 .remove-button {
   width: 28px;
   min-height: 28px;
@@ -109,6 +119,8 @@ input, select { min-width: 0; }
 
 @media (max-width: 600px) {
   main { padding-top: 16px; }
+  .tab-bar { flex-wrap: wrap; }
+  .account-actions { margin-left: 0; }
   .inline-form { align-items: stretch; }
   .inline-form label { width: 100%; }
   .inline-form input, .inline-form select, .inline-form #alert-target { width: calc(50% - 4px); }

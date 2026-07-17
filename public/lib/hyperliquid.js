@@ -1,5 +1,14 @@
 export const INFO_ENDPOINT = "https://api.hyperliquid.xyz/info";
 
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const PRICE_CHANGE_WINDOWS = [
+  { label: "24h", milliseconds: 24 * 60 * 60 * 1000 },
+  { label: "6h", milliseconds: 6 * 60 * 60 * 1000 },
+  { label: "1h", milliseconds: 60 * 60 * 1000 },
+  { label: "15m", milliseconds: 15 * 60 * 1000 },
+  { label: "5m", milliseconds: FIVE_MINUTES_MS },
+];
+
 export async function postInfo(payload, fetchImpl = fetch) {
   const response = await fetchImpl(INFO_ENDPOINT, {
     method: "POST",
@@ -107,6 +116,73 @@ export async function fetchAverageDailyVolume(asset, fetchImpl = fetch, now = Da
 
   if (!dailyVolumes.length) return null;
   return dailyVolumes.reduce((total, volume) => total + volume, 0) / dailyVolumes.length;
+}
+
+export async function fetchPriceHistory(asset, fetchImpl = fetch, now = Date.now()) {
+  const endTime = Number(now);
+  const startTime = endTime - PRICE_CHANGE_WINDOWS[0].milliseconds - FIVE_MINUTES_MS;
+  const candles = await postInfo({
+    type: "candleSnapshot",
+    req: { coin: asset, interval: "5m", startTime, endTime },
+  }, fetchImpl);
+
+  return candles
+    .map((candle) => ({ time: toNumber(candle.T ?? candle.t), price: toNumber(candle.c) }))
+    .filter(({ time, price }) => time !== null && price !== null)
+    .sort((left, right) => left.time - right.time);
+}
+
+export function buildPriceChangeSignals(markPrice, points, now = Date.now()) {
+  if (!Number.isFinite(markPrice) || markPrice <= 0) {
+    return PRICE_CHANGE_WINDOWS.map(({ label }) => ({
+      label,
+      direction: "neutral",
+      intensity: "light",
+      changePercent: null,
+    }));
+  }
+
+  const volatility = estimateFiveMinuteVolatility(points);
+  return PRICE_CHANGE_WINDOWS.map(({ label, milliseconds }) => {
+    const previous = latestPointAtOrBefore(points, Number(now) - milliseconds);
+    if (!previous) {
+      return { label, direction: "neutral", intensity: "light", changePercent: null };
+    }
+
+    const changePercent = ((markPrice - previous.price) / previous.price) * 100;
+    const normalizedMove = Math.abs(changePercent) / Math.max(
+      volatility * Math.sqrt(milliseconds / FIVE_MINUTES_MS),
+      0.05 * Math.sqrt(milliseconds / (60 * 60 * 1000)),
+    );
+    return {
+      label,
+      changePercent,
+      direction: changePercent >= 0 ? "up" : "down",
+      intensity: normalizedMove >= 3
+        ? "strong"
+        : normalizedMove >= 1.5 ? "medium" : "light",
+    };
+  });
+}
+
+function latestPointAtOrBefore(points, targetTime) {
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (points[index].time <= targetTime) return points[index];
+  }
+  return null;
+}
+
+function estimateFiveMinuteVolatility(points) {
+  const returns = [];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    if (current.time - previous.time > FIVE_MINUTES_MS * 2) continue;
+    returns.push(Math.abs(((current.price - previous.price) / previous.price) * 100));
+  }
+  if (!returns.length) return 0;
+  returns.sort((left, right) => left - right);
+  return returns[Math.floor(returns.length / 2)];
 }
 
 function toNumber(value) {

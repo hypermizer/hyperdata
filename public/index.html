@@ -14,19 +14,21 @@
       <header>
         <h1>Hyperdata</h1>
         <p><span id="connection-label">Loading market data</span> · updated <time id="last-sync">—</time></p>
-        <div class="tabs" role="tablist" aria-label="Hyperdata views">
-          <button id="watchlist-tab" type="button" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</button>
-          <button id="alerts-tab" type="button" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</button>
+        <div class="tab-bar">
+          <div class="tabs" role="tablist" aria-label="Hyperdata views">
+            <button id="watchlist-tab" type="button" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</button>
+            <button id="alerts-tab" type="button" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</button>
+          </div>
+          <div class="account-actions">
+            <span id="account-status" class="hint">Storage unavailable</span>
+            <button id="account-button" type="button">Sign in</button>
+          </div>
         </div>
       </header>
 
       <section id="watchlist-view" role="tabpanel" aria-labelledby="watchlist-tab">
         <div class="section-header">
           <h2 id="watchlist-heading">Watchlist</h2>
-          <div class="account-actions">
-            <span id="account-status" class="hint">Storage not configured</span>
-            <button id="account-button" type="button">Sign in</button>
-          </div>
         </div>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
