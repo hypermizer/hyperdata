@@ -6,13 +6,13 @@
     <meta name="description" content="Personal Hyperliquid price monitor and alert utility." />
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
-    <link rel="icon" href="./favicon.svg?v=20260717-utility" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260717-utility" />
+    <link rel="icon" href="./favicon.svg?v=20260717-rubric" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css?v=20260717-rubric" />
   </head>
   <body>
     <main>
       <header>
-        <h1><img src="./favicon.svg?v=20260717-utility" width="20" height="20" alt="" aria-hidden="true" />HYPERDATA</h1>
+        <h1><img src="./favicon.svg?v=20260717-rubric" width="20" height="20" alt="" aria-hidden="true" />HYPERDATA</h1>
         <p><span id="connection-label">LOADING MARKET DATA</span> · UPDATED <time id="last-sync">—</time></p>
         <div class="tab-bar">
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
@@ -102,9 +102,15 @@
         <div class="rubric-row"><span class="rubric-dots"><i class="change-dot up light"></i><i class="change-dot up medium"></i><i class="change-dot up strong"></i></span><span>Up · light / medium / strong</span></div>
         <div class="rubric-row"><span class="rubric-dots"><i class="change-dot down light"></i><i class="change-dot down medium"></i><i class="change-dot down strong"></i></span><span>Down · light / medium / strong</span></div>
         <div class="rubric-row"><span class="rubric-dots"><i class="change-dot neutral light"></i></span><span>Gray · no reference price available</span></div>
+        <div class="rubric-math">
+          <p><code>change = |(mark − reference) / reference| × 100</code></p>
+          <p><code>expected = max(median 5m move × √(window / 5m), 0.05 × √(window / 1h))</code></p>
+          <p><code>score = change / expected</code></p>
+          <p>Light: score &lt; 1.5 · Medium: 1.5–&lt;3 · Strong: ≥3. Green means mark is above reference; red means below.</p>
+        </div>
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260717-utility"></script>
+    <script type="module" src="./app.js?v=20260717-rubric"></script>
   </body>
 </html>
