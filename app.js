@@ -6,15 +6,19 @@ import {
 } from "./lib/alerts.js";
 import {
   applyLiveMarketContext,
+  buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
+  fetchPriceHistory,
 } from "./lib/hyperliquid.js";
 import { createWatchlistClient } from "./lib/supabase.js";
 
 const state = {
+  accountMessage: "",
   averageVolumes: new Map(),
   catalog: [],
   markets: new Map(),
+  priceHistories: new Map(),
   supabase: createWatchlistClient(APP_CONFIG),
   stream: null,
   reconnectTimer: null,
@@ -53,7 +57,7 @@ async function initialize() {
     updateMarketMap(markets);
     await initializeWatchlistStorage();
     ensureValidWatchlist();
-    await refreshAverageVolumes();
+    await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
     renderCatalog();
     render();
     setConnection(true);
@@ -109,6 +113,7 @@ function wireEvents() {
   });
 
   setInterval(refreshAverageVolumes, APP_CONFIG.averageVolumeRefreshIntervalMs);
+  setInterval(refreshPriceHistories, APP_CONFIG.priceHistoryRefreshIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
 }
 
@@ -122,7 +127,7 @@ async function initializeWatchlistStorage() {
   await setSession(session);
   state.supabase.auth.onAuthStateChange((_event, nextSession) => {
     window.setTimeout(() => {
-      setSession(nextSession).catch((error) => setWatchlistMessage(error.message));
+      setSession(nextSession).catch((error) => setAccountMessage(error.message));
     }, 0);
   });
 }
@@ -132,10 +137,12 @@ async function setSession(session) {
   if (state.user && state.user.email !== APP_CONFIG.allowedEmail) {
     await state.supabase.auth.signOut();
     state.user = null;
-    setWatchlistMessage("This is a personal watchlist.");
+    setAccountMessage("This is a personal app.");
   }
-  if (state.user) await loadCloudWatchlist();
-  else state.watchlist = [...APP_CONFIG.initialWatchlist];
+  if (state.user) {
+    state.accountMessage = "";
+    await loadCloudWatchlist();
+  } else state.watchlist = [...APP_CONFIG.initialWatchlist];
   ensureValidWatchlist();
   renderAccount();
   render();
@@ -143,25 +150,26 @@ async function setSession(session) {
 
 async function handleAccountAction() {
   if (!state.supabase) {
-    setWatchlistMessage("Add your Supabase URL and publishable key in public/config.js.");
+    setAccountMessage("Storage unavailable.");
     return;
   }
   if (state.user) {
     const { error } = await state.supabase.auth.signOut();
-    if (error) setWatchlistMessage(error.message);
+    state.accountMessage = error ? error.message : "";
+    renderAccount();
     return;
   }
   state.signingIn = true;
   renderAccount();
-  setWatchlistMessage("Sending sign-in link…");
+  setAccountMessage("Sending link…");
   try {
     const { error } = await state.supabase.auth.signInWithOtp({
       email: APP_CONFIG.allowedEmail,
       options: { emailRedirectTo: window.location.href.split("#")[0] },
     });
-    setWatchlistMessage(error ? error.message : "Sign-in link sent. Open it in this browser.");
+    setAccountMessage(error ? formatAuthError(error) : "Link sent. Open it in this browser.");
   } catch (error) {
-    setWatchlistMessage(error instanceof Error ? error.message : "Unable to send sign-in link.");
+    setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to send sign-in link.");
   } finally {
     state.signingIn = false;
     renderAccount();
@@ -195,11 +203,14 @@ function renderAccount() {
   elements.assetSearch.disabled = !state.user;
   elements.addAssetButton.disabled = !state.user;
   elements.accountButton.textContent = state.user ? "Sign out" : "Sign in";
-  elements.accountStatus.textContent = state.user
+  const status = state.user
     ? state.user.email
-    : storageReady
-      ? "Sign in to edit"
-      : "Storage not configured";
+    : state.signingIn
+      ? "Sending link…"
+      : storageReady
+        ? "Not signed in"
+        : "Storage unavailable";
+  elements.accountStatus.textContent = state.accountMessage || status;
 }
 
 async function addToWatchlist(event) {
@@ -224,7 +235,7 @@ async function addToWatchlist(event) {
   elements.assetSearch.value = "";
   await loadCloudWatchlist();
   ensureValidWatchlist();
-  await refreshAverageVolumes();
+  await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
   render();
 }
 
@@ -241,6 +252,7 @@ async function removeFromWatchlist(asset) {
     return;
   }
   await loadCloudWatchlist();
+  state.priceHistories.delete(asset);
   ensureValidWatchlist();
   render();
 }
@@ -256,6 +268,22 @@ async function refreshAverageVolumes(assetIds = state.watchlist) {
     if (result.status === "fulfilled") {
       const [asset, volume] = result.value;
       state.averageVolumes.set(asset, volume);
+    }
+  });
+  renderMarkets();
+}
+
+async function refreshPriceHistories(assetIds = state.watchlist) {
+  const results = await Promise.allSettled(
+    [...new Set(assetIds)].map(async (asset) => [
+      asset,
+      await fetchPriceHistory(asset),
+    ]),
+  );
+  results.forEach((result) => {
+    if (result.status === "fulfilled") {
+      const [asset, points] = result.value;
+      state.priceHistories.set(asset, points);
     }
   });
   renderMarkets();
@@ -300,10 +328,24 @@ function renderMarkets() {
       const removeButton = state.user
         ? `<button class="remove-button" type="button" data-remove="${escapeHtml(market.id)}" aria-label="Remove ${escapeHtml(market.id)}" title="Remove ${escapeHtml(market.id)}">×</button>`
         : "<span></span>";
-      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${formatPrice(market.markPrice)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span>${removeButton}</div>`;
+      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${renderMarkPrice(market)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span>${removeButton}</div>`;
     })
     .join("");
   elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span><span></span></div>${rows}`;
+}
+
+function renderMarkPrice(market) {
+  const signals = buildPriceChangeSignals(
+    market.markPrice,
+    state.priceHistories.get(market.id) ?? [],
+  );
+  const description = signals
+    .map(({ label, changePercent }) => `${label} ${formatPercent(changePercent)}`)
+    .join(", ");
+  const dots = signals
+    .map(({ direction, intensity }) => `<span class="change-dot ${direction} ${intensity}"></span>`)
+    .join("");
+  return `<span class="price-cell"><span class="price-dots" title="${escapeHtml(description)}" aria-label="${escapeHtml(description)}">${dots}</span><span>${formatPrice(market.markPrice)}</span></span>`;
 }
 
 function renderAlertOptions() {
@@ -358,6 +400,18 @@ function setConnection(connected, detail = "") {
 
 function setWatchlistMessage(message) {
   elements.watchlistMessage.textContent = message;
+}
+
+function setAccountMessage(message) {
+  state.accountMessage = message;
+  renderAccount();
+}
+
+function formatAuthError(error) {
+  const message = error?.message ?? String(error);
+  return /rate limit/i.test(message)
+    ? "Email limit reached. Try again in about an hour."
+    : message;
 }
 
 function connectMarketStream() {

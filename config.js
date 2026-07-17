@@ -3,6 +3,7 @@ export const APP_CONFIG = {
   initialWatchlist: ["xyz:ORCL", "xyz:XYZ100"],
   websocketUrl: "wss://api.hyperliquid.xyz/ws",
   averageVolumeRefreshIntervalMs: 300_000,
+  priceHistoryRefreshIntervalMs: 300_000,
   alertsRefreshIntervalMs: 300_000,
   allowedEmail: "jasonblick@zohomail.com",
   supabaseUrl: "https://itheknkmuutquriojdzt.supabase.co",
