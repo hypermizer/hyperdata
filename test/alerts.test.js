@@ -11,7 +11,18 @@ import {
 test("normalizes a HIP-3 alert and infers its dex", () => {
   assert.deepEqual(
     normalizeAlert({ asset: "xyz:ORCL", direction: "ABOVE", target: "175.25" }),
-    { asset: "xyz:ORCL", dex: "xyz", direction: "above", target: 175.25 },
+    { asset: "xyz:ORCL", dex: "xyz", direction: "above", target: 175.25, delivery: "email" },
+  );
+});
+
+test("accepts email or SMS delivery", () => {
+  assert.equal(
+    normalizeAlert({ asset: "xyz:ORCL", direction: "above", target: 200, delivery: "sms" }).delivery,
+    "sms",
+  );
+  assert.throws(
+    () => normalizeAlert({ asset: "xyz:ORCL", direction: "above", target: 200, delivery: "push" }),
+    /Delivery/,
   );
 });
 
@@ -31,7 +42,7 @@ test("rejects unsafe or invalid alerts", () => {
 });
 
 test("issue payload round-trips through its machine-readable marker", () => {
-  const source = { asset: "xyz:XYZ100", dex: "xyz", direction: "below", target: 22100 };
+  const source = { asset: "xyz:XYZ100", dex: "xyz", direction: "below", target: 22100, delivery: "sms" };
   const issue = createAlertIssue(source);
   assert.match(issue.title, /XYZ100 below/);
   assert.deepEqual(parseAlertIssue(issue.body), source);
