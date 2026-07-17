@@ -5,18 +5,17 @@ import {
   parseAlertIssue,
 } from "./lib/alerts.js";
 import {
+  applyLiveMarketContext,
   fetchAllMarkets,
   fetchAverageDailyVolume,
-  fetchMarketsByDex,
 } from "./lib/hyperliquid.js";
 
 const state = {
-  catalog: [],
   averageVolumes: new Map(),
   markets: new Map(),
-  watchlist: loadWatchlist(),
-  initialized: false,
-  refreshing: false,
+  watchlist: [...APP_CONFIG.watchlist],
+  stream: null,
+  reconnectTimer: null,
 };
 
 const elements = {
@@ -25,16 +24,11 @@ const elements = {
   alertForm: document.querySelector("#alert-form"),
   alertList: document.querySelector("#alert-list"),
   alertMessage: document.querySelector("#alert-message"),
-  assetOptions: document.querySelector("#asset-options"),
-  assetSearch: document.querySelector("#asset-search"),
-  catalogCount: document.querySelector("#catalog-count"),
   connectionLabel: document.querySelector("#connection-label"),
   lastSync: document.querySelector("#last-sync"),
   marketList: document.querySelector("#market-list"),
-  refreshButton: document.querySelector("#refresh-button"),
   tabs: [...document.querySelectorAll("[data-tab]")],
   views: [...document.querySelectorAll("[role=tabpanel]")],
-  watchlistForm: document.querySelector("#watchlist-form"),
 };
 
 wireEvents();
@@ -43,14 +37,12 @@ initialize();
 async function initialize() {
   try {
     const markets = await fetchAllMarkets();
-    state.catalog = markets.sort((a, b) => a.id.localeCompare(b.id));
     updateMarketMap(markets);
     ensureValidWatchlist();
     await refreshAverageVolumes();
-    renderCatalog();
     render();
-    state.initialized = true;
     setConnection(true);
+    connectMarketStream();
     await loadAlerts();
   } catch (error) {
     setConnection(false, error.message);
@@ -59,32 +51,8 @@ async function initialize() {
 }
 
 function wireEvents() {
-  elements.refreshButton.addEventListener("click", refreshWatchlist);
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
-  });
-
-  elements.watchlistForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const query = elements.assetSearch.value.trim().toLowerCase();
-    const market = state.catalog.find(
-      (item) => item.id.toLowerCase() === query || item.symbol.toLowerCase() === query,
-    );
-    if (!market) {
-      elements.catalogCount.textContent = "Choose an asset from the list.";
-      return;
-    }
-    const added = !state.watchlist.includes(market.id);
-    if (added) state.watchlist.push(market.id);
-    persistWatchlist();
-    elements.assetSearch.value = "";
-    render();
-    if (added) refreshAverageVolumes([market.id]).then(render);
-  });
-
-  elements.marketList.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-remove]");
-    if (button) removeFromWatchlist(button.dataset.remove);
   });
 
   elements.alertForm.addEventListener("submit", (event) => {
@@ -118,34 +86,8 @@ function wireEvents() {
     }
   });
 
-  setInterval(refreshWatchlist, APP_CONFIG.refreshIntervalMs);
+  setInterval(refreshAverageVolumes, APP_CONFIG.averageVolumeRefreshIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
-}
-
-async function refreshWatchlist() {
-  if (!state.initialized || state.refreshing || !state.watchlist.length) return;
-  state.refreshing = true;
-  elements.refreshButton.disabled = true;
-  try {
-    const dexIds = [...new Set(
-      state.watchlist
-        .map((id) => state.markets.get(id)?.dexId)
-        .filter((dex) => dex !== undefined),
-    )];
-    const [markets] = await Promise.all([
-      fetchMarketsByDex(dexIds),
-      refreshAverageVolumes(),
-    ]);
-    updateMarketMap(markets);
-    renderMarkets();
-    renderAlertOptions();
-    setConnection(true);
-  } catch (error) {
-    setConnection(false, error.message);
-  } finally {
-    state.refreshing = false;
-    elements.refreshButton.disabled = false;
-  }
 }
 
 async function refreshAverageVolumes(assetIds = state.watchlist) {
@@ -161,10 +103,15 @@ async function refreshAverageVolumes(assetIds = state.watchlist) {
       state.averageVolumes.set(asset, volume);
     }
   });
+  renderMarkets();
 }
 
 function updateMarketMap(markets) {
   markets.forEach((market) => state.markets.set(market.id, market));
+  updateLastSync();
+}
+
+function updateLastSync() {
   elements.lastSync.textContent = new Intl.DateTimeFormat("en", {
     hour: "2-digit",
     minute: "2-digit",
@@ -175,23 +122,12 @@ function updateMarketMap(markets) {
 
 function ensureValidWatchlist() {
   state.watchlist = state.watchlist.filter((id) => state.markets.has(id));
-  if (!state.watchlist.length) {
-    state.watchlist = APP_CONFIG.defaultAssets.filter((id) => state.markets.has(id));
-  }
-  if (!state.watchlist.length && state.catalog[0]) state.watchlist = [state.catalog[0].id];
-  persistWatchlist();
+  if (!state.watchlist.length) throw new Error("No configured watchlist assets are available.");
 }
 
 function render() {
   renderMarkets();
   renderAlertOptions();
-}
-
-function renderCatalog() {
-  elements.assetOptions.innerHTML = state.catalog
-    .map((market) => `<option value="${escapeHtml(market.id)}"></option>`)
-    .join("");
-  elements.catalogCount.textContent = `${state.catalog.length} assets available`;
 }
 
 function renderMarkets() {
@@ -200,10 +136,10 @@ function renderMarkets() {
     .filter(Boolean)
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
-      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${formatPrice(market.markPrice)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span><button class="remove-button" type="button" data-remove="${escapeHtml(market.id)}" aria-label="Remove ${escapeHtml(market.id)}" title="Remove ${escapeHtml(market.id)}">×</button></div>`;
+      return `<div class="market-row"><span>${escapeHtml(market.id)}</span><span class="metric">${formatPrice(market.markPrice)}</span><span class="metric ${direction}">${formatPercent(market.changePercent)}</span><span class="metric">${formatUsdCompact(market.volume24h)}</span><span class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</span><span class="metric">${formatCompact(market.openInterest)}</span></div>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span><span></span></div>${rows}`;
+  elements.marketList.innerHTML = `<div class="market-row header"><span>Asset</span><span class="metric">Mark price</span><span class="metric">24h</span><span class="metric">24h vol</span><span class="metric">Avg vol (30d)</span><span class="metric">OI</span></div>${rows}`;
 }
 
 function renderAlertOptions() {
@@ -240,13 +176,6 @@ async function loadAlerts() {
   }
 }
 
-function removeFromWatchlist(id) {
-  if (state.watchlist.length === 1) return;
-  state.watchlist = state.watchlist.filter((asset) => asset !== id);
-  persistWatchlist();
-  render();
-}
-
 function setActiveView(viewName) {
   elements.tabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === viewName));
@@ -263,17 +192,40 @@ function setConnection(connected, detail = "") {
   elements.connectionLabel.className = connected ? "positive" : "negative";
 }
 
-function loadWatchlist() {
-  try {
-    const saved = JSON.parse(localStorage.getItem("hyperdata-watchlist"));
-    return Array.isArray(saved) && saved.length ? saved : [...APP_CONFIG.defaultAssets];
-  } catch {
-    return [...APP_CONFIG.defaultAssets];
-  }
-}
+function connectMarketStream() {
+  window.clearTimeout(state.reconnectTimer);
+  state.stream?.close();
+  const stream = new WebSocket(APP_CONFIG.websocketUrl);
+  state.stream = stream;
 
-function persistWatchlist() {
-  localStorage.setItem("hyperdata-watchlist", JSON.stringify(state.watchlist));
+  stream.addEventListener("open", () => {
+    state.watchlist.forEach((coin) => {
+      stream.send(JSON.stringify({
+        method: "subscribe",
+        subscription: { type: "activeAssetCtx", coin },
+      }));
+    });
+    setConnection(true);
+  });
+
+  stream.addEventListener("message", ({ data }) => {
+    const message = JSON.parse(data);
+    if (message.channel !== "activeAssetCtx") return;
+    const market = state.markets.get(message.data.coin);
+    if (!market) return;
+    state.markets.set(message.data.coin, applyLiveMarketContext(market, message.data.ctx));
+    updateLastSync();
+    renderMarkets();
+    renderAlertOptions();
+  });
+
+  stream.addEventListener("close", () => {
+    if (state.stream !== stream) return;
+    setConnection(false, "live stream disconnected");
+    state.reconnectTimer = window.setTimeout(connectMarketStream, 3_000);
+  });
+
+  stream.addEventListener("error", () => stream.close());
 }
 
 function formatPrice(value) {
