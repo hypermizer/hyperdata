@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  fetchAverageDailyVolume,
   fetchDexNames,
   fetchMarketsForDex,
   postInfo,
@@ -60,4 +61,29 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
     maxLeverage: 10,
     isDelisted: false,
   });
+});
+
+test("fetchAverageDailyVolume estimates trailing daily notional volume from candles", async () => {
+  let request;
+  const result = await fetchAverageDailyVolume(
+    "xyz:ORCL",
+    async (_url, options) => {
+      request = JSON.parse(options.body);
+      return jsonResponse([
+        { c: "100", v: "10" },
+        { c: "120", v: "20" },
+        { c: "80", v: "30" },
+      ]);
+    },
+    Date.UTC(2026, 6, 17),
+  );
+
+  assert.equal(request.type, "candleSnapshot");
+  assert.deepEqual(request.req, {
+    coin: "xyz:ORCL",
+    interval: "1d",
+    startTime: Date.UTC(2026, 5, 17),
+    endTime: Date.UTC(2026, 6, 17),
+  });
+  assert.equal(result, 5800 / 3);
 });
