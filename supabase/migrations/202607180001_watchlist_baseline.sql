@@ -1,4 +1,4 @@
-create table public.watchlist_items (
+create table if not exists public.watchlist_items (
   user_id uuid not null references auth.users (id) on delete cascade,
   asset text not null check (char_length(asset) > 0),
   created_at timestamptz not null default now(),
@@ -7,6 +7,7 @@ create table public.watchlist_items (
 
 alter table public.watchlist_items enable row level security;
 
+drop policy if exists "Users manage their own watchlist" on public.watchlist_items;
 create policy "Users manage their own watchlist"
 on public.watchlist_items
 for all

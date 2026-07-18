@@ -193,7 +193,9 @@ input, select { min-width: 0; }
   border-bottom: 1px solid #2b3035;
   font-size: 14px;
 }
-.alert-card a { color: #eceff1; }
+.alert-card-actions { display: flex; gap: 6px; }
+.alert-card-actions button { min-height: 28px; padding: 3px 6px; font-size: 11px; text-transform: uppercase; }
+.alert-meta { color: #a8afb7; font-size: 12px; }
 .message { min-height: 18px; margin-top: 8px; font-size: 13px; }
 
 .settings-dialog {

@@ -1,95 +1,55 @@
 # Hyperdata
 
-Personal Hyperliquid price monitor. Current scope: watchlist prices and one-time email or text alerts for assets such as `xyz:ORCL` and `xyz:XYZ100`.
+Personal Hyperliquid utility for a live watchlist and unattended alerts. It is a static GitHub Pages app backed by Supabase; no browser needs to remain open for alert evaluation.
 
-## How it works
+## Alerts
 
-- The dashboard is a static site deployed with GitHub Pages.
-- The Watchlist tab receives mark price, 24-hour volume, and open interest from Hyperliquid's live WebSocket feed. Average volume is derived from daily candles and refreshed every five minutes in USD.
-- The watchlist is stored per signed-in user in Supabase, so changes made in the UI follow you across browsers and devices.
-- Creating an alert opens a prefilled GitHub issue. Submitting that issue activates the alert; closing it cancels the alert.
-- A scheduled GitHub Action checks open alert issues every five minutes. Once a target is met, it sends one email or text, comments on the issue, and closes it.
-- Only alerts opened by the repository owner, a member, or a collaborator are processed, preventing public issue spam from sending email.
+- Fixed price: inclusive above/below mark-price threshold, then automatically disables after the first occurrence.
+- Large move: recurring one-minute evaluation of an endpoint log return against a pre-move robust EWMA volatility forecast and an empirical calibration for that asset and horizon.
+- Email: Zoho SMTP over TLS 465.
+- Text: Twilio SMS when the sender is permitted to message the destination.
 
-## One-time setup
+Detection, occurrences, and notification attempts are persisted separately. Provider failure cannot erase a detected occurrence. An empirical percentile is not a Gaussian probability or a trade recommendation.
 
-The site deploys automatically after the repository is pushed to GitHub. Configure only the services you use.
+## Runtime
 
-### Watchlist storage (Supabase)
+Three Supabase Edge Functions are scheduled through `pg_cron`:
 
-1. Create a Supabase project and open its **SQL Editor**.
-2. Run [`supabase/schema.sql`](supabase/schema.sql).
-3. In **Authentication → URL Configuration**, set both the Site URL and an allowed Redirect URL to `https://hypermizer.github.io/hyperdata/`.
-4. In **Project Settings → API**, copy the Project URL and Publishable key into [`public/config.js`](public/config.js):
+- `monitor-market` every minute: batches Hyperliquid market context by DEX, stores observations, evaluates rules, and records health.
+- `rebuild-calibrations` every 15 minutes: drains bounded calibration jobs and refreshes versioned models.
+- `deliver-alerts` every minute: drains the durable outbox with leases, retries, and explicit terminal or ambiguous states.
 
-   ```js
-   supabaseUrl: "https://your-project.supabase.co",
-   supabasePublishableKey: "your-publishable-key",
-   ```
+Market observations are retained for 30 days and monitor runs for 14 days. One-minute scheduling on the Supabase Free tier is not trading-grade and can be delayed; health is visible in the Alerts tab.
 
-5. Deploy the updated config. Click **Sign in** in Hyperdata and open the emailed sign-in link in the same browser.
+## Production setup
 
-The Publishable key is intended for browser apps. Never put a Supabase secret or service-role key in this repository. The supplied policy permits only `jasonblick@zohomail.com` to read or change this watchlist.
+The deployment workflow requires these GitHub Actions secrets:
 
-### Email (Zoho)
+- `SUPABASE_ACCESS_TOKEN`
+- `MONITOR_SECRET` (a long random value)
+- Existing delivery secrets: `ALERT_EMAIL`, `ALERT_SMS_TO`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`
 
-1. In Zoho Mail, enable two-factor authentication and create an application-specific password.
-2. In the GitHub repository, open **Settings → Secrets and variables → Actions**.
-3. Add these repository secrets:
+The workflow applies migrations, deploys functions, copies provider settings into Edge secrets, writes the scheduler values to Vault, and configures cron. The equivalent manual scheduler recovery is:
 
-   | Secret | Value |
-   | --- | --- |
-   | `ALERT_EMAIL` | The address that receives alerts |
-   | `SMTP_USERNAME` | The full Zoho Mail sending address |
-   | `SMTP_PASSWORD` | The Zoho application-specific password |
+```sql
+select vault.create_secret('https://itheknkmuutquriojdzt.supabase.co', 'project_url');
+select vault.create_secret('<service-role-key>', 'service_role_key');
+select vault.create_secret('<same MONITOR_SECRET>', 'monitor_secret');
+select public.configure_listener_cron();
+```
 
-The workflow defaults to `smtp.zoho.com` on port `465`. Accounts hosted in another Zoho data center can change `SMTP_HOST` in [`.github/workflows/monitor-alerts.yml`](.github/workflows/monitor-alerts.yml).
-
-### Text messages (Twilio)
-
-1. Create a Twilio account and get an SMS-capable sender number. Complete any registration Twilio requires for your country and sender type.
-2. In **Settings → Secrets and variables → Actions**, add these repository secrets:
-
-   | Secret | Value |
-   | --- | --- |
-   | `TWILIO_ACCOUNT_SID` | Twilio Account SID |
-   | `TWILIO_AUTH_TOKEN` | Twilio Auth Token |
-   | `TWILIO_FROM` | Your Twilio sender number in E.164 format, e.g. `+15555550100` |
-   | `ALERT_SMS_TO` | Your receiving phone number in E.164 format |
-
-The phone number stays in a GitHub secret; it is never placed in the public alert issue or browser code. Twilio charges for SMS; GitHub hosting and Actions are still free within their applicable allowances.
-
-After adding the secrets, run **Actions → Monitor price alerts → Run workflow** once. A run with no active alerts should finish successfully.
+Keep `DELIVERY_ENABLED=false` for the initial shadow period. After at least 24 hours of fresh one-minute monitor runs, calibration checks, and a controlled provider smoke test, set it to `true`. Only then retire the legacy GitHub Action monitor.
 
 ## Local development
 
 ```bash
 npm install
+supabase start
 npm test
+npm run test:edge
+npm run test:db
+npm run check
 npm run serve
 ```
 
-Then open the local URL printed by `serve`.
-
-## Alert lifecycle
-
-1. Choose a watched asset, direction, target, and delivery method on the dashboard.
-2. Click **Create alert on GitHub**.
-3. Review and submit the prefilled issue. Do not edit the hidden `hyperdata-alert` block.
-4. The scheduled monitor evaluates the asset's mark price. GitHub schedules can occasionally be delayed.
-5. When the condition is met, Hyperdata delivers the selected email or text alert and closes the issue.
-
-Alerts are one-time notifications. They are not guaranteed execution signals and should not be used as a substitute for exchange-native risk controls.
-
-GitHub automatically disables scheduled workflows in public repositories after 60 days without repository activity. If this repository is idle for that long, re-enable **Monitor price alerts** in the Actions tab before relying on alerts again.
-
-## Commands
-
-- `npm test` — run the alert and API unit tests
-- `npm run check` — syntax-check browser and monitor JavaScript
-- `npm run alerts` — run the monitor (requires the workflow environment variables)
-- `npm run serve` — serve the dashboard locally
-
-## Notes
-
-Active alert conditions are public GitHub issues. Email, Twilio, and phone credentials are GitHub Actions secrets and never ship to the browser.
+The browser contains only the Supabase publishable key. Service-role, scheduler, SMTP, Twilio, email, and phone values must remain in Supabase/GitHub secrets.
