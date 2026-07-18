@@ -2,6 +2,7 @@ name: Test
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -25,6 +26,6 @@ jobs:
       - run: npm run test:edge
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.109.1
       - run: supabase start
       - run: npm run test:db
