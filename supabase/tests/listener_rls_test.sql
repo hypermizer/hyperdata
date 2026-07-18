@@ -11,7 +11,10 @@ insert into public.alert_rules (user_id, asset, detector, configuration)
 values ('00000000-0000-0000-0000-000000000011', 'xyz:ORCL', 'fixed_price', '{"direction":"above","target":100}');
 
 set local role anon;
-select is((select count(*)::integer from public.alert_rules), 0, 'anonymous cannot read alert rules');
+select throws_ok(
+  $$select count(*) from public.alert_rules$$,
+  '42501', null, 'anonymous cannot read alert rules'
+);
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000011","email":"jasonblick@zohomail.com","role":"authenticated"}', true);
