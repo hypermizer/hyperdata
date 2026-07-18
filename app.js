@@ -1,17 +1,13 @@
-import { APP_CONFIG } from "./config.js?v=20260717-widths";
-import {
-  TRIGGERED_LABEL,
-  buildNewIssueUrl,
-  parseAlertIssue,
-} from "./lib/alerts.js?v=20260717-widths";
+import { APP_CONFIG } from "./config.js?v=20260718-listener";
+import { displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260718-listener";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260717-widths";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260717-widths";
+} from "./lib/hyperliquid.js?v=20260718-listener";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
 
 const QUOTE_STALE_MS = 3_500;
 const QUOTE_RECONNECT_COOLDOWN_MS = 5_000;
@@ -42,10 +38,12 @@ const elements = {
   alertForm: document.querySelector("#alert-form"),
   alertList: document.querySelector("#alert-list"),
   alertMessage: document.querySelector("#alert-message"),
+  alertType: document.querySelector("#alert-type"),
   assetOptions: document.querySelector("#asset-options"),
   assetSearch: document.querySelector("#asset-search"),
   connectionLabel: document.querySelector("#connection-label"),
   lastSync: document.querySelector("#last-sync"),
+  listenerHealth: document.querySelector("#listener-health"),
   marketList: document.querySelector("#market-list"),
   removeAsset: document.querySelector("#remove-asset"),
   removeAssetButton: document.querySelector("#remove-asset-button"),
@@ -73,7 +71,6 @@ async function initialize() {
     render();
     setConnection(true);
     connectMarketStream();
-    await loadAlerts();
   } catch (error) {
     setConnection(false, error.message);
     elements.marketList.textContent = "Market data unavailable.";
@@ -82,6 +79,7 @@ async function initialize() {
 
 function wireEvents() {
   elements.accountButton.addEventListener("click", handleAccountAction);
+  elements.alertType.addEventListener("change", renderAlertFields);
   elements.settingsButton.addEventListener("click", openSettings);
   elements.tabs.forEach((tab) => {
     tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
@@ -107,35 +105,41 @@ function wireEvents() {
     if (!event.target.closest(".signal-dot-button")) closeDotTooltips();
   });
 
-  elements.alertForm.addEventListener("submit", (event) => {
+  elements.alertForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     elements.alertMessage.textContent = "";
-    const market = state.markets.get(elements.alertAsset.value);
-    const target = Number(document.querySelector("#alert-target").value);
-    const direction = document.querySelector("#alert-direction").value;
-    const delivery = document.querySelector("#alert-delivery").value;
-
+    const submitButton = elements.alertForm.querySelector("button[type=submit]");
+    submitButton.disabled = true;
     try {
-      if (market?.markPrice && direction === "above" && target <= market.markPrice) {
-        throw new Error("Above target must exceed current mark price.");
-      }
-      if (market?.markPrice && direction === "below" && target >= market.markPrice) {
-        throw new Error("Below target must be below current mark price.");
-      }
-      window.open(
-        buildNewIssueUrl(APP_CONFIG.repository, {
-          asset: market?.id ?? elements.alertAsset.value,
-          dex: market?.dexId ?? "",
-          direction,
-          target,
-          delivery,
-        }),
-        "_blank",
-        "noopener,noreferrer",
-      );
+      if (!state.user) throw new Error("Sign in first.");
+      const form = new FormData(elements.alertForm);
+      const detector = form.get("detector");
+      const normalized = normalizeAlertRuleInput({ asset: form.get("asset"), detector, delivery: form.get("delivery"),
+        direction: detector === "fixed_price" ? form.get("direction") : form.get("moveDirection"), target: form.get("target"),
+        horizonMinutes: form.get("horizonMinutes"), tailPercentile: form.get("tailPercentile"), minimumMovePercent: form.get("minimumMovePercent") });
+      const market = state.markets.get(normalized.asset);
+      const { error } = await state.supabase.rpc("create_alert_rule", { p_asset: normalized.asset, p_dex: market?.dexId ?? "",
+        p_detector: normalized.detector, p_configuration: normalized.configuration, p_delivery: normalized.delivery });
+      if (error) throw error;
+      elements.alertMessage.textContent = "Alert created.";
+      await loadAlerts();
     } catch (error) {
       elements.alertMessage.textContent = error.message;
+    } finally {
+      submitButton.disabled = !state.user;
     }
+  });
+
+  elements.alertList.addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-rule-action]");
+    if (!button || !state.user) return;
+    button.disabled = true; elements.alertMessage.textContent = "";
+    const action = button.dataset.ruleAction; const id = button.dataset.ruleId;
+    const request = action === "delete" ? state.supabase.rpc("delete_alert_rule", { p_rule_id: id })
+      : state.supabase.rpc("set_alert_rule_enabled", { p_rule_id: id, p_enabled: action === "enable" });
+    const { error } = await request;
+    if (error) elements.alertMessage.textContent = error.message;
+    await loadAlerts();
   });
 
   setInterval(refreshAverageVolumes, APP_CONFIG.averageVolumeRefreshIntervalMs);
@@ -169,8 +173,11 @@ async function setSession(session) {
   }
   if (state.user) {
     state.accountMessage = "";
-    await loadCloudWatchlist();
-  } else state.watchlist = [...APP_CONFIG.initialWatchlist];
+    await Promise.all([loadCloudWatchlist(), loadAlerts()]);
+  } else {
+    state.watchlist = [...APP_CONFIG.initialWatchlist];
+    await loadAlerts();
+  }
   ensureValidWatchlist();
   renderAccount();
   render();
@@ -345,6 +352,7 @@ function render() {
   renderAlertOptions();
   renderWatchlistSettings();
   renderAccount();
+  renderAlertFields();
 }
 
 function renderCatalog() {
@@ -422,26 +430,46 @@ function closeDotTooltips() {
 }
 
 async function loadAlerts() {
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${APP_CONFIG.repository}/issues?state=open&labels=price-alert&per_page=100`,
-      { headers: { Accept: "application/vnd.github+json" } },
-    );
-    if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
-    const alerts = (await response.json())
-      .filter((issue) => !issue.pull_request)
-      .filter((issue) => !issue.labels.some((label) => (typeof label === "string" ? label : label.name) === TRIGGERED_LABEL))
-      .map((issue) => ({ issue, alert: parseAlertIssue(issue.body) }))
-      .filter((item) => item.alert);
-
-    elements.alertCount.textContent = String(alerts.length);
-    elements.alertList.innerHTML = alerts.length
-      ? alerts.map(({ issue, alert }) => `<div class="alert-card"><span>${escapeHtml(alert.asset)} ${alert.direction} ${formatPrice(alert.target)} · ${alert.delivery === "sms" ? "text" : "email"}</span><a href="${issue.html_url}" target="_blank" rel="noreferrer">Manage</a></div>`).join("")
-      : `<p class="hint">No active alerts.</p>`;
-  } catch {
-    elements.alertCount.textContent = "—";
-    elements.alertList.innerHTML = `<p class="hint">Could not load alerts.</p>`;
+  if (!state.user || !state.supabase) {
+    elements.alertCount.textContent = "—"; elements.listenerHealth.textContent = "SIGN IN TO LOAD";
+    elements.alertList.innerHTML = `<p class="hint">Sign in to manage alerts.</p>`; return;
   }
+  try {
+    const [rulesResponse, runsResponse, statesResponse, occurrencesResponse, deliveryResponse] = await Promise.all([
+      state.supabase.from("alert_rules").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
+      state.supabase.from("monitor_runs").select("*").order("bucket", { ascending: false }).limit(1),
+      state.supabase.from("rule_evaluation_state").select("rule_id,status,tail_percentile,updated_at"),
+      state.supabase.from("alert_occurrences").select("id,rule_id,bucket").order("bucket", { ascending: false }).limit(100),
+      state.supabase.from("notification_outbox").select("occurrence_id,state,updated_at").order("updated_at", { ascending: false }).limit(100),
+    ]);
+    const error = rulesResponse.error ?? runsResponse.error ?? statesResponse.error ?? occurrencesResponse.error ?? deliveryResponse.error; if (error) throw error;
+    const rules = rulesResponse.data ?? []; const states = new Map((statesResponse.data ?? []).map((item) => [item.rule_id, item]));
+    const deliveryByOccurrence = new Map((deliveryResponse.data ?? []).map((item) => [item.occurrence_id, item.state]));
+    const latestDeliveryByRule = new Map();
+    (occurrencesResponse.data ?? []).forEach((occurrence) => {
+      if (!latestDeliveryByRule.has(occurrence.rule_id) && deliveryByOccurrence.has(occurrence.id)) latestDeliveryByRule.set(occurrence.rule_id, deliveryByOccurrence.get(occurrence.id));
+    });
+    elements.listenerHealth.textContent = listenerHealth(runsResponse.data?.[0]); elements.alertCount.textContent = String(rules.filter((rule) => rule.enabled).length);
+    elements.alertList.innerHTML = rules.length ? rules.map((rule) => {
+      const evaluation = states.get(rule.id); const status = evaluation?.status ?? (rule.detector === "large_move" ? "warming" : "not evaluated");
+      const deliveryState = latestDeliveryByRule.get(rule.id);
+      const meta = `${rule.enabled ? status : "disabled"}${deliveryState ? ` · delivery ${deliveryState}` : ""}`;
+      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · ${rule.delivery === "sms" ? "text" : "email"}</span><br><span class="alert-meta">${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
+    }).join("") : `<p class="hint">No alerts.</p>`;
+  } catch (error) {
+    elements.alertCount.textContent = "—";
+    elements.listenerHealth.textContent = "MONITOR UNKNOWN";
+    elements.alertList.innerHTML = `<p class="hint">${escapeHtml(error.message ?? "Could not load alerts.")}</p>`;
+  }
+}
+
+function renderAlertFields() {
+  const isMove = elements.alertType.value === "large_move";
+  document.querySelectorAll("[data-fixed-field]").forEach((field) => { field.hidden = isMove; field.disabled = isMove || !state.user; });
+  document.querySelectorAll("[data-move-field]").forEach((field) => { field.hidden = !isMove; field.disabled = !isMove || !state.user; });
+  elements.alertType.disabled = !state.user; elements.alertAsset.disabled = !state.user;
+  document.querySelector("#alert-delivery").disabled = !state.user;
+  elements.alertForm.querySelector("button[type=submit]").disabled = !state.user;
 }
 
 function setActiveView(viewName) {

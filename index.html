@@ -6,8 +6,8 @@
     <meta name="description" content="Personal Hyperliquid price monitor and alert utility." />
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
-    <link rel="icon" href="./favicon.svg?v=20260717-widths" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260717-widths" />
+    <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css?v=20260718-listener" />
   </head>
   <body>
     <main>
@@ -40,19 +40,31 @@
       <section id="alerts-view" role="tabpanel" aria-labelledby="alerts-tab" hidden>
         <div class="section-header">
           <h2 id="alerts-heading">Alerts</h2>
-          <span class="hint">checked every 5 min</span>
+          <span id="listener-health" class="hint">SIGN IN TO LOAD</span>
         </div>
 
         <form id="alert-form" class="inline-form">
           <label for="alert-asset">Create alert</label>
+          <select id="alert-type" name="detector" aria-label="Rule type">
+            <option value="fixed_price">price</option>
+            <option value="large_move">large move</option>
+          </select>
           <select id="alert-asset" name="asset" required>
             <option value="">Choose asset</option>
           </select>
-          <select id="alert-direction" name="direction" aria-label="Alert direction">
+          <select id="alert-direction" name="direction" aria-label="Price direction" data-fixed-field>
             <option value="above">above</option>
             <option value="below">below</option>
           </select>
-          <input id="alert-target" name="target" type="number" min="0.00000001" step="any" placeholder="Target price" required />
+          <input id="alert-target" name="target" type="number" min="0.00000001" step="any" placeholder="Target price" data-fixed-field />
+          <select id="move-direction" name="moveDirection" aria-label="Move direction" data-move-field hidden>
+            <option value="either">either way</option><option value="up">up</option><option value="down">down</option>
+          </select>
+          <input id="move-horizon" name="horizonMinutes" type="number" min="1" max="10080" step="1" value="5" aria-label="Horizon minutes" title="Horizon in minutes" data-move-field hidden />
+          <select id="move-percentile" name="tailPercentile" aria-label="Empirical tail threshold" data-move-field hidden>
+            <option value="0.99">99.0%</option><option value="0.995" selected>99.5%</option><option value="0.999">99.9%</option>
+          </select>
+          <input id="move-floor" name="minimumMovePercent" type="number" min="0" step="0.1" value="0" aria-label="Minimum move percent" title="Minimum move percent" data-move-field hidden />
           <select id="alert-delivery" name="delivery" aria-label="Alert delivery">
             <option value="email">email</option>
             <option value="sms">text</option>
@@ -60,7 +72,7 @@
           <button type="submit">Create</button>
         </form>
         <p id="alert-message" class="message" role="alert"></p>
-        <p class="hint">Create opens a prefilled GitHub issue. Submit it to activate; close it to cancel.</p>
+        <p class="hint">LARGE MOVE USES A PRE-MOVE VOLATILITY FORECAST AND EMPIRICAL TAIL CALIBRATION.</p>
 
         <div class="section-header active-header">
           <h3>Active</h3>
@@ -111,6 +123,6 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260717-widths"></script>
+    <script type="module" src="./app.js?v=20260718-listener"></script>
   </body>
 </html>
