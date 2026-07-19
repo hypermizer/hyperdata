@@ -15,6 +15,7 @@ export interface ReplayOrder {
   triggerPrice: string | null;
   queueAhead: string | null;
   reduceOnly: boolean;
+  createdAtMs?: number;
 }
 
 export interface ReplaySnapshot {
@@ -127,7 +128,7 @@ export function replayOrder(
   const queue = advanceMakerQueue({
     side: order.side, price: order.limitPrice, remainingSize: order.remainingSize,
     queueAhead: order.queueAhead ?? "0",
-  }, snapshot.trades, snapshot.tradeGap);
+  }, snapshot.trades.filter((trade) => trade.timestampMs > (order.createdAtMs ?? 0)), snapshot.tradeGap);
   if (snapshot.tradeGap) return null;
   const transitioned = transitionFills(order, position,
     decimal(queue.filledSize).isZero() ? [] : [{ price: order.limitPrice, size: queue.filledSize, liquidity: "maker" }],

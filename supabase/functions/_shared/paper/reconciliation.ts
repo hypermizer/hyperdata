@@ -21,8 +21,8 @@ interface ReconciliationInput {
 
 export function reconcileAccount(input: ReconciliationInput) {
   const expected = input.positions.reduce((equity, position) => {
-    const allocation = position.isolatedMargin === null ? decimal(0) : decimal(position.isolatedMargin);
-    return equity.plus(allocation).plus(unrealizedPnl(position, position.markPrice));
+    // Isolated margin is reserved inside account equity; it is not new cash.
+    return equity.plus(unrealizedPnl(position, position.markPrice));
   }, decimal(input.cashBalance));
   const difference = expected.minus(input.cachedEquity);
   return {

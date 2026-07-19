@@ -1,7 +1,10 @@
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import { inputVersion } from "../_shared/paper/market-data.ts";
+import { fetchPaperBook, fetchPaperFeeSchedule, fetchPaperTrades } from "../_shared/paper/market-data.ts";
+import { selectFeeRate } from "../_shared/paper/fees.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
+import { replayOrder, type ReplaySnapshot } from "./account-processor.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
 import { processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 
@@ -35,24 +38,49 @@ function runtimeDependencies(): ProcessPaperDependencies {
     },
     async fetchSnapshot(asset) {
       const dex = asset.includes(":") ? asset.split(":", 1)[0] : "";
-      const results = await fetchMarketBatches([{ asset, dex }], new Date());
+      const { data: priorInput, error: priorError } = await service.from("paper_market_inputs")
+        .select("payload").eq("asset", asset).eq("input_kind", "trades")
+        .order("source_timestamp", { ascending: false }).limit(1).maybeSingle();
+      if (priorError) throw new Error(priorError.message);
+      const cursor = (priorInput?.payload as { cursor?: { lastTradeId: string | null; lastTimestampMs: number | null } } | null)?.cursor ??
+        { lastTradeId: null, lastTimestampMs: null };
+      const [results, bookInput, tradeInput, feeInput] = await Promise.all([
+        fetchMarketBatches([{ asset, dex }], new Date()),
+        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), fetchPaperFeeSchedule(),
+      ]);
       const result = results.get(dex);
       if (!result?.ok || result.observations.length !== 1) {
         throw new Error(result && !result.ok ? result.error : "mark_unavailable");
       }
       const observation = result.observations[0];
+      const version = await inputVersion({
+        context: observation, book: bookInput.inputVersion,
+        trades: tradeInput.inputVersion, fees: feeInput.inputVersion,
+      });
       return {
-        asset, inputVersion: await inputVersion(observation), apiWeight: 20,
-        degraded: false, payload: { markPrice: String(observation.mark_price), observation },
+        asset, inputVersion: version, apiWeight: 82,
+        degraded: tradeInput.gap, payload: {
+          markPrice: String(observation.mark_price), observation,
+          book: bookInput.book, trades: tradeInput.trades, tradeGap: tradeInput.gap,
+          cursor: tradeInput.cursor, bookVersion: bookInput.inputVersion,
+          tradeVersion: tradeInput.inputVersion,
+          feeRates: {
+            maker: selectFeeRate(feeInput.schedule, "0", "0", "maker"),
+            taker: selectFeeRate(feeInput.schedule, "0", "0", "taker"),
+          },
+        },
       };
     },
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
-      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }] = await Promise.all([
+      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
         service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
-        service.from("paper_positions").select("signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
+        service.from("paper_positions").select("asset,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
+        service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,created_at")
+          .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
+          .order("created_at", { ascending: true }),
       ]);
-      if (epochError || summaryError || positionsError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message);
+      if (epochError || summaryError || positionsError || ordersError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message);
       if (!epoch || !summary) return { mutated: false };
       const reconciled = reconcileAccount({
         cashBalance: String(summary.cash_balance), cachedEquity: String(summary.equity),
@@ -62,14 +90,55 @@ function runtimeDependencies(): ProcessPaperDependencies {
         })),
       });
       if (!reconciled.reconciled) return { mutated: false, reconciliationFailure: true };
-      const payload = snapshot.payload as { markPrice: string; observation: unknown };
-      const { error: inputError } = await service.from("paper_market_inputs").upsert({
-        asset: snapshot.asset, input_kind: "context", input_version: snapshot.inputVersion,
-        source_timestamp: new Date().toISOString(), payload: payload.observation, fidelity: "live",
-      }, { onConflict: "asset,input_kind,input_version", ignoreDuplicates: true });
+      const payload = snapshot.payload as {
+        markPrice: string; observation: unknown; book: ReplaySnapshot["book"];
+        trades: ReplaySnapshot["trades"]; tradeGap: boolean;
+        cursor: unknown; bookVersion: string; tradeVersion: string;
+        feeRates: { maker: string; taker: string };
+      };
+      const inputRows = [
+        { input_kind: "context", input_version: snapshot.inputVersion, payload: payload.observation, gap_state: null },
+        { input_kind: "book", input_version: payload.bookVersion, payload: payload.book, gap_state: null },
+        { input_kind: "trades", input_version: payload.tradeVersion, payload: { cursor: payload.cursor, trades: payload.trades }, gap_state: payload.tradeGap ? "gap" : null },
+      ].map((row) => ({ asset: snapshot.asset, source_timestamp: new Date().toISOString(), fidelity: row.gap_state ? "degraded" : "live", ...row }));
+      const { error: inputError } = await service.from("paper_market_inputs").upsert(inputRows, {
+        onConflict: "asset,input_kind,input_version", ignoreDuplicates: true,
+      });
       if (inputError) throw new Error(inputError.message);
+
+      let expectedVersion = Number(epoch.version);
+      const storedPosition = (positions ?? []).find((position) => position.asset === snapshot.asset);
+      let position = storedPosition ? {
+        signedSize: String(storedPosition.signed_size), entryPrice: String(storedPosition.entry_price),
+      } : null;
+      const replaySnapshot: ReplaySnapshot = {
+        markPrice: payload.markPrice, book: payload.book, trades: payload.trades,
+        tradeGap: payload.tradeGap, inputVersion: snapshot.inputVersion,
+      };
+      for (const order of orders ?? []) {
+        const effect = replayOrder({
+          id: order.id, side: order.side, orderType: order.order_type,
+          status: order.status, remainingSize: String(order.remaining_size),
+          limitPrice: order.limit_price === null ? null : String(order.limit_price),
+          triggerPrice: order.trigger_price === null ? null : String(order.trigger_price),
+          queueAhead: order.queue_ahead === null ? null : String(order.queue_ahead),
+          reduceOnly: order.reduce_only, createdAtMs: Date.parse(order.created_at),
+        }, position, replaySnapshot, payload.feeRates);
+        if (!effect) continue;
+        const { data: applied, error: replayError } = await service.rpc("apply_paper_replay_effect", {
+          p_epoch_id: epochId, p_expected_version: expectedVersion,
+          p_effects: {
+            ...effect, markPrice: payload.markPrice, inputVersion: snapshot.inputVersion,
+            sourceTimestamp: new Date(payload.book.timestampMs).toISOString(),
+          },
+        });
+        if (replayError) throw new Error(replayError.message);
+        if (!applied) return { mutated: false };
+        expectedVersion += 1;
+        position = effect.position;
+      }
       const { data, error } = await service.rpc("revalue_paper_epoch_asset", {
-        p_epoch_id: epochId, p_expected_version: epoch.version, p_asset: snapshot.asset,
+        p_epoch_id: epochId, p_expected_version: expectedVersion, p_asset: snapshot.asset,
         p_mark_price: payload.markPrice, p_input_version: snapshot.inputVersion,
       });
       if (error) throw new Error(error.message);
