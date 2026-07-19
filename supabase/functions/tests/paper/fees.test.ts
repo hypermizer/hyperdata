@@ -8,8 +8,8 @@ const schedule: FeeSchedule = {
     { minimumVolume: "5000000", makerRate: "0.00012", takerRate: "0.00040" },
   ],
   makerFractionTiers: [
-    { minimumMakerFraction: "0.005", makerRate: "0.00010" },
-    { minimumMakerFraction: "0.02", makerRate: "0.00005" },
+    { minimumMakerFraction: "0.005", makerRate: "-0.00001" },
+    { minimumMakerFraction: "0.02", makerRate: "-0.00002" },
   ],
 };
 
@@ -20,6 +20,6 @@ Deno.test("volume tier starts exactly at its published boundary", () => {
 
 Deno.test("maker fraction selects the strongest earned maker rate", () => {
   assertEquals(selectFeeRate(schedule, "0", "0.0049", "maker"), "0.00015");
-  assertEquals(selectFeeRate(schedule, "0", "0.005", "maker"), "0.0001");
-  assertEquals(selectFeeRate(schedule, "0", "0.02", "maker"), "0.00005");
+  assertEquals(selectFeeRate(schedule, "0", "0.005", "maker"), "-0.00001");
+  assertEquals(selectFeeRate(schedule, "0", "0.02", "maker"), "-0.00002");
 });

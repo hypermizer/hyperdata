@@ -1,5 +1,6 @@
 import type { MarketObservation } from "./types.ts";
 export const INFO_ENDPOINT = "https://api.hyperliquid.xyz/info";
+export const WS_ENDPOINT = "wss://api.hyperliquid.xyz/ws";
 export interface AssetRequest { asset: string; dex: string }
 export type DexResult = { ok: true; observations: MarketObservation[] } | { ok: false; error: string };
 const numberOrNull = (value: unknown): number | null => {
@@ -33,10 +34,13 @@ export function normalizeDexContext(dex: string, payload: unknown, requested: Se
   });
   return rows;
 }
-async function postWithRetry(dex: string, fetchImpl: typeof fetch, retries: number): Promise<unknown> {
+export function assertPublicHyperliquidUrl(value: string): boolean {
+  return value === INFO_ENDPOINT || value === WS_ENDPOINT;
+}
+export async function infoRequest(request: Record<string, unknown>, fetchImpl: typeof fetch = fetch, retries = 2): Promise<unknown> {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const response = await fetchImpl(INFO_ENDPOINT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "metaAndAssetCtxs", dex }), signal: AbortSignal.timeout(8_000) });
+      const response = await fetchImpl(INFO_ENDPOINT, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request), signal: AbortSignal.timeout(8_000) });
       if (response.ok) return await response.json();
       if ((response.status !== 429 && response.status < 500) || attempt >= retries) throw new Error(`Hyperliquid returned ${response.status}`);
     } catch (error) { if (attempt >= retries) throw error; }
@@ -47,7 +51,7 @@ export async function fetchMarketBatches(assets: AssetRequest[], bucket: Date, f
   const groups = new Map<string, Set<string>>();
   assets.forEach(({ asset, dex }) => { if (!groups.has(dex)) groups.set(dex, new Set()); groups.get(dex)!.add(asset); });
   const results: Array<[string, DexResult]> = await Promise.all([...groups].map(async ([dex, requested]): Promise<[string, DexResult]> => {
-    try { return [dex, { ok: true, observations: normalizeDexContext(dex, await postWithRetry(dex, fetchImpl, retries), requested, bucket) }]; }
+    try { return [dex, { ok: true, observations: normalizeDexContext(dex, await infoRequest({ type: "metaAndAssetCtxs", dex }, fetchImpl, retries), requested, bucket) }]; }
     catch (error) { return [dex, { ok: false, error: error instanceof Error ? error.message : String(error) }]; }
   }));
   return new Map(results);

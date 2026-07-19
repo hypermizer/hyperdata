@@ -28,7 +28,7 @@ export function applyFill(
     throw new Error("fill size and price must be positive");
   }
 
-  const fee = fillSize.times(fillPrice).times(fill.feeRate).abs();
+  const fee = fillSize.times(fillPrice).times(fill.feeRate);
   let nextPosition: PaperPosition | null;
   let realized = decimal(0);
 

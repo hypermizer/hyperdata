@@ -44,6 +44,19 @@ export interface MarginTier {
   maintenanceDeduction: string;
 }
 
+export interface PaperAssetMetadata {
+  asset: string;
+  dex: string;
+  collateralToken: number;
+  sizeDecimals: number;
+  maxLeverage: number;
+  marginTableId: number;
+  onlyIsolated: boolean;
+  marginMode: string | null;
+  growthMode: string | null;
+  marginTiers: MarginTier[];
+}
+
 export interface CrossRiskPosition {
   unrealizedPnl: string;
   maintenanceMargin: string;

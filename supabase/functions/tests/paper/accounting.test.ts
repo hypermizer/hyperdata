@@ -53,6 +53,12 @@ Deno.test("funding cash flow debits positive-rate longs and credits shorts", () 
   assertEquals(fundingCashFlow("2", "100", "-0.0001"), "0.02");
 });
 
+Deno.test("negative maker fee rate credits a rebate to cash", () => {
+  const result = applyFill(null, { side: "buy", size: "2", price: "100", feeRate: "-0.00001" });
+  assertEquals(result.fee, "-0.002");
+  assertEquals(result.cashAfter("5000"), "5000.002");
+});
+
 Deno.test("extreme valid decimals remain exact and negative zero is normalized", () => {
   assertEquals(
     fundingCashFlow("123456789.123456789", "999999.99999", "0.000000000001"),
