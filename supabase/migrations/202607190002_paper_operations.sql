@@ -274,3 +274,63 @@ grant execute on function public.rename_paper_account(uuid, text) to authenticat
 grant execute on function public.archive_paper_account(uuid) to authenticated;
 grant execute on function public.reset_paper_account(uuid) to authenticated;
 grant execute on function public.apply_paper_effects(uuid, integer, bigint, text, jsonb) to service_role;
+
+create or replace function public.set_paper_leverage(
+  p_account_id uuid,
+  p_asset text,
+  p_margin_mode text,
+  p_leverage integer,
+  p_isolated_margin numeric default null
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare target_epoch_id uuid;
+begin
+  perform public.require_paper_owner();
+  if p_margin_mode not in ('cross', 'isolated') or p_leverage <= 0 then
+    raise exception 'invalid leverage setting';
+  end if;
+  select e.id into target_epoch_id
+  from public.paper_accounts a
+  join public.paper_account_epochs e on e.account_id = a.id and e.epoch_number = a.active_epoch
+  where a.id = p_account_id and a.user_id = auth.uid() and a.archived_at is null and e.state = 'active'
+  for update of e;
+  if target_epoch_id is null then raise exception 'paper account not found'; end if;
+  insert into public.paper_leverage_settings (epoch_id, asset, margin_mode, leverage, isolated_margin)
+  values (target_epoch_id, p_asset, p_margin_mode, p_leverage, p_isolated_margin)
+  on conflict (epoch_id, asset) do update set
+    margin_mode = excluded.margin_mode,
+    leverage = excluded.leverage,
+    isolated_margin = excluded.isolated_margin,
+    updated_at = now();
+  return true;
+end;
+$$;
+
+create or replace function public.cancel_paper_order(p_account_id uuid, p_order_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, auth
+as $$
+declare changed boolean;
+begin
+  perform public.require_paper_owner();
+  update public.paper_orders o
+  set status = 'canceled', rejection_reason = 'user canceled', reserved_margin = 0, updated_at = now()
+  from public.paper_account_epochs e, public.paper_accounts a
+  where o.id = p_order_id and o.epoch_id = e.id and e.account_id = a.id
+    and a.id = p_account_id and a.user_id = auth.uid() and a.active_epoch = e.epoch_number
+    and e.state = 'active' and o.status in ('resting', 'trigger_waiting', 'partially_filled')
+  returning true into changed;
+  return coalesce(changed, false);
+end;
+$$;
+
+revoke all on function public.set_paper_leverage(uuid, text, text, integer, numeric) from public, anon;
+revoke all on function public.cancel_paper_order(uuid, uuid) from public, anon;
+grant execute on function public.set_paper_leverage(uuid, text, text, integer, numeric) to authenticated;
+grant execute on function public.cancel_paper_order(uuid, uuid) to authenticated;
