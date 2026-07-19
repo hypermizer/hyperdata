@@ -1,11 +1,15 @@
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import { inputVersion } from "../_shared/paper/market-data.ts";
-import { fetchPaperBook, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
+import { fetchPaperBook, fetchPaperCatalog, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
 import { selectFeeRate } from "../_shared/paper/fees.ts";
+import { crossRisk, isolatedRisk, maintenanceMargin } from "../_shared/paper/margin.ts";
+import { unrealizedPnl } from "../_shared/paper/accounting.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
+import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 import { replayOrder, type ReplaySnapshot } from "./account-processor.ts";
 import { missingFundingEffects } from "./funding.ts";
+import { buildLiquidationEffect } from "./liquidation.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
 import { processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 
@@ -17,8 +21,10 @@ function required(name: string): string {
 
 function runtimeDependencies(): ProcessPaperDependencies {
   const service = createServiceClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"));
+  let catalogPromise: ReturnType<typeof fetchPaperCatalog> | null = null;
+  let feePromise: ReturnType<typeof fetchPaperFeeSchedule> | null = null;
   const processor: PaperProcessorDependencies = {
-    estimateSnapshotWeight: () => 102,
+    estimateSnapshotWeight: () => 142,
     async loadWork() {
       const [{ data: positions, error: positionError }, { data: orders, error: orderError }] = await Promise.all([
         service.from("paper_positions").select("epoch_id,asset"),
@@ -54,27 +60,32 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const fundingPromise = fundingIsFresh
         ? Promise.resolve({ points: (cachedFunding.payload as { points?: never[] }).points ?? [], inputVersion: cachedFunding.input_version, fetched: false })
         : fetchPaperFunding(asset, Date.now() - 24 * 60 * 60 * 1_000, Date.now()).then((value) => ({ ...value, fetched: true }));
-      const [results, bookInput, tradeInput, feeInput, fundingInput] = await Promise.all([
+      catalogPromise ??= fetchPaperCatalog();
+      feePromise ??= fetchPaperFeeSchedule();
+      const [results, bookInput, tradeInput, feeInput, fundingInput, catalogInput] = await Promise.all([
         fetchMarketBatches([{ asset, dex }], new Date()),
-        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), fetchPaperFeeSchedule(), fundingPromise,
+        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), feePromise, fundingPromise, catalogPromise,
       ]);
       const result = results.get(dex);
       if (!result?.ok || result.observations.length !== 1) {
         throw new Error(result && !result.ok ? result.error : "mark_unavailable");
       }
       const observation = result.observations[0];
+      const metadata = catalogInput.assets.find((item) => item.asset === asset);
+      if (!metadata) throw new Error("asset_metadata_unavailable");
       const version = await inputVersion({
         context: observation, book: bookInput.inputVersion,
         trades: tradeInput.inputVersion, fees: feeInput.inputVersion, funding: fundingInput.inputVersion,
       });
       return {
-        asset, inputVersion: version, apiWeight: 82 + (fundingInput.fetched ? 20 : 0),
+        asset, inputVersion: version, apiWeight: 122 + (fundingInput.fetched ? 20 : 0),
         degraded: tradeInput.gap, payload: {
           markPrice: String(observation.mark_price), observation,
           book: bookInput.book, trades: tradeInput.trades, tradeGap: tradeInput.gap,
           cursor: tradeInput.cursor, bookVersion: bookInput.inputVersion,
           tradeVersion: tradeInput.inputVersion,
           fundingPoints: fundingInput.points, fundingVersion: fundingInput.inputVersion,
+          metadata, catalog: catalogInput.assets,
           feeRates: {
             maker: selectFeeRate(feeInput.schedule, "0", "0", "maker"),
             taker: selectFeeRate(feeInput.schedule, "0", "0", "taker"),
@@ -86,7 +97,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
         service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
-        service.from("paper_positions").select("asset,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
+        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
         service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,created_at")
           .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
           .order("created_at", { ascending: true }),
@@ -109,6 +120,8 @@ function runtimeDependencies(): ProcessPaperDependencies {
         cursor: unknown; bookVersion: string; tradeVersion: string;
         fundingPoints: Parameters<typeof missingFundingEffects>[0]; fundingVersion: string;
         feeRates: { maker: string; taker: string };
+        metadata: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"][number];
+        catalog: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"];
       };
       const inputRows = [
         { input_kind: "context", input_version: snapshot.inputVersion, payload: payload.observation, gap_state: null },
@@ -176,7 +189,57 @@ function runtimeDependencies(): ProcessPaperDependencies {
         p_mark_price: payload.markPrice, p_input_version: snapshot.inputVersion,
       });
       if (error) throw new Error(error.message);
-      return { mutated: data === true };
+      if (!data) return { mutated: false };
+      if (position) expectedVersion += 1;
+
+      const { data: cooldown, error: cooldownError } = await service.from("paper_liquidations")
+        .select("cooldown_until").eq("epoch_id", epochId).eq("asset", snapshot.asset)
+        .not("cooldown_until", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (cooldownError) throw new Error(cooldownError.message);
+      if (!position || (cooldown?.cooldown_until && Date.parse(cooldown.cooldown_until) > Date.now())) {
+        return { mutated: data === true };
+      }
+      const [{ data: currentSummary, error: currentSummaryError }, { data: currentPositions, error: currentPositionsError }] = await Promise.all([
+        service.from("paper_account_summaries").select("cash_balance").eq("epoch_id", epochId).single(),
+        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
+      ]);
+      if (currentSummaryError || currentPositionsError) throw new Error(currentSummaryError?.message ?? currentPositionsError?.message);
+      const currentStored = (currentPositions ?? []).find((item) => item.asset === snapshot.asset);
+      if (!currentStored) return { mutated: true };
+      position = { signedSize: String(currentStored.signed_size), entryPrice: String(currentStored.entry_price) };
+      const currentNotional = decimalString(decimal(position.signedSize).abs().times(payload.markPrice));
+      const requiredMaintenance = maintenanceMargin(currentNotional, payload.metadata.marginTiers);
+      let risk;
+      if (currentStored.margin_mode === "isolated") {
+        risk = isolatedRisk(String(currentStored.isolated_margin ?? 0), unrealizedPnl(position, payload.markPrice), requiredMaintenance);
+      } else {
+        const metadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
+        const isolatedReservations = (currentPositions ?? []).filter((item) => item.margin_mode === "isolated")
+          .reduce((sum, item) => sum.plus(item.isolated_margin ?? 0), decimal(0));
+        risk = crossRisk(decimalString(decimal(currentSummary.cash_balance).minus(isolatedReservations)),
+          (currentPositions ?? []).filter((item) => item.margin_mode === "cross").flatMap((item) => {
+            const metadata = metadataByAsset.get(item.asset);
+            if (!metadata) return [];
+            const mark = item.asset === snapshot.asset ? payload.markPrice : String(item.mark_price);
+            const paperPosition = { signedSize: String(item.signed_size), entryPrice: String(item.entry_price) };
+            return [{
+              unrealizedPnl: unrealizedPnl(paperPosition, mark),
+              maintenanceMargin: maintenanceMargin(decimalString(decimal(item.signed_size).abs().times(mark)), metadata.marginTiers),
+            }];
+          }));
+      }
+      const liquidation = buildLiquidationEffect({
+        asset: snapshot.asset, position, markPrice: payload.markPrice,
+        equity: risk.equity, maintenanceMargin: risk.maintenanceMargin,
+        book: payload.book, feeRate: payload.feeRates.taker,
+        inputVersion: snapshot.inputVersion, nowMs: Date.now(),
+      });
+      if (!liquidation) return { mutated: true };
+      const { data: liquidationApplied, error: liquidationError } = await service.rpc("apply_paper_liquidation_effect", {
+        p_epoch_id: epochId, p_expected_version: expectedVersion, p_effect: liquidation,
+      });
+      if (liquidationError) throw new Error(liquidationError.message);
+      return { mutated: liquidationApplied === true };
     },
   };
   return {

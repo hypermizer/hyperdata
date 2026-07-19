@@ -285,6 +285,105 @@ $$;
 revoke all on function public.apply_paper_funding_effect(uuid, bigint, text, jsonb) from public, anon, authenticated;
 grant execute on function public.apply_paper_funding_effect(uuid, bigint, text, jsonb) to service_role;
 
+create or replace function public.apply_paper_liquidation_effect(
+  p_epoch_id uuid,
+  p_expected_version bigint,
+  p_effect jsonb
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare current_version bigint;
+declare liquidation_id uuid;
+declare total_fee numeric(38, 6) := coalesce((p_effect ->> 'totalFee')::numeric, 0);
+declare total_realized numeric(38, 6) := coalesce((p_effect ->> 'realizedPnl')::numeric, 0);
+declare total_volume numeric(38, 6) := 0;
+begin
+  select version into current_version from public.paper_account_epochs
+  where id = p_epoch_id and state = 'active' for update;
+  if current_version is null or current_version <> p_expected_version then return false; end if;
+
+  update public.paper_orders set
+    status = 'canceled', rejection_reason = 'liquidation', reserved_margin = 0, updated_at = now()
+  where epoch_id = p_epoch_id and status in ('resting', 'partially_filled', 'trigger_waiting');
+
+  insert into public.paper_liquidations (
+    epoch_id, asset, classification, trigger_snapshot, attempted_fills,
+    maintenance_margin, remaining_equity, cooldown_until,
+    source_timestamp, input_version
+  ) values (
+    p_epoch_id, p_effect ->> 'asset', p_effect ->> 'classification',
+    p_effect -> 'triggerSnapshot', coalesce(p_effect -> 'fills', '[]'::jsonb),
+    (p_effect ->> 'maintenanceMargin')::numeric, (p_effect ->> 'remainingEquity')::numeric,
+    nullif(p_effect ->> 'cooldownUntil', '')::timestamptz,
+    (p_effect ->> 'sourceTimestamp')::timestamptz, p_effect ->> 'inputVersion'
+  ) returning id into liquidation_id;
+
+  insert into public.paper_fills (
+    epoch_id, order_id, asset, side, liquidity, size, price, fee,
+    source_id, source_timestamp, input_version, fidelity
+  ) select p_epoch_id, null, p_effect ->> 'asset',
+    case when (p_effect -> 'triggerSnapshot' ->> 'signedSize')::numeric > 0 then 'sell' else 'buy' end,
+    'liquidation', fill.size::numeric, fill.price::numeric, fill.fee::numeric,
+    fill."sourceId", (p_effect ->> 'sourceTimestamp')::timestamptz,
+    p_effect ->> 'inputVersion',
+    case when p_effect ->> 'classification' = 'backstop' then 'degraded' else 'exact_book' end
+  from jsonb_to_recordset(coalesce(p_effect -> 'fills', '[]'::jsonb))
+    as fill(price text, size text, fee text, liquidity text, "sourceId" text)
+  on conflict (epoch_id, source_id) do nothing;
+
+  select coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0)
+  into total_volume from jsonb_array_elements(coalesce(p_effect -> 'fills', '[]'::jsonb)) fill;
+
+  if p_effect -> 'position' = 'null'::jsonb then
+    delete from public.paper_positions where epoch_id = p_epoch_id and asset = p_effect ->> 'asset';
+  else
+    update public.paper_positions set
+      signed_size = (p_effect -> 'position' ->> 'signedSize')::numeric,
+      entry_price = (p_effect -> 'position' ->> 'entryPrice')::numeric,
+      mark_price = (p_effect -> 'triggerSnapshot' ->> 'markPrice')::numeric,
+      realized_pnl = realized_pnl + total_realized,
+      input_version = p_effect ->> 'inputVersion', updated_at = now()
+    where epoch_id = p_epoch_id and asset = p_effect ->> 'asset';
+  end if;
+
+  if total_realized <> 0 then
+    insert into public.paper_ledger_entries (epoch_id, entry_type, amount, asset, reference_id, source_timestamp)
+    values (p_epoch_id, 'liquidation', total_realized, p_effect ->> 'asset', liquidation_id, (p_effect ->> 'sourceTimestamp')::timestamptz);
+  end if;
+  if total_fee <> 0 then
+    insert into public.paper_ledger_entries (epoch_id, entry_type, amount, asset, reference_id, source_timestamp)
+    values (p_epoch_id, 'fee', -total_fee, p_effect ->> 'asset', liquidation_id, (p_effect ->> 'sourceTimestamp')::timestamptz);
+  end if;
+
+  update public.paper_account_summaries set
+    cash_balance = cash_balance + total_realized - total_fee,
+    realized_pnl = realized_pnl + total_realized,
+    cumulative_fees = cumulative_fees + total_fee,
+    trailing_volume = trailing_volume + total_volume,
+    fidelity = case when p_effect ->> 'classification' = 'backstop' then 'degraded' else 'live' end,
+    reconciled_at = now()
+  where epoch_id = p_epoch_id;
+  update public.paper_account_summaries summary set
+    unrealized_pnl = totals.unrealized,
+    equity = summary.cash_balance + totals.unrealized,
+    total_notional = totals.notional,
+    maintenance_margin = 0
+  from (select
+      coalesce(sum(signed_size * (mark_price - entry_price)), 0)::numeric(38, 6) as unrealized,
+      coalesce(sum(abs(signed_size) * mark_price), 0)::numeric(38, 6) as notional
+    from public.paper_positions where epoch_id = p_epoch_id) totals
+  where summary.epoch_id = p_epoch_id;
+  update public.paper_account_epochs set version = version + 1 where id = p_epoch_id;
+  return true;
+end;
+$$;
+
+revoke all on function public.apply_paper_liquidation_effect(uuid, bigint, jsonb) from public, anon, authenticated;
+grant execute on function public.apply_paper_liquidation_effect(uuid, bigint, jsonb) to service_role;
+
 create or replace function public.configure_paper_cron(p_enabled boolean default false)
 returns void
 language plpgsql

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(23);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -65,6 +65,26 @@ select ok(public.apply_paper_funding_effect(
   (select id from public.paper_account_epochs limit 1), 3, 'xyz:ORCL',
   '{"fundingTimestamp":"2026-07-19T13:00:00Z","signedSize":"1.5","oraclePrice":"100","fundingRate":"0.0001","payment":"-0.015","inputVersion":"funding-v1"}'::jsonb
 ), 'duplicate funding is an exactly-once no-op');
+
+select ok(public.apply_paper_liquidation_effect(
+  (select id from public.paper_account_epochs limit 1), 3,
+  jsonb_build_object(
+    'asset', 'xyz:ORCL', 'classification', 'book',
+    'maintenanceMargin', '100', 'remainingEquity', '4984.8515',
+    'cooldownUntil', null, 'sourceTimestamp', '2026-07-19T13:00:10Z',
+    'inputVersion', 'liq-v1',
+    'fills', '[{"price":"90","size":"1.5","fee":"0.135","liquidity":"liquidation","sourceId":"liq-v1:liquidation:0"}]'::jsonb,
+    'position', 'null'::jsonb, 'realizedPnl', '-15', 'totalFee', '0.135',
+    'triggerSnapshot', '{"equity":"50","maintenanceMargin":"100","markPrice":"90","positionNotional":"135","signedSize":"1.5"}'::jsonb
+  )
+), 'liquidation applies atomically');
+select is((select status from public.paper_orders), 'canceled', 'open orders cancel before liquidation');
+select is((select rejection_reason from public.paper_orders), 'liquidation', 'cancellation reason is preserved');
+select is((select count(*)::integer from public.paper_liquidations), 1, 'liquidation event persists');
+select is((select count(*)::integer from public.paper_fills), 2, 'liquidation fill persists');
+select is((select count(*)::integer from public.paper_positions), 0, 'closed position is removed');
+select is((select cash_balance::text from public.paper_account_summaries), '4984.851500', 'liquidation pnl and fee reconcile cash');
+select is((select version from public.paper_account_epochs), 4::bigint, 'liquidation advances account version');
 
 select * from finish();
 rollback;
