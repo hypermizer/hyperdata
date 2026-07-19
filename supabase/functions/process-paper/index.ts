@@ -18,6 +18,7 @@ function required(name: string): string {
 function runtimeDependencies(): ProcessPaperDependencies {
   const service = createServiceClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"));
   const processor: PaperProcessorDependencies = {
+    estimateSnapshotWeight: () => 102,
     async loadWork() {
       const [{ data: positions, error: positionError }, { data: orders, error: orderError }] = await Promise.all([
         service.from("paper_positions").select("epoch_id,asset"),

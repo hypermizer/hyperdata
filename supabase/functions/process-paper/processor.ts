@@ -21,6 +21,7 @@ export interface ProcessorAccountResult {
 
 export interface PaperProcessorDependencies {
   loadWork(): Promise<ProcessorAssetWork[]>;
+  estimateSnapshotWeight?(asset: string): number;
   fetchSnapshot(asset: string): Promise<ProcessorSnapshot>;
   processAccount(accountId: string, snapshot: ProcessorSnapshot): Promise<ProcessorAccountResult>;
 }
@@ -53,6 +54,11 @@ export async function processPaperBatch(
   const degradedAssets: Array<{ asset: string; reason: string }> = [];
 
   for (const item of work) {
+    const estimatedWeight = dependencies.estimateSnapshotWeight?.(item.asset) ?? 0;
+    if (!budget.tryConsume(estimatedWeight)) {
+      degradedAssets.push({ asset: item.asset, reason: "api_budget_exhausted" });
+      continue;
+    }
     let snapshot: ProcessorSnapshot;
     try {
       snapshot = await dependencies.fetchSnapshot(item.asset);
@@ -63,7 +69,7 @@ export async function processPaperBatch(
       });
       continue;
     }
-    if (!budget.tryConsume(snapshot.apiWeight)) {
+    if (snapshot.apiWeight > estimatedWeight && !budget.tryConsume(snapshot.apiWeight - estimatedWeight)) {
       degradedAssets.push({ asset: item.asset, reason: "api_budget_exhausted" });
       continue;
     }

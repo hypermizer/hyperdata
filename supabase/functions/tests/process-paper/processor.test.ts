@@ -33,10 +33,11 @@ Deno.test("risk-bearing assets consume budget before resting-only assets", async
       { asset: "XYZ100", hasPosition: false, accountIds: ["resting"] },
       { asset: "ORCL", hasPosition: true, accountIds: ["risk"] },
     ],
+    estimateSnapshotWeight: () => 25,
     fetchSnapshot: async (asset) => { fetched.push(asset); return snapshot(asset); },
     processAccount: async (accountId) => { processed.push(accountId); return { mutated: true }; },
   }, 25);
-  assertEquals(fetched, ["ORCL", "XYZ100"]);
+  assertEquals(fetched, ["ORCL"]);
   assertEquals(processed, ["risk"]);
   assertEquals(result.state, "partial");
   assertEquals(result.apiWeight, 25);
