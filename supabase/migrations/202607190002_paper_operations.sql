@@ -257,6 +257,18 @@ begin
       trailing_volume = trailing_volume + total_volume,
       reconciled_at = now()
   where epoch_id = epoch_row.id;
+  update public.paper_account_summaries summary set
+    unrealized_pnl = totals.unrealized,
+    equity = summary.cash_balance + totals.unrealized,
+    total_notional = totals.notional,
+    fidelity = 'live'
+  from (
+    select
+      coalesce(sum(signed_size * (mark_price - entry_price)), 0)::numeric(38, 6) as unrealized,
+      coalesce(sum(abs(signed_size) * mark_price), 0)::numeric(38, 6) as notional
+    from public.paper_positions where epoch_id = epoch_row.id
+  ) totals
+  where summary.epoch_id = epoch_row.id;
   update public.paper_account_epochs set version = version + 1 where id = epoch_row.id;
   return p_effects;
 end;
