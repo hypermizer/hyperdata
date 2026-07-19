@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { executeOrder } from "../../_shared/paper/execution.ts";
+import { executeOrder, validTriggerSide } from "../../_shared/paper/execution.ts";
 
 const book = {
   asset: "xyz:ORCL",
@@ -44,4 +44,13 @@ Deno.test("reduce-only caps at exposure and never reverses", () => {
   const rejected = executeOrder({ side: "buy", size: "1", type: "market", timeInForce: null, limitPrice: null, reduceOnly: true }, book, "2");
   assertEquals(rejected.status, "rejected");
   assertEquals(rejected.reason, "reduce_only_would_increase");
+});
+
+Deno.test("stop and take triggers must be on the executable side of mark", () => {
+  assertEquals(validTriggerSide("sell", "stop", "90", "100"), true);
+  assertEquals(validTriggerSide("sell", "take", "110", "100"), true);
+  assertEquals(validTriggerSide("buy", "stop", "110", "100"), true);
+  assertEquals(validTriggerSide("buy", "take", "90", "100"), true);
+  assertEquals(validTriggerSide("sell", "stop", "110", "100"), false);
+  assertEquals(validTriggerSide("buy", "take", "110", "100"), false);
 });

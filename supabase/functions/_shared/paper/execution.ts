@@ -20,6 +20,19 @@ export interface ExecutionResult {
   reason: string | null;
 }
 
+export function validTriggerSide(
+  side: Side,
+  kind: "stop" | "take",
+  triggerPrice: string,
+  markPrice: string,
+): boolean {
+  const trigger = decimal(triggerPrice);
+  const mark = decimal(markPrice);
+  if (!trigger.isPositive() || !mark.isPositive() || trigger.eq(mark)) return false;
+  if (kind === "stop") return side === "buy" ? trigger.gt(mark) : trigger.lt(mark);
+  return side === "buy" ? trigger.lt(mark) : trigger.gt(mark);
+}
+
 function rejection(size: string, reason: string): ExecutionResult {
   return {
     status: "rejected",

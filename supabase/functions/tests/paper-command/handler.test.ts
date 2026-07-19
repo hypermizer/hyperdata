@@ -26,6 +26,7 @@ function dependencies(overrides: Partial<PaperCommandDependencies> = {}): PaperC
     loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", position: null }),
     findCommand: async () => null,
     loadAsset: async () => asset,
+    loadMark: async () => ({ markPrice: "100", inputVersion: "mark-v1" }),
     loadBook: async () => ({ book, inputVersion: "book-v1" }),
     loadFeeSchedule: async () => ({ schedule: { volumeTiers: [{ minimumVolume: "0", makerRate: "0.00015", takerRate: "0.00045" }], makerFractionTiers: [] }, inputVersion: "fees-v1" }),
     applyEffects: async (effects) => effects,
@@ -98,4 +99,20 @@ Deno.test("stale epoch rejects before public market retrieval", async () => {
   }));
   assertEquals(response.status, 409);
   assertEquals(marketCalls, 0);
+});
+
+Deno.test("valid trigger persists without fetching an execution book", async () => {
+  let bookCalls = 0;
+  const command = {
+    ...marketBuy,
+    idempotencyKey: "trigger-1",
+    order: { ...marketBuy.order, side: "sell", orderType: "stop_market", triggerPrice: "90", reduceOnly: true },
+  };
+  const response = await handlePaperCommand(request(command), dependencies({
+    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", position: { signedSize: "1", entryPrice: "100" } }),
+    loadBook: async () => { bookCalls += 1; return { book, inputVersion: "book-v1" }; },
+  }));
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).response.status, "trigger_waiting");
+  assertEquals(bookCalls, 0);
 });

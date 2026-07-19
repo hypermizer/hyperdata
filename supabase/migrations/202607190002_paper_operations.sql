@@ -160,7 +160,7 @@ begin
   if p_effects ? 'order' then
     insert into public.paper_orders (
       epoch_id, client_order_id, asset, side, order_type, time_in_force, margin_mode,
-      size, remaining_size, limit_price, reduce_only, status, queue_ahead,
+      size, remaining_size, limit_price, trigger_price, reduce_only, status, queue_ahead,
       reserved_margin, rejection_reason, fidelity, source_timestamp
     ) values (
       epoch_row.id,
@@ -173,6 +173,7 @@ begin
       (p_effects -> 'order' ->> 'requestedSize')::numeric,
       (p_effects -> 'order' ->> 'remainingSize')::numeric,
       nullif(p_effects -> 'order' ->> 'limitPrice', '')::numeric,
+      nullif(p_effects -> 'order' ->> 'triggerPrice', '')::numeric,
       coalesce((p_effects -> 'order' ->> 'reduceOnly')::boolean, false),
       p_effects -> 'order' ->> 'status',
       nullif(p_effects -> 'order' ->> 'queueAhead', '')::numeric,

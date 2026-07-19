@@ -1,7 +1,7 @@
 import { applyFill } from "../_shared/paper/accounting.ts";
 import { validateOrderConstraints } from "../_shared/paper/constraints.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
-import { executeOrder } from "../_shared/paper/execution.ts";
+import { executeOrder, validTriggerSide } from "../_shared/paper/execution.ts";
 import { selectFeeRate } from "../_shared/paper/fees.ts";
 import type { NormalizedBook } from "../_shared/paper/market-data.ts";
 import type { FeeSchedule, PaperAssetMetadata, PaperPosition } from "../_shared/paper/types.ts";
@@ -28,6 +28,7 @@ export interface PaperCommandDependencies {
   loadAccount(accountId: string, userId: string, asset: string): Promise<PaperAccountState | null>;
   findCommand(accountId: string, epochNumber: number, idempotencyKey: string): Promise<unknown | null>;
   loadAsset(asset: string): Promise<PaperAssetMetadata | null>;
+  loadMark(asset: string, dex: string): Promise<{ markPrice: string; inputVersion: string }>;
   loadBook(asset: string): Promise<{ book: NormalizedBook; inputVersion: string }>;
   loadFeeSchedule(): Promise<{ schedule: FeeSchedule; inputVersion: string }>;
   applyEffects(effects: Record<string, unknown>, context: ApplyContext): Promise<unknown>;
@@ -44,9 +45,10 @@ interface PlaceOrderCommand {
     asset: string;
     side: "buy" | "sell";
     size: string;
-    orderType: "market" | "limit";
+    orderType: "market" | "limit" | "stop_market" | "stop_limit" | "take_market" | "take_limit";
     timeInForce: "GTC" | "ALO" | "IOC" | null;
     limitPrice: string | null;
+    triggerPrice?: string | null;
     leverage: number;
     marginMode: "cross" | "isolated";
     reduceOnly: boolean;
@@ -65,9 +67,10 @@ function parseCommand(value: unknown): PlaceOrderCommand | null {
     !Number.isInteger(command.epochNumber) || !Number.isInteger(command.expectedVersion) ||
     typeof command.idempotencyKey !== "string" || !order || typeof order.asset !== "string" ||
     !["buy", "sell"].includes(String(order.side)) || typeof order.size !== "string" ||
-    !["market", "limit"].includes(String(order.orderType)) ||
+    !["market", "limit", "stop_market", "stop_limit", "take_market", "take_limit"].includes(String(order.orderType)) ||
     (order.timeInForce !== null && !["GTC", "ALO", "IOC"].includes(String(order.timeInForce))) ||
     (order.limitPrice !== null && typeof order.limitPrice !== "string") ||
+    (order.triggerPrice !== undefined && order.triggerPrice !== null && typeof order.triggerPrice !== "string") ||
     !Number.isInteger(order.leverage) || !["cross", "isolated"].includes(String(order.marginMode)) ||
     typeof order.reduceOnly !== "boolean") return null;
   return value as PlaceOrderCommand;
@@ -100,6 +103,53 @@ export async function handlePaperCommand(
   if (!asset) return jsonError("unknown_asset", 422);
   if (asset.collateralToken !== 0) return jsonError("unsupported_collateral", 422);
 
+  const triggerKind = command.order.orderType.startsWith("stop_") ? "stop"
+    : command.order.orderType.startsWith("take_") ? "take" : null;
+  if (triggerKind) {
+    if (!command.order.triggerPrice) return jsonError("missing_trigger_price", 422);
+    const mark = await dependencies.loadMark(command.order.asset, asset.dex);
+    const constraintErrors = validateOrderConstraints(asset, {
+      size: command.order.size,
+      price: command.order.limitPrice ?? command.order.triggerPrice,
+      leverage: command.order.leverage,
+      marginMode: command.order.marginMode,
+      marketState: "open",
+    });
+    if (constraintErrors.length) return jsonError("invalid_order", 422, constraintErrors);
+    if (!validTriggerSide(command.order.side, triggerKind, command.order.triggerPrice, mark.markPrice)) {
+      return jsonError("invalid_trigger_side", 422);
+    }
+    const effects: Record<string, unknown> = {
+      response: {
+        status: "trigger_waiting",
+        remainingSize: command.order.size,
+        reason: null,
+        fidelity: "trade_replay",
+        sourceTimestamp: new Date(dependencies.now()).toISOString(),
+        processedAt: new Date(dependencies.now()).toISOString(),
+      },
+      order: {
+        ...command.order,
+        requestedSize: command.order.size,
+        remainingSize: command.order.size,
+        queueAhead: null,
+        status: "trigger_waiting",
+      },
+      fills: [],
+      position: account.position,
+      positionProjection: account.position,
+      ledger: [],
+      inputVersions: { mark: mark.inputVersion },
+    };
+    const canonical = await dependencies.applyEffects(effects, {
+      accountId: command.accountId,
+      epochNumber: command.epochNumber,
+      expectedVersion: command.expectedVersion,
+      idempotencyKey: command.idempotencyKey,
+    });
+    return Response.json(canonical);
+  }
+
   const { book, inputVersion: bookVersion } = await dependencies.loadBook(command.order.asset);
   if (dependencies.now() - book.timestampMs > MAX_BOOK_AGE_MS) return jsonError("stale_book", 503);
   const referencePrice = command.order.limitPrice ??
@@ -123,7 +173,7 @@ export async function handlePaperCommand(
   const execution = executeOrder({
     side: command.order.side,
     size: command.order.size,
-    type: command.order.orderType,
+    type: command.order.orderType as "market" | "limit",
     timeInForce: command.order.timeInForce,
     limitPrice: command.order.limitPrice,
     reduceOnly: command.order.reduceOnly,

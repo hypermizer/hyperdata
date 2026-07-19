@@ -1,9 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/database.ts";
+import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import {
   fetchPaperBook,
   fetchPaperCatalog,
   fetchPaperFeeSchedule,
+  inputVersion,
 } from "../_shared/paper/market-data.ts";
 import { handlePaperCommand, type PaperCommandDependencies } from "./handler.ts";
 
@@ -74,6 +76,16 @@ function dependencies(): PaperCommandDependencies {
     async loadAsset(asset) {
       const catalog = await fetchPaperCatalog();
       return catalog.assets.find((item) => item.asset === asset) ?? null;
+    },
+    async loadMark(asset, dex) {
+      const results = await fetchMarketBatches([{ asset, dex }], new Date());
+      const result = results.get(dex);
+      if (!result?.ok || result.observations.length !== 1) throw new Error("mark unavailable");
+      const observation = result.observations[0];
+      return {
+        markPrice: String(observation.mark_price),
+        inputVersion: await inputVersion(observation),
+      };
     },
     loadBook: fetchPaperBook,
     loadFeeSchedule: fetchPaperFeeSchedule,
