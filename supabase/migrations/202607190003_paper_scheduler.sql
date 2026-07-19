@@ -230,6 +230,61 @@ $$;
 revoke all on function public.apply_paper_replay_effect(uuid, bigint, jsonb) from public, anon, authenticated;
 grant execute on function public.apply_paper_replay_effect(uuid, bigint, jsonb) to service_role;
 
+create or replace function public.apply_paper_funding_effect(
+  p_epoch_id uuid,
+  p_expected_version bigint,
+  p_asset text,
+  p_effect jsonb
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare current_version bigint;
+declare payment_id uuid;
+declare payment_amount numeric(38, 6) := (p_effect ->> 'payment')::numeric;
+begin
+  select version into current_version from public.paper_account_epochs
+  where id = p_epoch_id and state = 'active' for update;
+  if current_version is null or current_version <> p_expected_version then return false; end if;
+
+  insert into public.paper_funding_payments (
+    epoch_id, asset, funding_timestamp, signed_size, oracle_price,
+    funding_rate, payment, input_version
+  ) values (
+    p_epoch_id, p_asset, (p_effect ->> 'fundingTimestamp')::timestamptz,
+    (p_effect ->> 'signedSize')::numeric, (p_effect ->> 'oraclePrice')::numeric,
+    (p_effect ->> 'fundingRate')::numeric, payment_amount, p_effect ->> 'inputVersion'
+  ) on conflict (epoch_id, asset, funding_timestamp) do nothing
+  returning id into payment_id;
+  if payment_id is null then return true; end if;
+
+  insert into public.paper_ledger_entries (
+    epoch_id, entry_type, amount, asset, reference_id, source_timestamp
+  ) values (
+    p_epoch_id, 'funding', payment_amount, p_asset, payment_id,
+    (p_effect ->> 'fundingTimestamp')::timestamptz
+  );
+  update public.paper_positions set
+    cumulative_funding = cumulative_funding + payment_amount,
+    updated_at = now()
+  where epoch_id = p_epoch_id and asset = p_asset;
+  update public.paper_account_summaries set
+    cash_balance = cash_balance + payment_amount,
+    equity = equity + payment_amount,
+    withdrawable = withdrawable + payment_amount,
+    cumulative_funding = cumulative_funding + payment_amount,
+    reconciled_at = now()
+  where epoch_id = p_epoch_id;
+  update public.paper_account_epochs set version = version + 1 where id = p_epoch_id;
+  return true;
+end;
+$$;
+
+revoke all on function public.apply_paper_funding_effect(uuid, bigint, text, jsonb) from public, anon, authenticated;
+grant execute on function public.apply_paper_funding_effect(uuid, bigint, text, jsonb) to service_role;
+
 create or replace function public.configure_paper_cron(p_enabled boolean default false)
 returns void
 language plpgsql

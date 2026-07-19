@@ -1,10 +1,11 @@
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import { inputVersion } from "../_shared/paper/market-data.ts";
-import { fetchPaperBook, fetchPaperFeeSchedule, fetchPaperTrades } from "../_shared/paper/market-data.ts";
+import { fetchPaperBook, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
 import { selectFeeRate } from "../_shared/paper/fees.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
 import { replayOrder, type ReplaySnapshot } from "./account-processor.ts";
+import { missingFundingEffects } from "./funding.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
 import { processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 
@@ -44,9 +45,17 @@ function runtimeDependencies(): ProcessPaperDependencies {
       if (priorError) throw new Error(priorError.message);
       const cursor = (priorInput?.payload as { cursor?: { lastTradeId: string | null; lastTimestampMs: number | null } } | null)?.cursor ??
         { lastTradeId: null, lastTimestampMs: null };
-      const [results, bookInput, tradeInput, feeInput] = await Promise.all([
+      const { data: cachedFunding, error: fundingCacheError } = await service.from("paper_market_inputs")
+        .select("payload,input_version,created_at").eq("asset", asset).eq("input_kind", "funding")
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (fundingCacheError) throw new Error(fundingCacheError.message);
+      const fundingIsFresh = cachedFunding && Date.now() - Date.parse(cachedFunding.created_at) < 55_000;
+      const fundingPromise = fundingIsFresh
+        ? Promise.resolve({ points: (cachedFunding.payload as { points?: never[] }).points ?? [], inputVersion: cachedFunding.input_version, fetched: false })
+        : fetchPaperFunding(asset, Date.now() - 24 * 60 * 60 * 1_000, Date.now()).then((value) => ({ ...value, fetched: true }));
+      const [results, bookInput, tradeInput, feeInput, fundingInput] = await Promise.all([
         fetchMarketBatches([{ asset, dex }], new Date()),
-        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), fetchPaperFeeSchedule(),
+        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), fetchPaperFeeSchedule(), fundingPromise,
       ]);
       const result = results.get(dex);
       if (!result?.ok || result.observations.length !== 1) {
@@ -55,15 +64,16 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const observation = result.observations[0];
       const version = await inputVersion({
         context: observation, book: bookInput.inputVersion,
-        trades: tradeInput.inputVersion, fees: feeInput.inputVersion,
+        trades: tradeInput.inputVersion, fees: feeInput.inputVersion, funding: fundingInput.inputVersion,
       });
       return {
-        asset, inputVersion: version, apiWeight: 82,
+        asset, inputVersion: version, apiWeight: 82 + (fundingInput.fetched ? 20 : 0),
         degraded: tradeInput.gap, payload: {
           markPrice: String(observation.mark_price), observation,
           book: bookInput.book, trades: tradeInput.trades, tradeGap: tradeInput.gap,
           cursor: tradeInput.cursor, bookVersion: bookInput.inputVersion,
           tradeVersion: tradeInput.inputVersion,
+          fundingPoints: fundingInput.points, fundingVersion: fundingInput.inputVersion,
           feeRates: {
             maker: selectFeeRate(feeInput.schedule, "0", "0", "maker"),
             taker: selectFeeRate(feeInput.schedule, "0", "0", "taker"),
@@ -72,15 +82,17 @@ function runtimeDependencies(): ProcessPaperDependencies {
       };
     },
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
-      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }] = await Promise.all([
+      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
         service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
         service.from("paper_positions").select("asset,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
         service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,created_at")
           .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
           .order("created_at", { ascending: true }),
+        service.from("paper_fills").select("side,size,price,source_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
+        service.from("paper_funding_payments").select("funding_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
       ]);
-      if (epochError || summaryError || positionsError || ordersError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message);
+      if (epochError || summaryError || positionsError || ordersError || fillsError || fundingError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message ?? fillsError?.message ?? fundingError?.message);
       if (!epoch || !summary) return { mutated: false };
       const reconciled = reconcileAccount({
         cashBalance: String(summary.cash_balance), cachedEquity: String(summary.equity),
@@ -94,12 +106,14 @@ function runtimeDependencies(): ProcessPaperDependencies {
         markPrice: string; observation: unknown; book: ReplaySnapshot["book"];
         trades: ReplaySnapshot["trades"]; tradeGap: boolean;
         cursor: unknown; bookVersion: string; tradeVersion: string;
+        fundingPoints: Parameters<typeof missingFundingEffects>[0]; fundingVersion: string;
         feeRates: { maker: string; taker: string };
       };
       const inputRows = [
         { input_kind: "context", input_version: snapshot.inputVersion, payload: payload.observation, gap_state: null },
         { input_kind: "book", input_version: payload.bookVersion, payload: payload.book, gap_state: null },
         { input_kind: "trades", input_version: payload.tradeVersion, payload: { cursor: payload.cursor, trades: payload.trades }, gap_state: payload.tradeGap ? "gap" : null },
+        { input_kind: "funding", input_version: payload.fundingVersion, payload: { points: payload.fundingPoints }, gap_state: null },
       ].map((row) => ({ asset: snapshot.asset, source_timestamp: new Date().toISOString(), fidelity: row.gap_state ? "degraded" : "live", ...row }));
       const { error: inputError } = await service.from("paper_market_inputs").upsert(inputRows, {
         onConflict: "asset,input_kind,input_version", ignoreDuplicates: true,
@@ -136,6 +150,25 @@ function runtimeDependencies(): ProcessPaperDependencies {
         if (!applied) return { mutated: false };
         expectedVersion += 1;
         position = effect.position;
+      }
+      const fundingEffects = missingFundingEffects(
+        payload.fundingPoints,
+        (fills ?? []).map((fill) => ({
+          side: fill.side, size: String(fill.size), price: String(fill.price),
+          timestampMs: Date.parse(fill.source_timestamp),
+        })),
+        new Set((fundingPayments ?? []).map((payment) => Date.parse(payment.funding_timestamp))),
+        String((payload.observation as { oracle_price?: number | null }).oracle_price ?? payload.markPrice),
+        payload.fundingVersion,
+      );
+      for (const effect of fundingEffects) {
+        const { data: applied, error: fundingApplyError } = await service.rpc("apply_paper_funding_effect", {
+          p_epoch_id: epochId, p_expected_version: expectedVersion,
+          p_asset: snapshot.asset, p_effect: effect,
+        });
+        if (fundingApplyError) throw new Error(fundingApplyError.message);
+        if (!applied) return { mutated: false };
+        expectedVersion += 1;
       }
       const { data, error } = await service.rpc("revalue_paper_epoch_asset", {
         p_epoch_id: epochId, p_expected_version: expectedVersion, p_asset: snapshot.asset,

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(15);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -53,6 +53,18 @@ select isnt(public.apply_paper_replay_effect(
   (select id from public.paper_account_epochs limit 1), 1,
   jsonb_build_object('orderId', (select id from public.paper_orders limit 1))
 ), true, 'stale retry cannot duplicate the effect');
+
+select ok(public.apply_paper_funding_effect(
+  (select id from public.paper_account_epochs limit 1), 2, 'xyz:ORCL',
+  '{"fundingTimestamp":"2026-07-19T13:00:00Z","signedSize":"1.5","oraclePrice":"100","fundingRate":"0.0001","payment":"-0.015","inputVersion":"funding-v1"}'::jsonb
+), 'funding effect applies');
+select is((select count(*)::integer from public.paper_funding_payments), 1, 'funding row persists once');
+select is((select cash_balance::text from public.paper_account_summaries), '4999.986500', 'positive funding debits the long');
+select is((select cumulative_funding::text from public.paper_positions), '-0.015000', 'position funding accumulates');
+select ok(public.apply_paper_funding_effect(
+  (select id from public.paper_account_epochs limit 1), 3, 'xyz:ORCL',
+  '{"fundingTimestamp":"2026-07-19T13:00:00Z","signedSize":"1.5","oraclePrice":"100","fundingRate":"0.0001","payment":"-0.015","inputVersion":"funding-v1"}'::jsonb
+), 'duplicate funding is an exactly-once no-op');
 
 select * from finish();
 rollback;
