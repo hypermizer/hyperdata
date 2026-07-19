@@ -74,3 +74,82 @@ revoke all on function public.claim_paper_processor_bucket(timestamptz) from pub
 revoke all on function public.finish_paper_processor_bucket(timestamptz, text, jsonb) from public, anon, authenticated;
 grant execute on function public.claim_paper_processor_bucket(timestamptz) to service_role;
 grant execute on function public.finish_paper_processor_bucket(timestamptz, text, jsonb) to service_role;
+
+create or replace function public.revalue_paper_epoch_asset(
+  p_epoch_id uuid,
+  p_expected_version bigint,
+  p_asset text,
+  p_mark_price numeric,
+  p_input_version text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare current_version bigint;
+begin
+  select version into current_version from public.paper_account_epochs
+  where id = p_epoch_id and state = 'active' for update;
+  if current_version is null or current_version <> p_expected_version then return false; end if;
+
+  update public.paper_positions set
+    mark_price = p_mark_price,
+    input_version = p_input_version,
+    updated_at = now()
+  where epoch_id = p_epoch_id and asset = p_asset;
+  if not found then return true; end if;
+
+  update public.paper_account_summaries summary set
+    unrealized_pnl = totals.unrealized,
+    equity = summary.cash_balance + totals.isolated_allocations + totals.unrealized,
+    total_notional = totals.notional,
+    fidelity = 'live',
+    reconciled_at = now()
+  from (
+    select
+      coalesce(sum(signed_size * (mark_price - entry_price)), 0)::numeric(38, 6) as unrealized,
+      coalesce(sum(abs(signed_size) * mark_price), 0)::numeric(38, 6) as notional,
+      coalesce(sum(coalesce(isolated_margin, 0)), 0)::numeric(38, 6) as isolated_allocations
+    from public.paper_positions where epoch_id = p_epoch_id
+  ) totals
+  where summary.epoch_id = p_epoch_id;
+  update public.paper_account_epochs set version = version + 1 where id = p_epoch_id;
+  return true;
+end;
+$$;
+
+revoke all on function public.revalue_paper_epoch_asset(uuid, bigint, text, numeric, text) from public, anon, authenticated;
+grant execute on function public.revalue_paper_epoch_asset(uuid, bigint, text, numeric, text) to service_role;
+
+create or replace function public.configure_paper_cron(p_enabled boolean default false)
+returns void
+language plpgsql
+security definer
+set search_path = public, cron, vault
+as $$
+declare project_url text;
+declare service_key text;
+declare scheduler_secret text;
+begin
+  perform cron.unschedule(jobid) from cron.job where jobname = 'hyperdata-process-paper';
+  if not p_enabled then return; end if;
+
+  select decrypted_secret into project_url from vault.decrypted_secrets where name = 'project_url';
+  select decrypted_secret into service_key from vault.decrypted_secrets where name = 'service_role_key';
+  select decrypted_secret into scheduler_secret from vault.decrypted_secrets where name = 'paper_scheduler_secret';
+  if project_url is null or service_key is null or scheduler_secret is null then
+    raise exception 'paper scheduler Vault secrets are required';
+  end if;
+
+  perform cron.schedule(
+    'hyperdata-process-paper', '10 seconds',
+    format($job$select net.http_post(url := %L, headers := %L::jsonb, body := jsonb_build_object('scheduled_at', now()))$job$,
+      project_url || '/functions/v1/process-paper',
+      jsonb_build_object('Authorization', 'Bearer ' || service_key, 'x-monitor-secret', scheduler_secret, 'Content-Type', 'application/json')::text)
+  );
+end;
+$$;
+
+revoke all on function public.configure_paper_cron(boolean) from public, anon, authenticated;
+grant execute on function public.configure_paper_cron(boolean) to service_role;
