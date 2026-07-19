@@ -36,3 +36,6 @@ verify_jwt = false
 
 [functions.deliver-alerts]
 verify_jwt = false
+
+[functions.paper-command]
+verify_jwt = false

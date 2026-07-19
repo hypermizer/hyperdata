@@ -130,6 +130,9 @@ declare
   epoch_row public.paper_account_epochs%rowtype;
   stored_result jsonb;
   cash_delta numeric(38, 6);
+  order_row_id uuid;
+  total_fees numeric(38, 6);
+  total_volume numeric(38, 6);
 begin
   select e.* into epoch_row
   from public.paper_account_epochs e
@@ -154,12 +157,103 @@ begin
   from jsonb_to_recordset(coalesce(p_effects -> 'ledger', '[]'::jsonb))
     as x(entry_type text, amount text, asset text, source_timestamp timestamptz);
 
+  if p_effects ? 'order' then
+    insert into public.paper_orders (
+      epoch_id, client_order_id, asset, side, order_type, time_in_force, margin_mode,
+      size, remaining_size, limit_price, reduce_only, status, queue_ahead,
+      reserved_margin, rejection_reason, fidelity, source_timestamp
+    ) values (
+      epoch_row.id,
+      p_idempotency_key,
+      p_effects -> 'order' ->> 'asset',
+      p_effects -> 'order' ->> 'side',
+      p_effects -> 'order' ->> 'orderType',
+      p_effects -> 'order' ->> 'timeInForce',
+      p_effects -> 'order' ->> 'marginMode',
+      (p_effects -> 'order' ->> 'requestedSize')::numeric,
+      (p_effects -> 'order' ->> 'remainingSize')::numeric,
+      nullif(p_effects -> 'order' ->> 'limitPrice', '')::numeric,
+      coalesce((p_effects -> 'order' ->> 'reduceOnly')::boolean, false),
+      p_effects -> 'order' ->> 'status',
+      nullif(p_effects -> 'order' ->> 'queueAhead', '')::numeric,
+      0,
+      p_effects -> 'response' ->> 'reason',
+      p_effects -> 'response' ->> 'fidelity',
+      (p_effects -> 'response' ->> 'sourceTimestamp')::timestamptz
+    ) returning id into order_row_id;
+  end if;
+
+  insert into public.paper_fills (
+    epoch_id, order_id, asset, side, liquidity, size, price, fee,
+    source_id, source_timestamp, input_version, fidelity
+  )
+  select
+    epoch_row.id,
+    order_row_id,
+    p_effects -> 'order' ->> 'asset',
+    p_effects -> 'order' ->> 'side',
+    fill.liquidity,
+    fill.size::numeric,
+    fill.price::numeric,
+    fill.fee::numeric,
+    fill."sourceId",
+    (p_effects -> 'response' ->> 'sourceTimestamp')::timestamptz,
+    p_effects -> 'inputVersions' ->> 'book',
+    p_effects -> 'response' ->> 'fidelity'
+  from jsonb_to_recordset(coalesce(p_effects -> 'fills', '[]'::jsonb))
+    as fill(price text, size text, fee text, liquidity text, "sourceId" text);
+
+  if jsonb_array_length(coalesce(p_effects -> 'fills', '[]'::jsonb)) > 0 then
+    if p_effects -> 'positionProjection' = 'null'::jsonb then
+      delete from public.paper_positions
+      where epoch_id = epoch_row.id and asset = p_effects -> 'order' ->> 'asset';
+    else
+      insert into public.paper_positions (
+        epoch_id, asset, margin_mode, signed_size, entry_price, mark_price,
+        isolated_margin, input_version
+      ) values (
+        epoch_row.id,
+        p_effects -> 'positionProjection' ->> 'asset',
+        p_effects -> 'positionProjection' ->> 'marginMode',
+        (p_effects -> 'positionProjection' ->> 'signedSize')::numeric,
+        (p_effects -> 'positionProjection' ->> 'entryPrice')::numeric,
+        (p_effects -> 'positionProjection' ->> 'markPrice')::numeric,
+        case when p_effects -> 'positionProjection' ->> 'marginMode' = 'isolated'
+          then abs((p_effects -> 'positionProjection' ->> 'signedSize')::numeric)
+            * (p_effects -> 'positionProjection' ->> 'markPrice')::numeric
+            / (p_effects -> 'positionProjection' ->> 'leverage')::integer
+          else null end,
+        p_effects -> 'positionProjection' ->> 'inputVersion'
+      )
+      on conflict (epoch_id, asset) do update set
+        margin_mode = excluded.margin_mode,
+        signed_size = excluded.signed_size,
+        entry_price = excluded.entry_price,
+        mark_price = excluded.mark_price,
+        isolated_margin = excluded.isolated_margin,
+        input_version = excluded.input_version,
+        updated_at = now();
+    end if;
+  end if;
+
   select coalesce(sum((entry ->> 'amount')::numeric), 0) into cash_delta
   from jsonb_array_elements(coalesce(p_effects -> 'ledger', '[]'::jsonb)) entry;
+  select
+    coalesce(sum((fill ->> 'fee')::numeric), 0),
+    coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0)
+  into total_fees, total_volume
+  from jsonb_array_elements(coalesce(p_effects -> 'fills', '[]'::jsonb)) fill;
   update public.paper_account_summaries
   set cash_balance = cash_balance + cash_delta,
       equity = equity + cash_delta,
       withdrawable = withdrawable + cash_delta,
+      realized_pnl = realized_pnl + coalesce((
+        select sum((entry ->> 'amount')::numeric)
+        from jsonb_array_elements(coalesce(p_effects -> 'ledger', '[]'::jsonb)) entry
+        where entry ->> 'entry_type' = 'realized_pnl'
+      ), 0),
+      cumulative_fees = cumulative_fees + total_fees,
+      trailing_volume = trailing_volume + total_volume,
       reconciled_at = now()
   where epoch_id = epoch_row.id;
   update public.paper_account_epochs set version = version + 1 where id = epoch_row.id;
