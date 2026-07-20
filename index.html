@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260721-routing" />
+    <link rel="stylesheet" href="./styles.css?v=20260721-audio" />
   </head>
   <body>
     <main>
@@ -16,10 +16,11 @@
         <p><span id="connection-label">LOADING MARKET DATA</span> · UPDATED <time id="last-sync">—</time></p>
         <div class="tab-bar">
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
-            <button id="watchlist-tab" type="button" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</button>
-            <button id="alerts-tab" type="button" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</button>
-            <button id="audio-tab" type="button" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</button>
-            <button id="paper-tab" type="button" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</button>
+            <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</a>
+            <a id="alerts-tab" href="#/alerts" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</a>
+            <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
+            <a id="analysis-tab" href="#/analysis" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
+            <a id="paper-tab" href="#/paper/home" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</a>
           </div>
           <div class="account-actions">
             <span id="account-status" class="hint">Storage unavailable</span>
@@ -81,7 +82,32 @@
         <div id="alert-list" class="alert-list"><p class="hint">Loading…</p></div>
       </section>
 
-      <section id="audio-view" role="tabpanel" aria-labelledby="audio-tab" hidden></section>
+      <section id="audio-view" role="tabpanel" aria-labelledby="audio-tab" hidden>
+        <div class="section-header"><h2>Audio</h2><span id="audio-state" class="hint">LOADING</span></div>
+        <div class="audio-controls">
+          <label for="audio-known-assets">LISTEN TO</label>
+          <select id="audio-known-assets" aria-label="Watchlist and remembered audio assets"></select>
+          <form id="audio-search-form" class="audio-search-form">
+            <div id="audio-asset-picker" class="asset-picker">
+              <input id="audio-asset-search" data-asset-input placeholder="SEARCH ANY ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="audio-asset-list" aria-label="Search any Hyperliquid asset" />
+              <input data-asset-value name="asset" type="hidden" />
+              <div id="audio-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+            </div>
+            <button type="submit">SELECT</button>
+          </form>
+        </div>
+        <div class="audio-console">
+          <p id="audio-symbol" class="audio-symbol">—</p>
+          <p id="audio-price" class="audio-price">—</p>
+          <p id="audio-meta" class="hint">SELECT AN ASSET</p>
+          <button id="audio-toggle" class="audio-toggle" type="button" aria-pressed="false" disabled><span class="audio-play-icon" aria-hidden="true"></span><span><strong id="audio-button-label">PLAY</strong><small id="audio-button-detail">PRICE EVERY 10 SECONDS</small></span></button>
+          <audio id="audio-stream" preload="none" playsinline crossorigin="anonymous"></audio>
+          <div class="audio-signal" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+          <p id="audio-status" class="hint" role="status">STREAM IS OFF</p>
+        </div>
+      </section>
+
+      <section id="analysis-view" role="tabpanel" aria-labelledby="analysis-tab" hidden></section>
 
       <section id="paper-view" role="tabpanel" aria-labelledby="paper-tab" hidden>
         <div class="paper-toolbar">
@@ -94,8 +120,8 @@
         </div>
 
         <div class="paper-subtabs" role="tablist" aria-label="Paper account views">
-          <button id="paper-home-tab" type="button" role="tab" aria-selected="true" aria-controls="paper-home-panel" data-paper-tab="home">HOME</button>
-          <button id="paper-order-tab" type="button" role="tab" aria-selected="false" aria-controls="paper-order-panel" data-paper-tab="order">ORDER</button>
+          <a id="paper-home-tab" href="#/paper/home" role="tab" aria-selected="true" aria-controls="paper-home-panel" data-paper-tab="home">HOME</a>
+          <a id="paper-order-tab" href="#/paper/order" role="tab" aria-selected="false" aria-controls="paper-order-panel" data-paper-tab="order">ORDER</a>
         </div>
 
         <div id="paper-home-panel" role="tabpanel" aria-labelledby="paper-home-tab" data-paper-panel="home">
@@ -193,7 +219,8 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260721-routing"></script>
-    <script type="module" src="./paper.js?v=20260721-routing"></script>
+    <script type="module" src="./app.js?v=20260721-audio"></script>
+    <script type="module" src="./audio.js?v=20260721-audio"></script>
+    <script type="module" src="./paper.js?v=20260721-audio"></script>
   </body>
 </html>
