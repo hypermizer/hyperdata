@@ -23,8 +23,8 @@ select throws_ok(
 reset role;
 insert into public.paper_orders (
   epoch_id, client_order_id, asset, side, order_type, time_in_force, margin_mode,
-  size, remaining_size, limit_price, status, fidelity
-) select id, 'resting-1', 'xyz:ORCL', 'buy', 'limit', 'GTC', 'isolated', 1, 1, 90, 'resting', 'estimated_queue'
+  leverage, size, remaining_size, limit_price, status, fidelity
+) select id, 'resting-1', 'xyz:ORCL', 'buy', 'limit', 'GTC', 'isolated', 5, 1, 1, 90, 'resting', 'estimated_queue'
 from public.paper_account_epochs;
 
 set local role authenticated;

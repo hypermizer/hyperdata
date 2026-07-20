@@ -90,6 +90,7 @@ create table public.paper_orders (
   order_type text not null check (order_type in ('market', 'limit', 'stop_market', 'stop_limit', 'take_market', 'take_limit')),
   time_in_force text check (time_in_force is null or time_in_force in ('GTC', 'ALO', 'IOC')),
   margin_mode text not null check (margin_mode in ('cross', 'isolated')),
+  leverage integer not null check (leverage > 0),
   size numeric(38, 12) not null check (size > 0),
   remaining_size numeric(38, 12) not null check (remaining_size >= 0 and remaining_size <= size),
   limit_price numeric(38, 12) check (limit_price is null or limit_price > 0),

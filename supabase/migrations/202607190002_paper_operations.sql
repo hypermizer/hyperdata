@@ -160,7 +160,7 @@ begin
   if p_effects ? 'order' then
     insert into public.paper_orders (
       epoch_id, client_order_id, asset, side, order_type, time_in_force, margin_mode,
-      size, remaining_size, limit_price, trigger_price, reduce_only, status, queue_ahead,
+      leverage, size, remaining_size, limit_price, trigger_price, reduce_only, status, queue_ahead,
       reserved_margin, rejection_reason, fidelity, source_timestamp
     ) values (
       epoch_row.id,
@@ -170,6 +170,7 @@ begin
       p_effects -> 'order' ->> 'orderType',
       p_effects -> 'order' ->> 'timeInForce',
       p_effects -> 'order' ->> 'marginMode',
+      (p_effects -> 'order' ->> 'leverage')::integer,
       (p_effects -> 'order' ->> 'requestedSize')::numeric,
       (p_effects -> 'order' ->> 'remainingSize')::numeric,
       nullif(p_effects -> 'order' ->> 'limitPrice', '')::numeric,
@@ -182,6 +183,12 @@ begin
       p_effects -> 'response' ->> 'fidelity',
       (p_effects -> 'response' ->> 'sourceTimestamp')::timestamptz
     ) returning id into order_row_id;
+    insert into public.paper_leverage_settings (epoch_id, asset, margin_mode, leverage)
+    values (
+      epoch_row.id, p_effects -> 'order' ->> 'asset',
+      p_effects -> 'order' ->> 'marginMode', (p_effects -> 'order' ->> 'leverage')::integer
+    ) on conflict (epoch_id, asset) do update set
+      margin_mode = excluded.margin_mode, leverage = excluded.leverage, updated_at = now();
   end if;
 
   insert into public.paper_fills (

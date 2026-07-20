@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(11);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -44,6 +44,7 @@ select is((select cumulative_fees::text from public.paper_account_summaries), '0
 select is((select trailing_volume::text from public.paper_account_summaries), '75.250000', 'notional volume accumulates');
 select is((select version from public.paper_account_epochs), 1::bigint, 'economic transaction advances version');
 select is((select equity::text from public.paper_account_summaries), '5000.466137', 'initial fill stores reconciled equity');
+select is((select leverage from public.paper_leverage_settings), 5, 'validated leverage persists for scheduled fills');
 
 select * from finish();
 rollback;

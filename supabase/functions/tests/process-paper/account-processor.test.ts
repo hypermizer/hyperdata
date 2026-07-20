@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { replayOrder, type ReplayOrder, type ReplaySnapshot } from "../../process-paper/account-processor.ts";
+import { hasMatchMargin, replayOrder, type ReplayOrder, type ReplaySnapshot } from "../../process-paper/account-processor.ts";
 
 const book = { asset: "ORCL", timestampMs: 1_000, bids: [{ price: "99", size: "10", orders: 2 }], asks: [{ price: "101", size: "2", orders: 1 }, { price: "102", size: "4", orders: 2 }] };
 const baseOrder: ReplayOrder = { id: "o1", side: "buy", orderType: "limit", status: "resting", remainingSize: "2", limitPrice: "100", triggerPrice: null, queueAhead: "1", reduceOnly: false };
@@ -33,4 +33,10 @@ Deno.test("reduce-only replay cannot reverse exposure", () => {
     { signedSize: "1", entryPrice: "90" }, snapshot({ trades: [{ id: "1", timestampMs: 900, price: "100", size: "5", aggressor: "buy" }] }), fees)!;
   assertEquals(effect.fills[0].size, "1");
   assertEquals(effect.position, null);
+});
+
+Deno.test("match-time margin permits reductions and rejects unsupported increases", () => {
+  const tiers = [{ lowerBound: "0", maxLeverage: 10, maintenanceRate: "0.05", maintenanceDeduction: "0" }];
+  assertEquals(hasMatchMargin(null, { signedSize: "100", entryPrice: "100" }, "100", 2, tiers, "1000"), false);
+  assertEquals(hasMatchMargin({ signedSize: "2", entryPrice: "100" }, { signedSize: "1", entryPrice: "100" }, "100", 2, tiers, "0"), true);
 });

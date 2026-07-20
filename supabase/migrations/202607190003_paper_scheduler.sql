@@ -152,6 +152,7 @@ begin
     queue_ahead = nullif(p_effects ->> 'queueAhead', '')::numeric,
     fidelity = 'trade_replay',
     source_timestamp = (p_effects ->> 'sourceTimestamp')::timestamptz,
+    rejection_reason = p_effects ->> 'reason',
     updated_at = now()
   where id = order_row.id;
 

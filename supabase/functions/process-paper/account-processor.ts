@@ -4,6 +4,8 @@ import { executeOrder } from "../_shared/paper/execution.ts";
 import type { NormalizedBook, NormalizedTrade } from "../_shared/paper/market-data.ts";
 import { advanceMakerQueue, triggerCrossed } from "../_shared/paper/queue.ts";
 import type { PaperPosition, Side } from "../_shared/paper/types.ts";
+import type { MarginTier } from "../_shared/paper/types.ts";
+import { initialMargin } from "../_shared/paper/margin.ts";
 
 export interface ReplayOrder {
   id: string;
@@ -35,6 +37,21 @@ export interface ReplayEffect {
   position: PaperPosition | null;
   realizedPnl: string;
   fee: string;
+  reason?: string;
+}
+
+export function hasMatchMargin(
+  current: PaperPosition | null,
+  next: PaperPosition | null,
+  markPrice: string,
+  leverage: number,
+  tiers: MarginTier[],
+  withdrawable: string,
+): boolean {
+  const currentAbsolute = decimal(current?.signedSize ?? 0).abs();
+  const nextAbsolute = decimal(next?.signedSize ?? 0).abs();
+  if (nextAbsolute.lte(currentAbsolute)) return true;
+  return decimal(initialMargin(decimalString(nextAbsolute.times(markPrice)), leverage, tiers)).lte(withdrawable);
 }
 
 function reduceOnlySize(order: ReplayOrder, position: PaperPosition | null, requested: string): string {

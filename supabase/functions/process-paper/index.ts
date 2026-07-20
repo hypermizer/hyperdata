@@ -7,7 +7,7 @@ import { crossRisk, isolatedRisk, maintenanceMargin } from "../_shared/paper/mar
 import { unrealizedPnl } from "../_shared/paper/accounting.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
-import { replayOrder, type ReplaySnapshot } from "./account-processor.ts";
+import { hasMatchMargin, replayOrder, type ReplaySnapshot } from "./account-processor.ts";
 import { missingFundingEffects } from "./funding.ts";
 import { buildLiquidationEffect } from "./liquidation.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
@@ -137,9 +137,9 @@ function runtimeDependencies(): ProcessPaperDependencies {
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
       const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
-        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
+        service.from("paper_account_summaries").select("cash_balance,equity,withdrawable").eq("epoch_id", epochId).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
-        service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,created_at")
+        service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,created_at")
           .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
           .order("created_at", { ascending: true }),
         service.from("paper_fills").select("side,size,price,source_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
@@ -195,6 +195,16 @@ function runtimeDependencies(): ProcessPaperDependencies {
           reduceOnly: order.reduce_only, createdAtMs: Date.parse(order.created_at),
         }, position, replaySnapshot, payload.feeRates);
         if (!effect) continue;
+        if (!hasMatchMargin(position, effect.position, payload.markPrice, Number(order.leverage), payload.metadata.marginTiers, String(summary.withdrawable))) {
+            effect.status = "canceled";
+            effect.remainingSize = order.remaining_size;
+            effect.queueAhead = order.queue_ahead;
+            effect.fills = [];
+            effect.position = position;
+            effect.realizedPnl = "0";
+            effect.fee = "0";
+            effect.reason = "insufficient_margin_at_match";
+        }
         const { data: applied, error: replayError } = await service.rpc("apply_paper_replay_effect", {
           p_epoch_id: epochId, p_expected_version: expectedVersion,
           p_effects: {
