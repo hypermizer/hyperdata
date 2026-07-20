@@ -36,24 +36,28 @@ for (const [name, value] of secrets) {
   await query("select vault.create_secret($1, $2)", [value, name]);
 }
 await query("select public.configure_listener_cron()");
+const paperHealthWindowStartedAt = new Date().toISOString();
 await query("select public.configure_paper_cron($1)", [paperProcessorEnabled]);
 await query("select public.configure_paper_mutation_access($1)", [paperTradingEnabled]);
 
 if (paperProcessorEnabled) {
   await query("select public.ensure_paper_shadow_account()");
-  let health;
+  let runs = [];
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const result = await query("select * from public.paper_processor_health");
-    health = (Array.isArray(result) ? result : result.result ?? [])[0];
-    if (Number(health?.runs_last_hour ?? 0) > 0 && health?.latest_finished_at) break;
+    const result = await query(
+      "select state, reconciliation_failures from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
+      [paperHealthWindowStartedAt],
+    );
+    runs = Array.isArray(result) ? result : result.result ?? [];
+    if (runs.length) break;
     await wait(5_000);
   }
-  if (!health?.latest_finished_at || Number(health.runs_last_hour ?? 0) < 1) {
+  if (!runs.length) {
     throw new Error("Paper processor did not complete a run during the deployment health window");
   }
-  if (Number(health.unhealthy_last_hour ?? 0) > 0 || Number(health.reconciliation_failures_24h ?? 0) > 0) {
+  if (runs.some((run) => ["failed", "partial", "overlap"].includes(run.state) || Number(run.reconciliation_failures ?? 0) > 0)) {
     throw new Error("Paper processor health gate detected an unhealthy or unreconciled run");
   }
-  console.log(`Paper processor health verified: ${health.runs_last_hour} run(s) in the last hour`);
+  console.log(`Paper processor health verified: ${runs.length} fresh run(s)`);
 }
 console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}`);
