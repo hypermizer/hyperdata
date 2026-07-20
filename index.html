@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260720-stream" />
+    <link rel="stylesheet" href="./styles.css?v=20260721-routing" />
   </head>
   <body>
     <main>
@@ -93,9 +93,23 @@
           <span id="paper-status" class="hint">SIGN IN TO LOAD</span>
         </div>
 
-        <div id="paper-metrics" class="paper-metrics" aria-live="polite"></div>
+        <div class="paper-subtabs" role="tablist" aria-label="Paper account views">
+          <button id="paper-home-tab" type="button" role="tab" aria-selected="true" aria-controls="paper-home-panel" data-paper-tab="home">HOME</button>
+          <button id="paper-order-tab" type="button" role="tab" aria-selected="false" aria-controls="paper-order-panel" data-paper-tab="order">ORDER</button>
+        </div>
 
-        <form id="paper-order-form" class="paper-order-form">
+        <div id="paper-home-panel" role="tabpanel" aria-labelledby="paper-home-tab" data-paper-panel="home">
+          <div id="paper-metrics" class="paper-metrics" aria-live="polite"></div>
+          <h3 class="paper-heading">POSITIONS</h3>
+          <div id="paper-positions" class="paper-table-wrap"></div>
+          <h3 class="paper-heading">OPEN ORDERS</h3>
+          <div id="paper-orders" class="paper-table-wrap"></div>
+          <h3 class="paper-heading">HISTORY</h3>
+          <div id="paper-history" class="paper-table-wrap"></div>
+        </div>
+
+        <div id="paper-order-panel" role="tabpanel" aria-labelledby="paper-order-tab" data-paper-panel="order" hidden>
+          <form id="paper-order-form" class="paper-order-form">
           <div id="paper-asset-picker" class="asset-picker">
             <input id="paper-asset-search" data-asset-input placeholder="ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="paper-asset-list" aria-label="Asset" required />
             <input data-asset-value name="asset" type="hidden" />
@@ -110,20 +124,14 @@
           <input name="size" type="number" min="0" step="any" placeholder="SIZE" aria-label="Size" required />
           <input name="limitPrice" type="number" min="0" step="any" placeholder="LIMIT" aria-label="Limit price" />
           <input name="triggerPrice" type="number" min="0" step="any" placeholder="TRIGGER" aria-label="Trigger price" />
-          <input name="leverage" type="number" min="1" step="1" value="1" aria-label="Leverage" />
+          <label class="paper-leverage-field" for="paper-leverage"><span id="paper-leverage-label">LEVERAGE</span><input id="paper-leverage" name="leverage" type="number" min="1" step="1" value="1" aria-label="Leverage" /></label>
           <select name="marginMode" aria-label="Margin mode"><option value="cross">CROSS</option><option value="isolated">ISOLATED</option></select>
           <select name="timeInForce" aria-label="Time in force"><option value="GTC">GTC</option><option value="ALO">ALO</option><option value="IOC">IOC</option></select>
           <label class="paper-check"><input name="reduceOnly" type="checkbox" /> REDUCE</label>
           <button type="submit">PLACE</button>
-        </form>
-        <p id="paper-message" class="message" role="alert"></p>
-
-        <h3 class="paper-heading">POSITIONS</h3>
-        <div id="paper-positions" class="paper-table-wrap"></div>
-        <h3 class="paper-heading">OPEN ORDERS</h3>
-        <div id="paper-orders" class="paper-table-wrap"></div>
-        <h3 class="paper-heading">HISTORY</h3>
-        <div id="paper-history" class="paper-table-wrap"></div>
+          </form>
+          <p id="paper-message" class="message" role="alert"></p>
+        </div>
       </section>
     </main>
 
@@ -185,7 +193,7 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260720-stream"></script>
-    <script type="module" src="./paper.js?v=20260720-stream"></script>
+    <script type="module" src="./app.js?v=20260721-routing"></script>
+    <script type="module" src="./paper.js?v=20260721-routing"></script>
   </body>
 </html>
