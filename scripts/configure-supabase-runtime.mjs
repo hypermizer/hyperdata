@@ -2,7 +2,7 @@ const token = process.env.SUPABASE_ACCESS_TOKEN;
 const projectRef = process.env.SUPABASE_PROJECT_ID;
 const monitorSecret = process.env.MONITOR_SECRET;
 const paperSchedulerSecret = process.env.PAPER_SCHEDULER_SECRET;
-const paperTradingEnabled = process.env.PAPER_TRADING_ENABLED === "true";
+const paperProcessorEnabled = process.env.PAPER_PROCESSOR_ENABLED === "true";
 if (!token || !projectRef || !monitorSecret || !paperSchedulerSecret) throw new Error("SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_ID, MONITOR_SECRET, and PAPER_SCHEDULER_SECRET are required");
 
 const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
@@ -30,5 +30,5 @@ for (const [name, value] of secrets) {
   await query("select vault.create_secret($1, $2)", [value, name]);
 }
 await query("select public.configure_listener_cron()");
-await query("select public.configure_paper_cron($1)", [paperTradingEnabled]);
-console.log(`Configured Hyperdata runtime; paper processor ${paperTradingEnabled ? "enabled" : "disabled"}`);
+await query("select public.configure_paper_cron($1)", [paperProcessorEnabled]);
+console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}`);

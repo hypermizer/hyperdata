@@ -22,6 +22,7 @@ function request(body: unknown, token = "good") {
 
 function dependencies(overrides: Partial<PaperCommandDependencies> = {}): PaperCommandDependencies {
   return {
+    enabled: true,
     authenticate: async (token) => token === "good" ? { id: "user-1", email: "jasonblick@zohomail.com" } : null,
     loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", position: null }),
     findCommand: async () => null,
@@ -68,6 +69,18 @@ Deno.test("authorization and ownership happen before any market request", async 
   }));
   assertEquals(response.status, 401);
   assertEquals(marketCalls, 0);
+});
+
+Deno.test("disabled feature rejects before account or market reads", async () => {
+  let reads = 0;
+  const response = await handlePaperCommand(request(marketBuy), dependencies({
+    enabled: false,
+    loadAccount: async () => { reads += 1; return null; },
+    loadAsset: async () => { reads += 1; return asset; },
+  }));
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).error, "paper_trading_disabled");
+  assertEquals(reads, 0);
 });
 
 Deno.test("stored idempotent result bypasses market retrieval", async () => {

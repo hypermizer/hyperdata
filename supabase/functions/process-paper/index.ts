@@ -26,9 +26,19 @@ function runtimeDependencies(): ProcessPaperDependencies {
   const processor: PaperProcessorDependencies = {
     estimateSnapshotWeight: () => 142,
     async loadWork() {
+      const { data: accounts, error: accountError } = await service.from("paper_accounts")
+        .select("id,active_epoch").is("archived_at", null);
+      if (accountError) throw new Error(accountError.message);
+      if (!accounts?.length) return [];
+      const { data: epochs, error: epochError } = await service.from("paper_account_epochs")
+        .select("id,account_id,epoch_number").eq("state", "active").in("account_id", accounts.map((account) => account.id));
+      if (epochError) throw new Error(epochError.message);
+      const activeByAccount = new Map(accounts.map((account) => [account.id, account.active_epoch]));
+      const epochIds = (epochs ?? []).filter((epoch) => activeByAccount.get(epoch.account_id) === epoch.epoch_number).map((epoch) => epoch.id);
+      if (!epochIds.length) return [];
       const [{ data: positions, error: positionError }, { data: orders, error: orderError }] = await Promise.all([
-        service.from("paper_positions").select("epoch_id,asset"),
-        service.from("paper_orders").select("epoch_id,asset").in("status", ["resting", "partially_filled", "trigger_waiting"]),
+        service.from("paper_positions").select("epoch_id,asset").in("epoch_id", epochIds),
+        service.from("paper_orders").select("epoch_id,asset").in("epoch_id", epochIds).in("status", ["resting", "partially_filled", "trigger_waiting"]),
       ]);
       if (positionError || orderError) throw new Error(positionError?.message ?? orderError?.message);
       const byAsset = new Map<string, { hasPosition: boolean; accountIds: Set<string> }>();
@@ -243,7 +253,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
     },
   };
   return {
-    enabled: Deno.env.get("PAPER_TRADING_ENABLED") === "true",
+    enabled: Deno.env.get("PAPER_PROCESSOR_ENABLED") === "true",
     schedulerSecret: required("PAPER_SCHEDULER_SECRET"),
     async claim(bucket) {
       const { data, error } = await service.rpc("claim_paper_processor_bucket", { p_bucket: bucket });

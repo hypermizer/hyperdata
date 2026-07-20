@@ -24,6 +24,7 @@ export interface ApplyContext {
   idempotencyKey: string;
 }
 export interface PaperCommandDependencies {
+  enabled: boolean;
   authenticate(token: string): Promise<PaperCommandUser | null>;
   loadAccount(accountId: string, userId: string, asset: string): Promise<PaperAccountState | null>;
   findCommand(accountId: string, epochNumber: number, idempotencyKey: string): Promise<unknown | null>;
@@ -85,6 +86,7 @@ export async function handlePaperCommand(
   if (!authorization?.startsWith("Bearer ")) return jsonError("unauthorized", 401);
   const user = await dependencies.authenticate(authorization.slice(7));
   if (!user || user.email?.toLowerCase() !== OWNER_EMAIL) return jsonError("unauthorized", 401);
+  if (!dependencies.enabled) return jsonError("paper_trading_disabled", 503);
 
   let raw: unknown;
   try { raw = await request.json(); } catch { return jsonError("invalid_json", 400); }

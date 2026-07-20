@@ -32,6 +32,7 @@ function dependencies(): PaperCommandDependencies {
     return data?.id as string | undefined;
   };
   return {
+    enabled: Deno.env.get("PAPER_TRADING_ENABLED") === "true",
     async authenticate(token) {
       const client = createClient(supabaseUrl, serviceRoleKey, {
         auth: { autoRefreshToken: false, persistSession: false },
