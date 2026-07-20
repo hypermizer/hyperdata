@@ -44,7 +44,7 @@ async function setSession(session) {
 
 async function loadAccounts(preferredId = state.account?.id) {
   const [accountsResponse, epochsResponse] = await Promise.all([
-    client.from("paper_accounts").select("*").is("archived_at", null).order("created_at"),
+    client.from("paper_accounts").select("*").is("archived_at", null).not("name", "like", "__SHADOW__%").order("created_at"),
     client.from("paper_account_epochs").select("*").eq("state", "active"),
   ]);
   if (accountsResponse.error || epochsResponse.error) return fail(accountsResponse.error ?? epochsResponse.error);
