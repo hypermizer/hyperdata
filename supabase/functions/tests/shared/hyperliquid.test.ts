@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { fetchMarketBatches, normalizeDexContext } from "../../_shared/hyperliquid.ts";
+import { assertPublicHyperliquidUrl, fetchMarketBatches, infoRequest, normalizeDexContext } from "../../_shared/hyperliquid.ts";
 const payload = [{ universe: [{ name: "xyz:ORCL" }] }, [{ markPx: "100", oraclePx: "99.9", midPx: "100.1", openInterest: "12", dayNtlVlm: "500" }]];
 Deno.test("normalizes a HIP-3 context", () => {
   const [row] = normalizeDexContext("xyz", payload, new Set(["xyz:ORCL"]), new Date("2026-01-01T00:00:00Z"));
@@ -19,4 +19,16 @@ Deno.test("rejects an invalid asset without discarding valid DEX peers", () => {
   const mixed = [{ universe: [{ name: "xyz:ORCL" }, { name: "xyz:BAD" }] }, [{ markPx: "100" }, { markPx: "0" }]];
   const rows = normalizeDexContext("xyz", mixed, new Set(["xyz:ORCL", "xyz:BAD"]), new Date());
   assertEquals(rows.map((row) => row.asset), ["xyz:ORCL"]);
+});
+Deno.test("generic info requests remain pinned to the public info endpoint", async () => {
+  let body = "";
+  const mock = async (_url: string | URL | Request, init?: RequestInit) => {
+    body = String(init?.body);
+    return new Response(JSON.stringify({ ok: true }));
+  };
+  await infoRequest({ type: "l2Book", coin: "xyz:ORCL" }, mock as typeof fetch, 0);
+  assertEquals(JSON.parse(body), { type: "l2Book", coin: "xyz:ORCL" });
+  assertEquals(assertPublicHyperliquidUrl("https://api.hyperliquid.xyz/info"), true);
+  assertEquals(assertPublicHyperliquidUrl("https://api.hyperliquid.xyz/exchange"), false);
+  assertEquals(assertPublicHyperliquidUrl("https://evil.example/info"), false);
 });

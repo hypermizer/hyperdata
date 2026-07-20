@@ -4,6 +4,7 @@
     "jsr:@std/assert@1.0.14": "1.0.14",
     "jsr:@std/internal@^1.0.10": "1.0.14",
     "npm:@supabase/supabase-js@2.52.1": "2.52.1",
+    "npm:decimal.js@10.6.0": "10.6.0",
     "npm:nodemailer@7.0.5": "7.0.5"
   },
   "jsr": {
@@ -84,6 +85,9 @@
         "@types/node"
       ]
     },
+    "decimal.js@10.6.0": {
+      "integrity": "sha512-YpgQiITW3JXGntzdUmyUR1V812Hn8T1YVXhCu+wO3OpS4eU9l4YdD3qjyiKdV6mvV29zapkMeD390UVEf2lkUg=="
+    },
     "isows@1.0.7_ws@8.21.1": {
       "integrity": "sha512-I1fSfDCZL5P0v33sVqeTDSpcstAg/N+wF5HS033mogOVIp4B+oHC7oOCsA3axAbBSGTJ8QubbNmnIRN/h8U7hg==",
       "dependencies": [
@@ -117,6 +121,7 @@
     "dependencies": [
       "jsr:@std/assert@1.0.14",
       "npm:@supabase/supabase-js@2.52.1",
+      "npm:decimal.js@10.6.0",
       "npm:nodemailer@7.0.5"
     ]
   }
