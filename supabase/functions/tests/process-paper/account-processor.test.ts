@@ -23,6 +23,16 @@ Deno.test("trade gap refuses queue mutation", () => {
   assertEquals(replayOrder(baseOrder, null, snapshot({ tradeGap: true }), fees), null);
 });
 
+Deno.test("trade gap still permits mark-triggered risk processing", () => {
+  const order: ReplayOrder = {
+    ...baseOrder, orderType: "stop_market", status: "trigger_waiting",
+    remainingSize: "1", limitPrice: null, triggerPrice: "105", queueAhead: null,
+  };
+  const effect = replayOrder(order, null, snapshot({ markPrice: "106", tradeGap: true }), fees)!;
+  assertEquals(effect.status, "filled");
+  assertEquals(effect.fills.map(({ price, size }) => ({ price, size })), [{ price: "101", size: "1" }]);
+});
+
 Deno.test("crossed stop market walks visible book once and cancels unavailable remainder", () => {
   const order: ReplayOrder = { ...baseOrder, orderType: "stop_market", status: "trigger_waiting", remainingSize: "8", limitPrice: null, triggerPrice: "105", queueAhead: null };
   const effect = replayOrder(order, null, snapshot({ markPrice: "106" }), fees)!;

@@ -12,7 +12,7 @@ export interface OrderExecutionIntent {
 }
 
 export interface ExecutionResult {
-  status: "filled" | "resting" | "canceled" | "rejected";
+  status: "filled" | "partially_filled" | "resting" | "canceled" | "rejected";
   fills: Array<{ price: string; size: string }>;
   requestedSize: string;
   remainingSize: string;
@@ -112,7 +112,7 @@ export function executeOrder(
     .filter((level) => level.price === intent.limitPrice)
     .reduce((sum, level) => sum.plus(level.size), decimal(0));
   return {
-    status: "resting",
+    status: fills.length > 0 ? "partially_filled" : "resting",
     fills,
     requestedSize: decimalString(requested),
     remainingSize: decimalString(remaining),

@@ -34,7 +34,7 @@ Deno.test("empty IOC cancels and crossing GTC rests only its remainder", () => {
   assertEquals(executeOrder({ side: "buy", size: "1", type: "limit", timeInForce: "IOC", limitPrice: "98", reduceOnly: false }, book).status, "canceled");
   const partial = executeOrder({ side: "buy", size: "1.5", type: "limit", timeInForce: "GTC", limitPrice: "100", reduceOnly: false }, book);
   assertEquals(partial.fills, [{ price: "100", size: "0.5" }]);
-  assertEquals(partial.status, "resting");
+  assertEquals(partial.status, "partially_filled");
   assertEquals(partial.remainingSize, "1");
 });
 

@@ -46,7 +46,7 @@ export function hasMatchMargin(
   markPrice: string,
   leverage: number,
   tiers: MarginTier[],
-  withdrawable: string,
+  availableMargin: string,
 ): boolean {
   const currentAbsolute = decimal(current?.signedSize ?? 0).abs();
   const nextAbsolute = decimal(next?.signedSize ?? 0).abs();
@@ -57,7 +57,7 @@ export function hasMatchMargin(
     nextAbsolute.lte(currentAbsolute)
   );
   if (pureReduction) return true;
-  return decimal(initialMargin(decimalString(nextAbsolute.times(markPrice)), leverage, tiers)).lte(withdrawable);
+  return decimal(initialMargin(decimalString(nextAbsolute.times(markPrice)), leverage, tiers)).lte(availableMargin);
 }
 
 function reduceOnlySize(order: ReplayOrder, position: PaperPosition | null, requested: string): string {

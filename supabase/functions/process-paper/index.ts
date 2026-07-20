@@ -139,7 +139,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
       const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }, { data: leverageSettings, error: leverageError }, { data: accountCursor, error: cursorError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
-        service.from("paper_account_summaries").select("cash_balance,equity,withdrawable").eq("epoch_id", epochId).maybeSingle(),
+        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
         service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,created_at")
           .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
@@ -180,7 +180,6 @@ function runtimeDependencies(): ProcessPaperDependencies {
         if (overlap < 0) accountTradeGap = true;
         else accountTrades = payload.trades.slice(overlap + 1);
       }
-      if (accountTradeGap) return { mutated: false, accepted: false };
       let expectedVersion = Number(epoch.version);
       const storedPosition = (positions ?? []).find((position) => position.asset === snapshot.asset);
       let position = storedPosition ? {
@@ -203,7 +202,12 @@ function runtimeDependencies(): ProcessPaperDependencies {
             metadata.marginTiers,
           ));
         }, decimal(0));
-      const marginAvailableForAsset = decimal(summary.withdrawable).minus(marginUsedByOtherAssets);
+      const markedEquity = storedPosition
+        ? decimal(summary.equity)
+          .minus(unrealizedPnl(position!, String(storedPosition.mark_price)))
+          .plus(unrealizedPnl(position!, payload.markPrice))
+        : decimal(summary.equity);
+      const marginAvailableForAsset = markedEquity.minus(marginUsedByOtherAssets);
       const replayEffects: Array<Record<string, unknown>> = [];
       for (const order of orders ?? []) {
         const effect = replayOrder({
