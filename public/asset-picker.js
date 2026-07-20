@@ -1,7 +1,7 @@
 import { displayAssetSymbol, resolveAsset, searchAssets } from "./lib/assets.js?v=20260720-stream";
 
 export class AssetPicker {
-  constructor(root) {
+  constructor(root, { details = "leverage" } = {}) {
     this.root = root;
     this.input = root.querySelector("[data-asset-input]");
     this.hidden = root.querySelector("[data-asset-value]");
@@ -10,6 +10,8 @@ export class AssetPicker {
     this.matches = [];
     this.activeIndex = -1;
     this.disabled = false;
+    this.details = details;
+    this.root.dataset.pickerDetails = details;
     this.input.addEventListener("focus", () => this.open());
     this.input.addEventListener("input", () => { this.syncValue(); this.emitChange(); this.open(); });
     this.input.addEventListener("keydown", (event) => this.onKeyDown(event));
@@ -113,19 +115,14 @@ export class AssetPicker {
     button.className = index === this.activeIndex ? "is-active" : "";
     const symbol = document.createElement("strong");
     symbol.textContent = displayAssetSymbol(asset);
-    const price = document.createElement("span");
-    price.className = "asset-picker-price";
-    price.textContent = formatMark(asset.markPrice);
-    const leverage = document.createElement("span");
-    leverage.className = "asset-picker-leverage";
-    leverage.textContent = `${asset.maxLeverage ?? "—"}×`;
-    button.append(symbol, price, leverage);
+    button.append(symbol);
+    if (this.details === "leverage") {
+      const leverage = document.createElement("span");
+      leverage.className = "asset-picker-leverage";
+      leverage.textContent = `${asset.maxLeverage ?? "—"}×`;
+      button.append(leverage);
+    }
     if (index === this.activeIndex) this.input.setAttribute("aria-activedescendant", button.id);
     return button;
   }
-}
-
-function formatMark(value) {
-  if (!Number.isFinite(value)) return "—";
-  return `$${value.toLocaleString("en-US", { maximumFractionDigits: value < 1 ? 6 : 2 })}`;
 }

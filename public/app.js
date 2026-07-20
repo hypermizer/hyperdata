@@ -7,10 +7,10 @@ import {
   fetchPriceHistory,
 } from "./lib/hyperliquid.js?v=20260720-assets";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { AssetPicker } from "./asset-picker.js?v=20260721-routing";
+import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-routing";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-audio";
 
 const state = {
   accountMessage: "",
@@ -57,7 +57,7 @@ const elements = {
   watchlistForm: document.querySelector("#watchlist-form"),
   watchlistMessage: document.querySelector("#watchlist-message"),
 };
-const watchlistAssetPicker = new AssetPicker(document.querySelector("#watchlist-asset-picker"));
+const watchlistAssetPicker = new AssetPicker(document.querySelector("#watchlist-asset-picker"), { details: "none" });
 
 wireEvents();
 initialize();
@@ -84,8 +84,6 @@ function wireEvents() {
   elements.accountButton.addEventListener("click", handleAccountAction);
   elements.alertType.addEventListener("change", renderAlertFields);
   elements.settingsButton.addEventListener("click", openSettings);
-  elements.tabs.forEach((tab) => tab.addEventListener("click", () => navigate(tab.dataset.tab)));
-  elements.paperTabs.forEach((tab) => tab.addEventListener("click", () => navigate("paper", tab.dataset.paperTab)));
   window.addEventListener("hashchange", renderRoute);
   renderRoute();
 
@@ -223,6 +221,7 @@ async function loadCloudWatchlist() {
   if (error) throw error;
   if (data.length) {
     state.watchlist = data.map((item) => item.asset);
+    dispatchWatchlist();
     return;
   }
   const { data: seeded, error: seedError } = await state.supabase
@@ -234,6 +233,11 @@ async function loadCloudWatchlist() {
     .select("asset");
   if (seedError) throw seedError;
   state.watchlist = seeded.map((item) => item.asset);
+  dispatchWatchlist();
+}
+
+function dispatchWatchlist() {
+  window.dispatchEvent(new CustomEvent("hyperdata:watchlist", { detail: { assets: [...state.watchlist] } }));
 }
 
 function renderAccount() {
@@ -469,12 +473,6 @@ function renderAlertFields() {
   elements.alertType.disabled = !state.user; elements.alertAsset.disabled = !state.user;
   document.querySelector("#alert-delivery").disabled = !state.user;
   elements.alertForm.querySelector("button[type=submit]").disabled = !state.user;
-}
-
-function navigate(viewName, paperView = "home") {
-  const route = routeFor(viewName, paperView);
-  if (window.location.hash === route) renderRoute();
-  else window.location.hash = route;
 }
 
 function renderRoute() {
