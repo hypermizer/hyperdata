@@ -199,7 +199,13 @@ export async function handlePaperCommand(
     asset.marginTiers,
   ));
   const marginCapacity = decimal(account.availableMargin).plus(account.currentMargin);
-  if (finalInitialMargin.gt(marginCapacity)) {
+  const currentSigned = decimal(account.position?.signedSize ?? 0);
+  const finalSigned = decimal(riskPosition?.signedSize ?? 0);
+  const pureReduction = finalSigned.isZero() || (
+    !currentSigned.isZero() && currentSigned.isPositive() === finalSigned.isPositive() &&
+    finalSigned.abs().lte(currentSigned.abs())
+  );
+  if (!pureReduction && finalInitialMargin.gt(marginCapacity)) {
     return jsonError("insufficient_margin", 422);
   }
 

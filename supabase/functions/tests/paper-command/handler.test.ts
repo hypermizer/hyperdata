@@ -126,6 +126,23 @@ Deno.test("immediate execution checks final position margin across tier boundari
   assertEquals(applied, false);
 });
 
+Deno.test("pure reduction bypasses expansion margin at a lower command leverage", async () => {
+  const response = await handlePaperCommand(request({
+    ...marketBuy,
+    idempotencyKey: "pure-reduction",
+    order: {
+      ...marketBuy.order, side: "sell", size: "0.5", leverage: 1, reduceOnly: true,
+    },
+  }), dependencies({
+    loadAccount: async () => ({
+      epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "0", currentMargin: "20",
+      trailingVolume: "0", makerFraction: "0", position: { signedSize: "1", entryPrice: "100" },
+    }),
+  }));
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).position.signedSize, "0.5");
+});
+
 Deno.test("authorization and ownership happen before any market request", async () => {
   let marketCalls = 0;
   const response = await handlePaperCommand(request(marketBuy, "bad"), dependencies({

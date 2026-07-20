@@ -211,6 +211,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         : decimal(summary.equity);
       const marginAvailableForAsset = markedEquity.minus(marginUsedByOtherAssets);
       const replayEffects: Array<Record<string, unknown>> = [];
+      const replayedFundingFills: Array<{ side: "buy" | "sell"; size: string; price: string; timestampMs: number }> = [];
       for (const order of orders ?? []) {
         const effect = replayOrder({
           id: order.id, side: order.side, orderType: order.order_type, timeInForce: order.time_in_force,
@@ -236,14 +237,23 @@ function runtimeDependencies(): ProcessPaperDependencies {
           ...effect, markPrice: payload.markPrice, inputVersion: snapshot.inputVersion,
           sourceTimestamp: new Date(payload.book.timestampMs).toISOString(),
         });
+        replayedFundingFills.push(...effect.fills.map((fill) => ({
+          side: order.side,
+          size: fill.size,
+          price: fill.price,
+          timestampMs: Date.parse(fill.sourceTimestamp ?? new Date(payload.book.timestampMs).toISOString()),
+        })));
         position = effect.position;
       }
       const fundingEffects = missingFundingEffects(
         payload.fundingPoints,
-        (fills ?? []).map((fill) => ({
-          side: fill.side, size: String(fill.size), price: String(fill.price),
-          timestampMs: Date.parse(fill.source_timestamp),
-        })),
+        [
+          ...(fills ?? []).map((fill) => ({
+            side: fill.side, size: String(fill.size), price: String(fill.price),
+            timestampMs: Date.parse(fill.source_timestamp),
+          })),
+          ...replayedFundingFills,
+        ],
         new Set((fundingPayments ?? []).map((payment) => Date.parse(payment.funding_timestamp))),
         (timestampMs) => {
           const current = payload.observation as { observed_at?: string; oracle_price?: number | null };
