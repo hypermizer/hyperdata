@@ -83,7 +83,45 @@
 
       <section id="audio-view" role="tabpanel" aria-labelledby="audio-tab" hidden></section>
 
-      <section id="paper-view" role="tabpanel" aria-labelledby="paper-tab" hidden></section>
+      <section id="paper-view" role="tabpanel" aria-labelledby="paper-tab" hidden>
+        <div class="paper-toolbar">
+          <h2>Paper</h2>
+          <select id="paper-account" aria-label="Paper account" disabled><option>NO ACCOUNT</option></select>
+          <button id="paper-new-account" type="button">NEW</button>
+          <button id="paper-reset-account" type="button" disabled>RESET</button>
+          <button id="paper-archive-account" type="button" disabled>ARCHIVE</button>
+          <span id="paper-status" class="hint">SIGN IN TO LOAD</span>
+        </div>
+
+        <div id="paper-metrics" class="paper-metrics" aria-live="polite"></div>
+
+        <form id="paper-order-form" class="paper-order-form">
+          <input id="paper-asset" name="asset" list="paper-assets" placeholder="xyz:ORCL" aria-label="Asset" required />
+          <datalist id="paper-assets"><option value="xyz:ORCL"></option><option value="xyz:XYZ100"></option></datalist>
+          <select name="side" aria-label="Side"><option value="buy">BUY</option><option value="sell">SELL</option></select>
+          <select id="paper-order-type" name="orderType" aria-label="Order type">
+            <option value="market">MARKET</option><option value="limit">LIMIT</option>
+            <option value="stop_market">STOP MARKET</option><option value="stop_limit">STOP LIMIT</option>
+            <option value="take_market">TAKE MARKET</option><option value="take_limit">TAKE LIMIT</option>
+          </select>
+          <input name="size" type="number" min="0" step="any" placeholder="SIZE" aria-label="Size" required />
+          <input name="limitPrice" type="number" min="0" step="any" placeholder="LIMIT" aria-label="Limit price" />
+          <input name="triggerPrice" type="number" min="0" step="any" placeholder="TRIGGER" aria-label="Trigger price" />
+          <input name="leverage" type="number" min="1" step="1" value="1" aria-label="Leverage" />
+          <select name="marginMode" aria-label="Margin mode"><option value="cross">CROSS</option><option value="isolated">ISOLATED</option></select>
+          <select name="timeInForce" aria-label="Time in force"><option value="GTC">GTC</option><option value="ALO">ALO</option><option value="IOC">IOC</option></select>
+          <label class="paper-check"><input name="reduceOnly" type="checkbox" /> REDUCE</label>
+          <button type="submit">PLACE</button>
+        </form>
+        <p id="paper-message" class="message" role="alert"></p>
+
+        <h3 class="paper-heading">POSITIONS</h3>
+        <div id="paper-positions" class="paper-table-wrap"></div>
+        <h3 class="paper-heading">OPEN ORDERS</h3>
+        <div id="paper-orders" class="paper-table-wrap"></div>
+        <h3 class="paper-heading">HISTORY</h3>
+        <div id="paper-history" class="paper-table-wrap"></div>
+      </section>
     </main>
 
     <dialog id="watchlist-settings" class="settings-dialog" aria-labelledby="settings-title">
@@ -123,6 +161,7 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260718-listener"></script>
+    <script type="module" src="./app.js?v=20260720-paper"></script>
+    <script type="module" src="./paper.js?v=20260720-paper"></script>
   </body>
 </html>

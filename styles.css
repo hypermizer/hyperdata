@@ -198,6 +198,26 @@ input, select { min-width: 0; }
 .alert-meta { color: #a8afb7; font-size: 12px; }
 .message { min-height: 18px; margin-top: 8px; font-size: 13px; }
 
+.paper-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.paper-toolbar h2 { margin-right: 8px; }
+.paper-toolbar #paper-status { margin-left: auto; }
+.paper-toolbar button, .paper-toolbar select { min-height: 30px; font-size: 11px; }
+.paper-metrics { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin-top: 14px; border: 1px solid #34383d; }
+.paper-metrics > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; padding: 8px; border-right: 1px solid #34383d; }
+.paper-metrics > span:last-child { border-right: 0; }
+.paper-metrics small { color: #a8afb7; font-size: 10px; }
+.paper-metrics strong { overflow: hidden; font-size: 13px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.paper-order-form { display: grid; grid-template-columns: repeat(6, minmax(90px, 1fr)); gap: 7px; margin-top: 14px; }
+.paper-order-form > * { width: 100%; min-width: 0; font-size: 11px; }
+.paper-check { display: flex; align-items: center; gap: 6px; min-height: 34px; font-size: 11px; }
+.paper-check input { width: auto; min-height: 0; }
+.paper-heading { margin-top: 18px; margin-bottom: 7px; font-size: 11px; color: #a8afb7; }
+.paper-table-wrap { overflow-x: auto; border-top: 1px solid #34383d; }
+.paper-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.paper-table th, .paper-table td { height: 34px; padding: 0 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid #2b3035; font-variant-numeric: tabular-nums; }
+.paper-table th { color: #a8afb7; font-size: 10px; }
+.paper-table button { width: 26px; min-height: 26px; padding: 0; }
+
 .settings-dialog {
   width: min(460px, calc(100% - 32px));
   margin: auto;
@@ -244,4 +264,9 @@ input, select { min-width: 0; }
     box-shadow: 1px 0 0 #34383d;
   }
   .market-table th:first-child { z-index: 3; }
+  .paper-toolbar #paper-status { width: 100%; margin-left: 0; }
+  .paper-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-metrics > span { border-bottom: 1px solid #34383d; }
+  .paper-order-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-table { width: max-content; min-width: 100%; }
 }
