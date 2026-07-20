@@ -1,5 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260720-paper";
-import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, paperSignClass } from "./lib/paper.js?v=20260720-paper";
+import { AssetPicker } from "./asset-picker.js?v=20260720-assets";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
+import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, normalizeStartingCapital, paperSignClass } from "./lib/paper.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -10,14 +12,20 @@ const elements = {
   archive: $("#paper-archive-account"), status: $("#paper-status"), metrics: $("#paper-metrics"),
   form: $("#paper-order-form"), message: $("#paper-message"), positions: $("#paper-positions"),
   orders: $("#paper-orders"), history: $("#paper-history"), orderType: $("#paper-order-type"),
+  accountDialog: $("#paper-account-dialog"), accountForm: $("#paper-account-form"),
+  accountMessage: $("#paper-account-message"), accountName: $("#paper-account-name"),
+  startingCapital: $("#paper-starting-capital"),
 };
+const paperAssetPicker = new AssetPicker($("#paper-asset-picker"));
 
 wire();
 initialize();
 
 function wire() {
   elements.account.addEventListener("change", () => selectAccount(elements.account.value));
-  elements.newAccount.addEventListener("click", createAccount);
+  elements.newAccount.addEventListener("click", openAccountDialog);
+  elements.accountForm.addEventListener("submit", createAccount);
+  document.querySelectorAll("[data-close-paper-account]").forEach((button) => button.addEventListener("click", () => elements.accountDialog.close()));
   elements.reset.addEventListener("click", resetAccount);
   elements.archive.addEventListener("click", archiveAccount);
   elements.form.addEventListener("submit", placeOrder);
@@ -28,7 +36,8 @@ function wire() {
 
 async function initialize() {
   if (!client) return renderStatus("STORAGE UNAVAILABLE");
-  const { data } = await client.auth.getSession();
+  const [catalog, { data }] = await Promise.all([getMarketCatalog(), client.auth.getSession()]);
+  paperAssetPicker.setCatalog(catalog);
   await setSession(data.session);
   client.auth.onAuthStateChange((_event, session) => setTimeout(() => setSession(session), 0));
 }
@@ -79,19 +88,29 @@ async function loadAccountState() {
   render();
 }
 
-async function createAccount() {
-  const raw = window.prompt("Account name", `PAPER ${state.accounts.length + 1}`);
-  if (raw === null) return;
+function openAccountDialog() {
+  elements.accountMessage.textContent = "";
+  elements.accountName.value = `PAPER ${state.accounts.length + 1}`;
+  elements.startingCapital.value = "5000";
+  if (!elements.accountDialog.open) elements.accountDialog.showModal();
+  elements.accountName.select();
+}
+
+async function createAccount(event) {
+  event.preventDefault();
   try {
-    setPending(true); const name = normalizeAccountName(raw);
-    const { data, error } = await client.rpc("create_paper_account", { p_name: name });
+    setPending(true);
+    const name = normalizeAccountName(elements.accountName.value);
+    const startingCapital = normalizeStartingCapital(elements.startingCapital.value);
+    const { data, error } = await client.rpc("create_paper_account", { p_name: name, p_starting_capital: startingCapital });
     if (error) throw error;
+    elements.accountDialog.close();
     await loadAccounts(data);
-  } catch (error) { fail(error); } finally { setPending(false); }
+  } catch (error) { elements.accountMessage.textContent = String(error?.message ?? error).toUpperCase(); } finally { setPending(false); }
 }
 
 async function resetAccount() {
-  if (!state.account || !window.confirm(`Reset ${state.account.name} to $5,000?`)) return;
+  if (!state.account || !window.confirm(`Reset ${state.account.name} to ${money(state.account.starting_capital)}?`)) return;
   await runAccountRpc("reset_paper_account", { p_account_id: state.account.id }, state.account.id);
 }
 
@@ -116,8 +135,10 @@ async function placeOrder(event) {
     if (!APP_CONFIG.paperTradingEnabled) throw new Error("PAPER TRADING IS IN SHADOW MODE.");
     if (!state.account || !state.epoch) throw new Error("Create an account first.");
     setPending(true);
-    const form = Object.fromEntries(new FormData(elements.form));
-    form.reduceOnly = new FormData(elements.form).has("reduceOnly");
+    const formData = new FormData(elements.form);
+    const form = Object.fromEntries(formData);
+    form.asset = paperAssetPicker.value;
+    form.reduceOnly = formData.has("reduceOnly");
     const order = normalizePaperOrder(form);
     const { data, error } = await client.functions.invoke("paper-command", { body: {
       type: "place_order", accountId: state.account.id, epochNumber: state.epoch.epoch_number,
@@ -150,6 +171,8 @@ function render() {
   renderAccountOptions();
   const enabled = Boolean(state.user && state.account && APP_CONFIG.paperTradingEnabled && !state.pending);
   [...elements.form.elements].forEach((element) => { element.disabled = !enabled; });
+  [...elements.accountForm.elements].forEach((element) => { element.disabled = state.pending; });
+  paperAssetPicker.setDisabled(!enabled);
   elements.newAccount.disabled = !state.user || !APP_CONFIG.paperTradingEnabled || state.pending;
   elements.reset.disabled = !state.account || !APP_CONFIG.paperTradingEnabled || state.pending;
   elements.archive.disabled = !state.account || !APP_CONFIG.paperTradingEnabled || state.pending;

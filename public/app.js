@@ -3,10 +3,11 @@ import { displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/aler
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
-  fetchAllMarkets,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260718-listener";
+} from "./lib/hyperliquid.js?v=20260720-assets";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
+import { AssetPicker } from "./asset-picker.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
 
 const QUOTE_STALE_MS = 3_500;
@@ -39,8 +40,6 @@ const elements = {
   alertList: document.querySelector("#alert-list"),
   alertMessage: document.querySelector("#alert-message"),
   alertType: document.querySelector("#alert-type"),
-  assetOptions: document.querySelector("#asset-options"),
-  assetSearch: document.querySelector("#asset-search"),
   connectionLabel: document.querySelector("#connection-label"),
   lastSync: document.querySelector("#last-sync"),
   listenerHealth: document.querySelector("#listener-health"),
@@ -55,14 +54,15 @@ const elements = {
   watchlistForm: document.querySelector("#watchlist-form"),
   watchlistMessage: document.querySelector("#watchlist-message"),
 };
+const watchlistAssetPicker = new AssetPicker(document.querySelector("#watchlist-asset-picker"));
 
 wireEvents();
 initialize();
 
 async function initialize() {
   try {
-    const markets = await fetchAllMarkets();
-    state.catalog = markets.sort((a, b) => a.id.localeCompare(b.id));
+    const markets = await getMarketCatalog();
+    state.catalog = markets;
     updateMarketMap(markets);
     await initializeWatchlistStorage();
     ensureValidWatchlist();
@@ -235,7 +235,7 @@ async function loadCloudWatchlist() {
 function renderAccount() {
   const storageReady = Boolean(state.supabase);
   elements.accountButton.disabled = !storageReady || state.signingIn;
-  elements.assetSearch.disabled = !state.user;
+  watchlistAssetPicker.setDisabled(!state.user);
   elements.addAssetButton.disabled = !state.user;
   elements.removeAsset.disabled = !state.user || state.watchlist.length <= 1;
   elements.removeAssetButton.disabled = !state.user || state.watchlist.length <= 1;
@@ -253,10 +253,7 @@ function renderAccount() {
 async function addToWatchlist(event) {
   event.preventDefault();
   if (!state.user) return;
-  const query = elements.assetSearch.value.trim().toLowerCase();
-  const market = state.catalog.find(
-    (item) => item.id.toLowerCase() === query || item.symbol.toLowerCase() === query,
-  );
+  const market = state.markets.get(watchlistAssetPicker.value);
   if (!market) {
     setWatchlistMessage("Choose an asset from the list.");
     return;
@@ -269,7 +266,7 @@ async function addToWatchlist(event) {
     setWatchlistMessage(error.message);
     return;
   }
-  elements.assetSearch.value = "";
+  watchlistAssetPicker.clear();
   await loadCloudWatchlist();
   ensureValidWatchlist();
   await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
@@ -356,9 +353,7 @@ function render() {
 }
 
 function renderCatalog() {
-  elements.assetOptions.innerHTML = state.catalog
-    .map((market) => `<option value="${escapeHtml(displayAssetName(market.id))}"></option>`)
-    .join("");
+  watchlistAssetPicker.setCatalog(state.catalog);
 }
 
 function renderMarkets() {
