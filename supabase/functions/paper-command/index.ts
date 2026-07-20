@@ -9,6 +9,8 @@ import {
 } from "../_shared/paper/market-data.ts";
 import { handlePaperCommand, type PaperCommandDependencies } from "./handler.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
+import { makerFraction } from "../_shared/paper/fees.ts";
+import { initialMargin } from "../_shared/paper/margin.ts";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -26,6 +28,8 @@ function dependencies(): PaperCommandDependencies {
   const supabaseUrl = required("SUPABASE_URL");
   const serviceRoleKey = required("SUPABASE_SERVICE_ROLE_KEY");
   const service = createServiceClient(supabaseUrl, serviceRoleKey);
+  let catalogPromise: ReturnType<typeof fetchPaperCatalog> | null = null;
+  const loadCatalog = () => catalogPromise ??= fetchPaperCatalog();
   const epochId = async (accountId: string, epochNumber: number) => {
     const { data, error } = await service.from("paper_account_epochs").select("id")
       .eq("account_id", accountId).eq("epoch_number", epochNumber).maybeSingle();
@@ -53,21 +57,29 @@ function dependencies(): PaperCommandDependencies {
         .eq("epoch_number", account.active_epoch).eq("state", "active").maybeSingle();
       if (epochError) throw new Error(epochError.message);
       if (!epoch) return null;
-      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }] = await Promise.all([
-        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epoch.id).single(),
+      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }, catalog] = await Promise.all([
+        service.from("paper_account_summaries").select("cash_balance,equity,trailing_volume,maker_volume").eq("epoch_id", epoch.id).single(),
         service.from("paper_positions").select("signed_size,entry_price").eq("epoch_id", epoch.id).eq("asset", asset).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,mark_price,isolated_margin").eq("epoch_id", epoch.id),
         service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epoch.id),
+        loadCatalog(),
       ]);
       if (summaryError) throw new Error(summaryError.message);
       if (positionError) throw new Error(positionError.message);
       if (positionsError || settingsError) throw new Error(positionsError?.message ?? settingsError?.message);
       const leverageByAsset = new Map((settings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
+      const metadataByAsset = new Map(catalog.assets.map((item) => [item.asset, item]));
       const marginByAsset = new Map<string, ReturnType<typeof decimal>>();
       const marginUsed = (positions ?? []).reduce((used, item) => {
+        const metadata = metadataByAsset.get(item.asset);
+        if (!metadata) throw new Error(`asset metadata unavailable for ${item.asset}`);
         const positionMargin = item.margin_mode === "isolated"
           ? decimal(item.isolated_margin ?? 0)
-          : decimal(item.signed_size).abs().times(item.mark_price).div(leverageByAsset.get(item.asset) ?? 1);
+          : decimal(initialMargin(
+            decimalString(decimal(item.signed_size).abs().times(item.mark_price)),
+            leverageByAsset.get(item.asset) ?? 1,
+            metadata.marginTiers,
+          ));
         marginByAsset.set(item.asset, positionMargin);
         return used.plus(positionMargin);
       }, decimal(0));
@@ -78,6 +90,8 @@ function dependencies(): PaperCommandDependencies {
         cashBalance: String(summary.cash_balance),
         availableMargin: decimalString(availableMargin.isPositive() ? availableMargin : 0),
         currentMargin: decimalString(marginByAsset.get(asset) ?? decimal(0)),
+        trailingVolume: String(summary.trailing_volume),
+        makerFraction: makerFraction(String(summary.maker_volume), String(summary.trailing_volume)),
         position: position ? { signedSize: String(position.signed_size), entryPrice: String(position.entry_price) } : null,
       };
     },
@@ -90,7 +104,7 @@ function dependencies(): PaperCommandDependencies {
       return data?.canonical_result ?? null;
     },
     async loadAsset(asset) {
-      const catalog = await fetchPaperCatalog();
+      const catalog = await loadCatalog();
       return catalog.assets.find((item) => item.asset === asset) ?? null;
     },
     async loadMark(asset, dex) {

@@ -30,3 +30,10 @@ export function selectFeeRate(
   }
   return decimalString(rate);
 }
+
+export function makerFraction(makerVolume: string, totalVolume: string): string {
+  const total = decimal(totalVolume);
+  if (!total.gt(0)) return "0";
+  const maker = decimal(makerVolume);
+  return maker.gt(0) ? decimalString(maker.div(total).toString()) : "0";
+}

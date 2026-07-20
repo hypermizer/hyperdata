@@ -46,6 +46,7 @@ create table public.paper_account_summaries (
   cumulative_funding numeric(38, 6) not null default 0,
   cumulative_fees numeric(38, 6) not null default 0,
   trailing_volume numeric(38, 6) not null default 0 check (trailing_volume >= 0),
+  maker_volume numeric(38, 6) not null default 0 check (maker_volume >= 0),
   fidelity text not null default 'reconciled' check (fidelity in ('reconciled', 'live', 'degraded')),
   reconciled_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

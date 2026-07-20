@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(25);
+select plan(26);
 select public.configure_paper_mutation_access(true);
 
 insert into auth.users (
@@ -49,6 +49,7 @@ select is((select count(*)::integer from public.paper_fills), 1, 'one maker fill
 select is((select source_timestamp::text from public.paper_fills), '2026-07-19 12:00:05+00', 'maker fill retains its clearing trade timestamp');
 select is((select signed_size::text from public.paper_positions), '1.500000000000', 'position persists');
 select is((select cash_balance::text from public.paper_account_summaries), '5000.001500', 'maker rebate credits cash');
+select is((select maker_volume::text from public.paper_account_summaries), '150.000000', 'maker notional accumulates for fee tiers');
 select is((select equity::text from public.paper_account_summaries), '5000.001500', 'summary reconciles after fill');
 select is((select version from public.paper_account_epochs), 2::bigint, 'replay advances account version');
 select isnt(public.apply_paper_replay_effect(

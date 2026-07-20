@@ -2,7 +2,7 @@ import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import { inputVersion } from "../_shared/paper/market-data.ts";
 import { fetchPaperBook, fetchPaperCatalog, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
-import { selectFeeRate } from "../_shared/paper/fees.ts";
+import { makerFraction, selectFeeRate } from "../_shared/paper/fees.ts";
 import { crossRisk, initialMargin, isolatedRisk, maintenanceMargin } from "../_shared/paper/margin.ts";
 import { unrealizedPnl } from "../_shared/paper/accounting.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
@@ -129,19 +129,16 @@ function runtimeDependencies(): ProcessPaperDependencies {
           fundingPoints: fundingInput.points, fundingVersion: fundingInput.inputVersion,
           oracleHistory: (oracleInputs ?? []).map((input) => input.payload),
           metadata, catalog: catalogInput.assets,
-          feeRates: {
-            maker: selectFeeRate(feeInput.schedule, "0", "0", "maker"),
-            taker: selectFeeRate(feeInput.schedule, "0", "0", "taker"),
-          },
+          feeSchedule: feeInput.schedule,
         },
       };
     },
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
       const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }, { data: leverageSettings, error: leverageError }, { data: accountCursor, error: cursorError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
-        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
+        service.from("paper_account_summaries").select("cash_balance,equity,trailing_volume,maker_volume").eq("epoch_id", epochId).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
-        service.from("paper_orders").select("id,side,order_type,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,created_at")
+        service.from("paper_orders").select("id,side,order_type,time_in_force,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,created_at")
           .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
           .order("created_at", { ascending: true }),
         service.from("paper_fills").select("side,size,price,source_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
@@ -169,7 +166,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         bookVersion: string; tradeVersion: string;
         fundingPoints: Parameters<typeof missingFundingEffects>[0]; fundingVersion: string;
         oracleHistory: Array<{ observed_at?: string; oracle_price?: number | null }>;
-        feeRates: { maker: string; taker: string };
+        feeSchedule: Parameters<typeof selectFeeRate>[0];
         metadata: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"][number];
         catalog: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"];
       };
@@ -191,6 +188,11 @@ function runtimeDependencies(): ProcessPaperDependencies {
       };
       const metadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
       const leverageByAsset = new Map((leverageSettings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
+      const accountMakerFraction = makerFraction(String(summary.maker_volume), String(summary.trailing_volume));
+      const feeRates = {
+        maker: selectFeeRate(payload.feeSchedule, String(summary.trailing_volume), accountMakerFraction, "maker"),
+        taker: selectFeeRate(payload.feeSchedule, String(summary.trailing_volume), accountMakerFraction, "taker"),
+      };
       const marginUsedByOtherAssets = (positions ?? []).filter((item) => item.asset !== snapshot.asset)
         .reduce((used, item) => {
           if (item.margin_mode === "isolated") return used.plus(item.isolated_margin ?? 0);
@@ -211,13 +213,13 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const replayEffects: Array<Record<string, unknown>> = [];
       for (const order of orders ?? []) {
         const effect = replayOrder({
-          id: order.id, side: order.side, orderType: order.order_type,
+          id: order.id, side: order.side, orderType: order.order_type, timeInForce: order.time_in_force,
           status: order.status, remainingSize: String(order.remaining_size),
           limitPrice: order.limit_price === null ? null : String(order.limit_price),
           triggerPrice: order.trigger_price === null ? null : String(order.trigger_price),
           queueAhead: order.queue_ahead === null ? null : String(order.queue_ahead),
           reduceOnly: order.reduce_only, createdAtMs: Date.parse(order.created_at),
-        }, position, replaySnapshot, payload.feeRates);
+        }, position, replaySnapshot, feeRates);
         if (!effect) continue;
         if (!hasMatchMargin(position, effect.position, payload.markPrice, Number(order.leverage), payload.metadata.marginTiers,
           decimalString(marginAvailableForAsset.isPositive() ? marginAvailableForAsset : 0))) {
@@ -319,7 +321,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         asset: snapshot.asset, position, markPrice: payload.markPrice,
         equity: risk.equity, maintenanceMargin: risk.maintenanceMargin,
         positionMaintenanceMargin: requiredMaintenance, marginTiers: payload.metadata.marginTiers,
-        book: payload.book, feeRate: payload.feeRates.taker,
+        book: payload.book, feeRate: feeRates.taker,
         inputVersion: snapshot.inputVersion, nowMs: Date.now(),
       });
       if (!liquidation) return { mutated: true, accepted: true };

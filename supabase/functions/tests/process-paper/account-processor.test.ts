@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { hasMatchMargin, replayOrder, type ReplayOrder, type ReplaySnapshot } from "../../process-paper/account-processor.ts";
 
 const book = { asset: "ORCL", timestampMs: 1_000, bids: [{ price: "99", size: "10", orders: 2 }], asks: [{ price: "101", size: "2", orders: 1 }, { price: "102", size: "4", orders: 2 }] };
-const baseOrder: ReplayOrder = { id: "o1", side: "buy", orderType: "limit", status: "resting", remainingSize: "2", limitPrice: "100", triggerPrice: null, queueAhead: "1", reduceOnly: false };
+const baseOrder: ReplayOrder = { id: "o1", side: "buy", orderType: "limit", timeInForce: "GTC", status: "resting", remainingSize: "2", limitPrice: "100", triggerPrice: null, queueAhead: "1", reduceOnly: false };
 const snapshot = (overrides: Partial<ReplaySnapshot> = {}): ReplaySnapshot => ({ markPrice: "100", book, trades: [], tradeGap: false, inputVersion: "input-v1", ...overrides });
 const fees = { maker: "-0.00001", taker: "0.00045" };
 
@@ -31,6 +31,21 @@ Deno.test("trade gap still permits mark-triggered risk processing", () => {
   const effect = replayOrder(order, null, snapshot({ markPrice: "106", tradeGap: true }), fees)!;
   assertEquals(effect.status, "filled");
   assertEquals(effect.fills.map(({ price, size }) => ({ price, size })), [{ price: "101", size: "1" }]);
+});
+
+Deno.test("triggered limit preserves IOC and ALO semantics", () => {
+  const triggered: ReplayOrder = {
+    ...baseOrder, orderType: "stop_limit", status: "trigger_waiting",
+    triggerPrice: "105", limitPrice: "101", queueAhead: null,
+  };
+  const ioc = replayOrder({ ...triggered, timeInForce: "IOC", remainingSize: "3" }, null,
+    snapshot({ markPrice: "106" }), fees)!;
+  assertEquals(ioc.status, "canceled");
+  assertEquals(ioc.remainingSize, "1");
+  const alo = replayOrder({ ...triggered, timeInForce: "ALO" }, null,
+    snapshot({ markPrice: "106" }), fees)!;
+  assertEquals(alo.status, "canceled");
+  assertEquals(alo.reason, "post_only_would_cross");
 });
 
 Deno.test("crossed stop market walks visible book once and cancels unavailable remainder", () => {

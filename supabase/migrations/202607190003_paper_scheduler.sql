@@ -136,6 +136,7 @@ declare order_row public.paper_orders%rowtype;
 declare total_fee numeric(38, 6) := 0;
 declare total_realized numeric(38, 6) := coalesce((p_effects ->> 'realizedPnl')::numeric, 0);
 declare total_volume numeric(38, 6) := 0;
+declare total_maker_volume numeric(38, 6) := 0;
 declare target_leverage integer;
 begin
   select * into epoch_row from public.paper_account_epochs
@@ -168,8 +169,10 @@ begin
   on conflict (epoch_id, source_id) do nothing;
 
   select coalesce(sum((fill ->> 'fee')::numeric), 0),
-    coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0)
-  into total_fee, total_volume
+    coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0),
+    coalesce(sum(case when fill ->> 'liquidity' = 'maker'
+      then (fill ->> 'size')::numeric * (fill ->> 'price')::numeric else 0 end), 0)
+  into total_fee, total_volume, total_maker_volume
   from jsonb_array_elements(coalesce(p_effects -> 'fills', '[]'::jsonb)) fill;
 
   if jsonb_array_length(coalesce(p_effects -> 'fills', '[]'::jsonb)) > 0 then
@@ -212,6 +215,7 @@ begin
     realized_pnl = realized_pnl + total_realized,
     cumulative_fees = cumulative_fees + total_fee,
     trailing_volume = trailing_volume + total_volume,
+    maker_volume = maker_volume + total_maker_volume,
     fidelity = 'live', reconciled_at = now()
   where epoch_id = p_epoch_id;
   update public.paper_account_summaries summary set

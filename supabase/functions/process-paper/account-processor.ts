@@ -11,6 +11,7 @@ export interface ReplayOrder {
   id: string;
   side: Side;
   orderType: "limit" | "stop_market" | "stop_limit" | "take_market" | "take_limit";
+  timeInForce: "GTC" | "ALO" | "IOC" | null;
   status: "resting" | "partially_filled" | "trigger_waiting";
   remainingSize: string;
   limitPrice: string | null;
@@ -128,20 +129,22 @@ export function replayOrder(
   if (order.limitPrice === null) throw new Error("replay limit order has no limit price");
   if (order.status === "trigger_waiting") {
     const execution = executeOrder({
-      side: order.side, size: order.remainingSize, type: "limit", timeInForce: "GTC",
+      side: order.side, size: order.remainingSize, type: "limit", timeInForce: order.timeInForce ?? "GTC",
       limitPrice: order.limitPrice, reduceOnly: order.reduceOnly,
     }, snapshot.book, position?.signedSize ?? "0");
-    if (execution.fills.length) {
-      const transitioned = transitionFills(order, position,
-        execution.fills.map((fill) => ({ ...fill, liquidity: "taker" as const })),
-        feeRates.maker, feeRates.taker, snapshot.inputVersion);
-      const filled = transitioned.fills.reduce((sum, fill) => sum.plus(fill.size), decimal(0));
-      const remaining = decimal(order.remainingSize).minus(filled);
-      return {
-        orderId: order.id, status: remaining.isZero() ? "filled" : "partially_filled",
-        remainingSize: decimalString(remaining), queueAhead: execution.queueAhead, ...transitioned,
-      };
-    }
+    const transitioned = transitionFills(order, position,
+      execution.fills.map((fill) => ({ ...fill, liquidity: "taker" as const })),
+      feeRates.maker, feeRates.taker, snapshot.inputVersion);
+    const filled = transitioned.fills.reduce((sum, fill) => sum.plus(fill.size), decimal(0));
+    const remaining = decimal(order.remainingSize).minus(filled);
+    if (["canceled", "rejected"].includes(execution.status)) return {
+      orderId: order.id, status: "canceled", remainingSize: decimalString(remaining),
+      queueAhead: null, reason: execution.reason ?? undefined, ...transitioned,
+    };
+    if (execution.fills.length) return {
+      orderId: order.id, status: remaining.isZero() ? "filled" : "partially_filled",
+      remainingSize: decimalString(remaining), queueAhead: execution.queueAhead, ...transitioned,
+    };
     return {
       orderId: order.id, status: "resting", remainingSize: order.remainingSize,
       queueAhead: execution.queueAhead, fills: [], position, realizedPnl: "0", fee: "0",

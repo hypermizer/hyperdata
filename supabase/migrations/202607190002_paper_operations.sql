@@ -133,6 +133,7 @@ declare
   order_row_id uuid;
   total_fees numeric(38, 6);
   total_volume numeric(38, 6);
+  total_maker_volume numeric(38, 6);
 begin
   select e.* into epoch_row
   from public.paper_account_epochs e
@@ -255,8 +256,10 @@ begin
   from jsonb_array_elements(coalesce(p_effects -> 'ledger', '[]'::jsonb)) entry;
   select
     coalesce(sum((fill ->> 'fee')::numeric), 0),
-    coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0)
-  into total_fees, total_volume
+    coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0),
+    coalesce(sum(case when fill ->> 'liquidity' = 'maker'
+      then (fill ->> 'size')::numeric * (fill ->> 'price')::numeric else 0 end), 0)
+  into total_fees, total_volume, total_maker_volume
   from jsonb_array_elements(coalesce(p_effects -> 'fills', '[]'::jsonb)) fill;
   update public.paper_account_summaries
   set cash_balance = cash_balance + cash_delta,
@@ -269,6 +272,7 @@ begin
       ), 0),
       cumulative_fees = cumulative_fees + total_fees,
       trailing_volume = trailing_volume + total_volume,
+      maker_volume = maker_volume + total_maker_volume,
       reconciled_at = now()
   where epoch_id = epoch_row.id;
   update public.paper_account_summaries summary set

@@ -17,6 +17,8 @@ export interface PaperAccountState {
   cashBalance: string;
   availableMargin: string;
   currentMargin: string;
+  trailingVolume: string;
+  makerFraction: string;
   position: PaperPosition | null;
 }
 export interface ApplyContext {
@@ -202,7 +204,7 @@ export async function handlePaperCommand(
   }
 
   const feeInput = await dependencies.loadFeeSchedule();
-  const feeRate = selectFeeRate(feeInput.schedule, "0", "0", "taker");
+  const feeRate = selectFeeRate(feeInput.schedule, account.trailingVolume, account.makerFraction, "taker");
   let position = account.position;
   let totalFee = decimal(0);
   let totalRealized = decimal(0);
