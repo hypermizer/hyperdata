@@ -96,8 +96,11 @@
         <div id="paper-metrics" class="paper-metrics" aria-live="polite"></div>
 
         <form id="paper-order-form" class="paper-order-form">
-          <input id="paper-asset" name="asset" list="paper-assets" placeholder="xyz:ORCL" aria-label="Asset" required />
-          <datalist id="paper-assets"><option value="xyz:ORCL"></option><option value="xyz:XYZ100"></option></datalist>
+          <div id="paper-asset-picker" class="asset-picker">
+            <input id="paper-asset-search" data-asset-input placeholder="ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="paper-asset-list" aria-label="Asset" required />
+            <input data-asset-value name="asset" type="hidden" />
+            <div id="paper-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+          </div>
           <select name="side" aria-label="Side"><option value="buy">BUY</option><option value="sell">SELL</option></select>
           <select id="paper-order-type" name="orderType" aria-label="Order type">
             <option value="market">MARKET</option><option value="limit">LIMIT</option>
@@ -124,6 +127,24 @@
       </section>
     </main>
 
+    <dialog id="paper-account-dialog" class="settings-dialog" aria-labelledby="paper-account-dialog-title">
+      <div class="settings-header">
+        <h2 id="paper-account-dialog-title">New paper account</h2>
+        <button class="icon-button" type="button" data-close-paper-account aria-label="Close">×</button>
+      </div>
+      <form id="paper-account-form" class="settings-form">
+        <label for="paper-account-name">Account name</label>
+        <input id="paper-account-name" name="name" maxlength="60" autocomplete="off" required />
+        <label for="paper-starting-capital">Starting capital</label>
+        <input id="paper-starting-capital" name="startingCapital" type="number" min="0.01" max="1000000000" step="0.01" value="5000" required />
+        <div class="dialog-actions">
+          <button type="button" data-close-paper-account>CANCEL</button>
+          <button type="submit">CREATE</button>
+        </div>
+        <p id="paper-account-message" class="message" role="alert"></p>
+      </form>
+    </dialog>
+
     <dialog id="watchlist-settings" class="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-header">
         <h2 id="settings-title">Watchlist settings</h2>
@@ -133,8 +154,11 @@
       <form id="watchlist-form" class="settings-form">
         <label for="asset-search">Add asset</label>
         <div class="settings-control">
-          <input id="asset-search" name="asset" list="asset-options" placeholder="ORCL" autocomplete="off" disabled />
-          <datalist id="asset-options"></datalist>
+          <div id="watchlist-asset-picker" class="asset-picker">
+            <input id="asset-search" data-asset-input placeholder="ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="watchlist-asset-list" disabled />
+            <input data-asset-value name="asset" type="hidden" />
+            <div id="watchlist-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+          </div>
           <button id="add-asset-button" type="submit" disabled>Add</button>
         </div>
       </form>
@@ -161,7 +185,7 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260720-paper"></script>
-    <script type="module" src="./paper.js?v=20260720-paper"></script>
+    <script type="module" src="./app.js?v=20260720-assets"></script>
+    <script type="module" src="./paper.js?v=20260720-assets"></script>
   </body>
 </html>
