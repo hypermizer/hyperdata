@@ -21,6 +21,14 @@ Three Supabase Edge Functions are scheduled through `pg_cron`:
 
 Market observations are retained for 30 days and monitor runs for 14 days. One-minute scheduling on the Supabase Free tier is not trading-grade and can be delayed; health is visible in the Alerts tab.
 
+## Paper trading
+
+The Paper tab is a personal, ledger-backed Hyperliquid perpetual simulator. Each account starts at $5,000. Immediate orders use visible public book depth; resting fills use conservative public-trade queue replay. The server processor handles mark revaluation, hourly funding, and cross/isolated liquidation without requiring an open browser.
+
+`PAPER_TRADING_ENABLED` is independent of alert delivery and defaults to `false`. When false, the UI is read-only and the 10-second processor cron is absent; diagnostic pruning remains scheduled. Activation requires a separate `PAPER_SCHEDULER_SECRET` and a successful shadow run. Raw paper market inputs are retained for 7 days and processor runs for 30 days. Fills, orders, ledger entries, funding, liquidations, and account epochs are never pruned by the diagnostic retention job.
+
+Health is available in `paper_processor_health`. Disable processing by setting `PAPER_TRADING_ENABLED=false` and rerunning `scripts/configure-supabase-runtime.mjs`; this preserves all account history.
+
 ## Production setup
 
 The deployment workflow requires these GitHub Actions secrets:

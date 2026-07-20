@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "supabase/**"
+      - "scripts/**"
       - ".github/workflows/deploy-supabase.yml"
 
 permissions:
@@ -33,6 +34,7 @@ jobs:
         run: |
           supabase secrets set --project-ref "$SUPABASE_PROJECT_ID" \
             MONITOR_SECRET="$MONITOR_SECRET" DELIVERY_ENABLED="$DELIVERY_ENABLED" \
+            PAPER_SCHEDULER_SECRET="$PAPER_SCHEDULER_SECRET" PAPER_TRADING_ENABLED="$PAPER_TRADING_ENABLED" \
             ZOHO_SMTP_HOST="smtp.zoho.com" ZOHO_SMTP_USER="$SMTP_USERNAME" \
             ZOHO_SMTP_PASSWORD="$SMTP_PASSWORD" ALERT_EMAIL="$ALERT_EMAIL" \
             TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID" TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
@@ -40,6 +42,8 @@ jobs:
         env:
           MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
           DELIVERY_ENABLED: ${{ vars.DELIVERY_ENABLED || 'false' }}
+          PAPER_SCHEDULER_SECRET: ${{ secrets.PAPER_SCHEDULER_SECRET }}
+          PAPER_TRADING_ENABLED: ${{ vars.PAPER_TRADING_ENABLED || 'false' }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
@@ -52,7 +56,11 @@ jobs:
           supabase functions deploy monitor-market --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy rebuild-calibrations --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy deliver-alerts --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy paper-command --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy process-paper --project-ref "$SUPABASE_PROJECT_ID"
       - name: Configure scheduler
         run: node scripts/configure-supabase-runtime.mjs
         env:
           MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+          PAPER_SCHEDULER_SECRET: ${{ secrets.PAPER_SCHEDULER_SECRET }}
+          PAPER_TRADING_ENABLED: ${{ vars.PAPER_TRADING_ENABLED || 'false' }}
