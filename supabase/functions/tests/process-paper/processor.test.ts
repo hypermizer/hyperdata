@@ -4,6 +4,7 @@ import { processPaperBatch, type ProcessorSnapshot } from "../../process-paper/p
 Deno.test("one asset fetch advances every account in deterministic order", async () => {
   const fetched: string[] = [];
   const processed: string[] = [];
+  const persisted: string[] = [];
   const result = await processPaperBatch({
     loadWork: async () => [{ asset: "ORCL", hasPosition: true, accountIds: ["b", "a", "a"] }],
     fetchSnapshot: async (asset) => {
@@ -14,13 +15,28 @@ Deno.test("one asset fetch advances every account in deterministic order", async
       processed.push(`${accountId}:${snapshot.inputVersion}`);
       return { mutated: true };
     },
+    persistSnapshot: async (snapshot) => { persisted.push(snapshot.inputVersion); },
   }, 100);
   assertEquals(fetched, ["ORCL"]);
   assertEquals(processed, ["a:v1", "b:v1"]);
+  assertEquals(persisted, ["v1"]);
   assertEquals(result, {
     state: "succeeded", assetsProcessed: 1, accountsProcessed: 2, apiWeight: 42,
     reconciliationFailures: 0, degradedAssets: [],
   });
+});
+
+Deno.test("trade cursor is not persisted when any account rejects the snapshot", async () => {
+  const persisted: string[] = [];
+  const result = await processPaperBatch({
+    loadWork: async () => [{ asset: "ORCL", hasPosition: true, accountIds: ["accepted", "stale"] }],
+    fetchSnapshot: async () => ({ asset: "ORCL", inputVersion: "trades-v2", apiWeight: 1, degraded: false, payload: {} }),
+    processAccount: async (accountId) => ({ mutated: accountId === "accepted", accepted: accountId !== "stale" }),
+    persistSnapshot: async (snapshot) => { persisted.push(snapshot.inputVersion); },
+  }, 10);
+  assertEquals(persisted, []);
+  assertEquals(result.state, "partial");
+  assertEquals(result.degradedAssets, [{ asset: "ORCL", reason: "account_snapshot_rejected" }]);
 });
 
 Deno.test("risk-bearing assets consume budget before resting-only assets", async () => {
@@ -60,7 +76,10 @@ Deno.test("an asset failure is isolated and reconciliation failure makes run par
   assertEquals(result.assetsProcessed, 1);
   assertEquals(result.accountsProcessed, 1);
   assertEquals(result.reconciliationFailures, 1);
-  assertEquals(result.degradedAssets, [{ asset: "BAD", reason: "cursor_gap" }]);
+  assertEquals(result.degradedAssets, [
+    { asset: "BAD", reason: "cursor_gap" },
+    { asset: "ORCL", reason: "account_snapshot_rejected" },
+  ]);
 });
 
 Deno.test("budgeted assets rotate without placing resting work ahead of risk", async () => {
