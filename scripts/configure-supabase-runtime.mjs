@@ -20,7 +20,10 @@ async function query(sql, parameters = []) {
   const response = await fetch(queryUrl, { method: "POST", headers, body: JSON.stringify({ query: sql, parameters, read_only: false }) });
   const body = await response.text();
   if (!response.ok) throw new Error(`Runtime configuration query failed (${response.status}): ${body.slice(0, 300)}`);
+  return body ? JSON.parse(body) : [];
 }
+
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 const secrets = [
   ["project_url", `https://${projectRef}.supabase.co`],
@@ -35,4 +38,22 @@ for (const [name, value] of secrets) {
 await query("select public.configure_listener_cron()");
 await query("select public.configure_paper_cron($1)", [paperProcessorEnabled]);
 await query("select public.configure_paper_mutation_access($1)", [paperTradingEnabled]);
+
+if (paperProcessorEnabled) {
+  await query("select public.ensure_paper_shadow_account()");
+  let health;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const result = await query("select * from public.paper_processor_health");
+    health = (Array.isArray(result) ? result : result.result ?? [])[0];
+    if (Number(health?.runs_last_hour ?? 0) > 0 && health?.latest_finished_at) break;
+    await wait(5_000);
+  }
+  if (!health?.latest_finished_at || Number(health.runs_last_hour ?? 0) < 1) {
+    throw new Error("Paper processor did not complete a run during the deployment health window");
+  }
+  if (Number(health.unhealthy_last_hour ?? 0) > 0 || Number(health.reconciliation_failures_24h ?? 0) > 0) {
+    throw new Error("Paper processor health gate detected an unhealthy or unreconciled run");
+  }
+  console.log(`Paper processor health verified: ${health.runs_last_hour} run(s) in the last hour`);
+}
 console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}`);
