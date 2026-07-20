@@ -39,4 +39,6 @@ Deno.test("match-time margin permits reductions and rejects unsupported increase
   const tiers = [{ lowerBound: "0", maxLeverage: 10, maintenanceRate: "0.05", maintenanceDeduction: "0" }];
   assertEquals(hasMatchMargin(null, { signedSize: "100", entryPrice: "100" }, "100", 2, tiers, "1000"), false);
   assertEquals(hasMatchMargin({ signedSize: "2", entryPrice: "100" }, { signedSize: "1", entryPrice: "100" }, "100", 2, tiers, "0"), true);
+  assertEquals(hasMatchMargin({ signedSize: "2", entryPrice: "100" }, { signedSize: "-1", entryPrice: "100" }, "100", 2, tiers, "0"), false);
+  assertEquals(hasMatchMargin({ signedSize: "-2", entryPrice: "100" }, { signedSize: "1", entryPrice: "100" }, "100", 2, tiers, "100"), true);
 });

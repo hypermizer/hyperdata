@@ -23,7 +23,7 @@ export interface ProcessorAccountResult {
 export interface PaperProcessorDependencies {
   loadWork(): Promise<ProcessorAssetWork[]>;
   estimateSnapshotWeight?(asset: string): number;
-  fetchSnapshot(asset: string): Promise<ProcessorSnapshot>;
+  fetchSnapshot(work: ProcessorAssetWork): Promise<ProcessorSnapshot>;
   processAccount(accountId: string, snapshot: ProcessorSnapshot): Promise<ProcessorAccountResult>;
   persistSnapshot?(snapshot: ProcessorSnapshot): Promise<void>;
 }
@@ -72,7 +72,7 @@ export async function processPaperBatch(
     }
     let snapshot: ProcessorSnapshot;
     try {
-      snapshot = await dependencies.fetchSnapshot(item.asset);
+      snapshot = await dependencies.fetchSnapshot(item);
     } catch (error) {
       degradedAssets.push({
         asset: item.asset,
@@ -93,8 +93,8 @@ export async function processPaperBatch(
       if (result.reconciliationFailure) reconciliationFailures += 1;
       if (result.accepted === false || result.reconciliationFailure) acceptedByEveryAccount = false;
     }
-    if (acceptedByEveryAccount) await dependencies.persistSnapshot?.(snapshot);
-    else degradedAssets.push({ asset: item.asset, reason: "account_snapshot_rejected" });
+    await dependencies.persistSnapshot?.(snapshot);
+    if (!acceptedByEveryAccount) degradedAssets.push({ asset: item.asset, reason: "account_snapshot_rejected" });
   }
 
   return {

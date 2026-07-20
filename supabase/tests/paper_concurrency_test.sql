@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(15);
+select plan(18);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -70,6 +70,22 @@ select throws_ok(
   )$$,
   'P0001', 'paper account epoch is not active', 'closed epoch rejects future effects'
 );
+
+select ok(public.apply_paper_account_snapshot(
+  (select id from public.paper_account_epochs where state = 'active'), 0, 'xyz:ORCL',
+  '[]'::jsonb, '[]'::jsonb, 100, 'snapshot-v1',
+  '{"lastTradeId":"trade-10","lastTimestampMs":1000}'::jsonb
+), 'account snapshot and cursor commit together');
+select is(
+  (select last_trade_id from public.paper_account_market_cursors),
+  'trade-10',
+  'account cursor records the committed trade boundary'
+);
+select isnt(public.apply_paper_account_snapshot(
+  (select id from public.paper_account_epochs where state = 'active'), 1, 'xyz:ORCL',
+  '[]'::jsonb, '[]'::jsonb, 101, 'snapshot-v2',
+  '{"lastTradeId":"trade-11","lastTimestampMs":1100}'::jsonb
+), true, 'stale snapshot cannot advance the account cursor');
 
 select * from finish();
 rollback;

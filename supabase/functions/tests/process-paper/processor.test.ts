@@ -7,9 +7,9 @@ Deno.test("one asset fetch advances every account in deterministic order", async
   const persisted: string[] = [];
   const result = await processPaperBatch({
     loadWork: async () => [{ asset: "ORCL", hasPosition: true, accountIds: ["b", "a", "a"] }],
-    fetchSnapshot: async (asset) => {
-      fetched.push(asset);
-      return { asset, inputVersion: "v1", apiWeight: 42, degraded: false, payload: {} };
+    fetchSnapshot: async (work) => {
+      fetched.push(work.asset);
+      return { asset: work.asset, inputVersion: "v1", apiWeight: 42, degraded: false, payload: {} };
     },
     processAccount: async (accountId, snapshot) => {
       processed.push(`${accountId}:${snapshot.inputVersion}`);
@@ -26,7 +26,7 @@ Deno.test("one asset fetch advances every account in deterministic order", async
   });
 });
 
-Deno.test("trade cursor is not persisted when any account rejects the snapshot", async () => {
+Deno.test("diagnostic snapshot persists while rejected accounts keep their own cursor", async () => {
   const persisted: string[] = [];
   const result = await processPaperBatch({
     loadWork: async () => [{ asset: "ORCL", hasPosition: true, accountIds: ["accepted", "stale"] }],
@@ -34,7 +34,7 @@ Deno.test("trade cursor is not persisted when any account rejects the snapshot",
     processAccount: async (accountId) => ({ mutated: accountId === "accepted", accepted: accountId !== "stale" }),
     persistSnapshot: async (snapshot) => { persisted.push(snapshot.inputVersion); },
   }, 10);
-  assertEquals(persisted, []);
+  assertEquals(persisted, ["trades-v2"]);
   assertEquals(result.state, "partial");
   assertEquals(result.degradedAssets, [{ asset: "ORCL", reason: "account_snapshot_rejected" }]);
 });
@@ -50,7 +50,7 @@ Deno.test("risk-bearing assets consume budget before resting-only assets", async
       { asset: "ORCL", hasPosition: true, accountIds: ["risk"] },
     ],
     estimateSnapshotWeight: () => 25,
-    fetchSnapshot: async (asset) => { fetched.push(asset); return snapshot(asset); },
+    fetchSnapshot: async (work) => { fetched.push(work.asset); return snapshot(work.asset); },
     processAccount: async (accountId) => { processed.push(accountId); return { mutated: true }; },
   }, 25);
   assertEquals(fetched, ["ORCL"]);
@@ -66,9 +66,9 @@ Deno.test("an asset failure is isolated and reconciliation failure makes run par
       { asset: "BAD", hasPosition: true, accountIds: ["x"] },
       { asset: "ORCL", hasPosition: true, accountIds: ["y"] },
     ],
-    fetchSnapshot: async (asset) => {
-      if (asset === "BAD") throw new Error("cursor_gap");
-      return { asset, inputVersion: "v", apiWeight: 2, degraded: false, payload: {} };
+    fetchSnapshot: async (work) => {
+      if (work.asset === "BAD") throw new Error("cursor_gap");
+      return { asset: work.asset, inputVersion: "v", apiWeight: 2, degraded: false, payload: {} };
     },
     processAccount: async () => ({ mutated: false, reconciliationFailure: true }),
   }, 100);
@@ -91,8 +91,8 @@ Deno.test("budgeted assets rotate without placing resting work ahead of risk", a
       { asset: "C", hasPosition: false, accountIds: ["c"] },
     ],
     estimateSnapshotWeight: () => 10,
-    fetchSnapshot: async (asset) => {
-      fetched.push(asset); return { asset, inputVersion: asset, apiWeight: 10, degraded: false, payload: {} };
+    fetchSnapshot: async (work) => {
+      fetched.push(work.asset); return { asset: work.asset, inputVersion: work.asset, apiWeight: 10, degraded: false, payload: {} };
     },
     processAccount: async () => ({ mutated: true }),
   }, 20, 1);

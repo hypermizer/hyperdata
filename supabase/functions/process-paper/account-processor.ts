@@ -50,7 +50,13 @@ export function hasMatchMargin(
 ): boolean {
   const currentAbsolute = decimal(current?.signedSize ?? 0).abs();
   const nextAbsolute = decimal(next?.signedSize ?? 0).abs();
-  if (nextAbsolute.lte(currentAbsolute)) return true;
+  const currentSigned = decimal(current?.signedSize ?? 0);
+  const nextSigned = decimal(next?.signedSize ?? 0);
+  const pureReduction = nextSigned.isZero() || (
+    !currentSigned.isZero() && currentSigned.isPositive() === nextSigned.isPositive() &&
+    nextAbsolute.lte(currentAbsolute)
+  );
+  if (pureReduction) return true;
   return decimal(initialMargin(decimalString(nextAbsolute.times(markPrice)), leverage, tiers)).lte(withdrawable);
 }
 

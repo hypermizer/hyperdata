@@ -1,7 +1,8 @@
 begin;
-select plan(13);
+select plan(16);
 
 select has_table('public', 'paper_processor_lease', 'processor lease exists');
+select has_table('public', 'paper_account_market_cursors', 'per-account market cursors exist');
 select function_privs_are('public', 'claim_paper_processor_bucket', array['timestamptz'], 'service_role', array['EXECUTE'], 'service can claim');
 select function_privs_are('public', 'claim_paper_processor_bucket', array['timestamptz'], 'authenticated', array[]::text[], 'user cannot claim');
 
@@ -14,6 +15,8 @@ select is((select assets_processed from public.paper_processor_runs where bucket
 select isnt(public.claim_paper_processor_bucket('2026-07-19 20:00:00+00'), true, 'completed bucket is idempotent');
 select function_privs_are('public', 'revalue_paper_epoch_asset', array['uuid','bigint','text','numeric','text'], 'service_role', array['EXECUTE'], 'service can revalue');
 select function_privs_are('public', 'revalue_paper_epoch_asset', array['uuid','bigint','text','numeric','text'], 'authenticated', array[]::text[], 'user cannot revalue');
+select function_privs_are('public', 'apply_paper_account_snapshot', array['uuid','bigint','text','jsonb','jsonb','numeric','text','jsonb'], 'service_role', array['EXECUTE'], 'service can atomically apply account snapshots');
+select function_privs_are('public', 'apply_paper_account_snapshot', array['uuid','bigint','text','jsonb','jsonb','numeric','text','jsonb'], 'authenticated', array[]::text[], 'user cannot apply account snapshots');
 select function_privs_are('public', 'configure_paper_cron', array['boolean'], 'service_role', array['EXECUTE'], 'service can configure paper cron');
 select function_privs_are('public', 'configure_paper_cron', array['boolean'], 'authenticated', array[]::text[], 'user cannot configure paper cron');
 
