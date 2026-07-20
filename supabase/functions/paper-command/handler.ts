@@ -3,6 +3,7 @@ import { validateOrderConstraints } from "../_shared/paper/constraints.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 import { executeOrder, validTriggerSide } from "../_shared/paper/execution.ts";
 import { selectFeeRate } from "../_shared/paper/fees.ts";
+import { initialMargin } from "../_shared/paper/margin.ts";
 import type { NormalizedBook } from "../_shared/paper/market-data.ts";
 import type { FeeSchedule, PaperAssetMetadata, PaperPosition } from "../_shared/paper/types.ts";
 
@@ -181,6 +182,18 @@ export async function handlePaperCommand(
     reduceOnly: command.order.reduceOnly,
   }, book, account.position?.signedSize ?? "0");
   if (execution.status === "rejected") return jsonError(execution.reason ?? "order_rejected", 422);
+  const executedNotional = execution.fills.reduce(
+    (total, fill) => total.plus(decimal(fill.size).times(fill.price)),
+    decimal(0),
+  );
+  const executedInitialMargin = initialMargin(
+    decimalString(executedNotional),
+    command.order.leverage,
+    asset.marginTiers,
+  );
+  if (!command.order.reduceOnly && decimal(executedInitialMargin).gt(account.availableMargin)) {
+    return jsonError("insufficient_margin", 422);
+  }
 
   const feeInput = await dependencies.loadFeeSchedule();
   const feeRate = selectFeeRate(feeInput.schedule, "0", "0", "taker");
@@ -201,7 +214,7 @@ export async function handlePaperCommand(
       ...fill,
       fee: transition.fee,
       liquidity: "taker",
-      sourceId: `${bookVersion}:${index}`,
+      sourceId: `${command.idempotencyKey}:${bookVersion}:${index}`,
     };
   });
   const sourceTimestamp = new Date(book.timestampMs).toISOString();

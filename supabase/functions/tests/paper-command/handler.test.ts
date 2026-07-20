@@ -57,9 +57,25 @@ Deno.test("authenticated market command produces canonical multi-level effects",
   const body = await response.json();
   assertEquals(body.response.status, "filled");
   assertEquals(body.fills.map((fill: { price: string; size: string }) => [fill.price, fill.size]), [["100", "0.5"], ["101", "0.25"]]);
+  assertEquals(body.fills.map((fill: { sourceId: string }) => fill.sourceId), ["cmd-1:book-v1:0", "cmd-1:book-v1:1"]);
   assertEquals(body.position, { signedSize: "0.75", entryPrice: "100.33333333333333333333" });
   assertEquals(body.ledger, [{ entry_type: "fee", amount: "-0.0338625", asset: "xyz:ORCL", source_timestamp: "1970-01-01T00:00:01.000Z" }]);
   assertEquals(applied, body);
+});
+
+Deno.test("immediate execution checks margin against filled notional after slippage", async () => {
+  let applied = false;
+  const response = await handlePaperCommand(request({
+    ...marketBuy,
+    idempotencyKey: "slippage-margin",
+    order: { ...marketBuy.order, size: "1", leverage: 1 },
+  }), dependencies({
+    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "100.25", position: null }),
+    applyEffects: async (effects) => { applied = true; return effects; },
+  }));
+  assertEquals(response.status, 422);
+  assertEquals((await response.json()).error, "insufficient_margin");
+  assertEquals(applied, false);
 });
 
 Deno.test("authorization and ownership happen before any market request", async () => {

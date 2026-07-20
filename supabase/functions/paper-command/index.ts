@@ -54,7 +54,7 @@ function dependencies(): PaperCommandDependencies {
       if (epochError) throw new Error(epochError.message);
       if (!epoch) return null;
       const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }] = await Promise.all([
-        service.from("paper_account_summaries").select("cash_balance,withdrawable").eq("epoch_id", epoch.id).single(),
+        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epoch.id).single(),
         service.from("paper_positions").select("signed_size,entry_price").eq("epoch_id", epoch.id).eq("asset", asset).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,mark_price,isolated_margin").eq("epoch_id", epoch.id),
         service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epoch.id),
@@ -68,7 +68,7 @@ function dependencies(): PaperCommandDependencies {
         const leverage = leverageByAsset.get(item.asset) ?? 1;
         return used.plus(decimal(item.signed_size).abs().times(item.mark_price).div(leverage));
       }, decimal(0));
-      const availableMargin = decimal(summary.withdrawable).minus(marginUsed);
+      const availableMargin = decimal(summary.equity).minus(marginUsed);
       return {
         epochNumber: epoch.epoch_number,
         version: Number(epoch.version),
