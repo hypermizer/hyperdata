@@ -11,7 +11,7 @@ export function resolveAsset(catalog, value) {
   return symbols.length === 1 ? symbols[0] : null;
 }
 
-export function searchAssets(catalog, value, limit = 10) {
+export function searchAssets(catalog, value, limit = Infinity) {
   const query = String(value ?? "").trim().toLowerCase();
   return catalog
     .map((asset) => ({ asset, score: matchScore(asset, query) }))
