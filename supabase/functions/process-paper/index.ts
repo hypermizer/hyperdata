@@ -282,6 +282,24 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const currentStored = (currentPositions ?? []).find((item) => item.asset === snapshot.asset);
       if (!currentStored) return { mutated: true };
       position = { signedSize: String(currentStored.signed_size), entryPrice: String(currentStored.entry_price) };
+      const currentMetadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
+      const riskProjection = (currentPositions ?? []).reduce((totals, item) => {
+        const metadata = currentMetadataByAsset.get(item.asset);
+        if (!metadata) return totals;
+        const notional = decimalString(decimal(item.signed_size).abs().times(item.mark_price));
+        const positionMargin = item.margin_mode === "isolated"
+          ? String(item.isolated_margin ?? 0)
+          : initialMargin(notional, leverageByAsset.get(item.asset) ?? 1, metadata.marginTiers);
+        return {
+          margin: totals.margin.plus(positionMargin),
+          maintenance: totals.maintenance.plus(maintenanceMargin(notional, metadata.marginTiers)),
+        };
+      }, { margin: decimal(0), maintenance: decimal(0) });
+      const { error: projectionError } = await service.from("paper_account_summaries").update({
+        margin_used: decimalString(riskProjection.margin),
+        maintenance_margin: decimalString(riskProjection.maintenance),
+      }).eq("epoch_id", epochId);
+      if (projectionError) throw new Error(projectionError.message);
       const currentNotional = decimalString(decimal(position.signedSize).abs().times(payload.markPrice));
       const requiredMaintenance = maintenanceMargin(currentNotional, payload.metadata.marginTiers);
       let risk;

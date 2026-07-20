@@ -66,15 +66,16 @@ async function selectAccount(id) {
 async function loadAccountState() {
   if (!state.epoch) return render();
   const epochId = state.epoch.id;
-  const [summary, positions, orders, ledger] = await Promise.all([
+  const [epoch, summary, positions, orders, ledger] = await Promise.all([
+    client.from("paper_account_epochs").select("version,epoch_number,state").eq("id", epochId).single(),
     client.from("paper_account_summaries").select("*").eq("epoch_id", epochId).single(),
     client.from("paper_positions").select("*").eq("epoch_id", epochId).order("asset"),
     client.from("paper_orders").select("*").eq("epoch_id", epochId).in("status", ["resting", "partially_filled", "trigger_waiting"]).order("created_at", { ascending: false }),
     client.from("paper_ledger_entries").select("*").eq("epoch_id", epochId).order("created_at", { ascending: false }).limit(100),
   ]);
-  const error = summary.error ?? positions.error ?? orders.error ?? ledger.error;
+  const error = epoch.error ?? summary.error ?? positions.error ?? orders.error ?? ledger.error;
   if (error) return fail(error);
-  state.epoch = { ...state.epoch, summary: summary.data, positions: positions.data ?? [], orders: orders.data ?? [], ledger: ledger.data ?? [] };
+  state.epoch = { ...state.epoch, ...epoch.data, summary: summary.data, positions: positions.data ?? [], orders: orders.data ?? [], ledger: ledger.data ?? [] };
   render();
 }
 
@@ -103,7 +104,10 @@ async function runAccountRpc(name, args, preferredId) {
   try {
     setPending(true); const { error } = await client.rpc(name, args); if (error) throw error;
     await loadAccounts(preferredId);
-  } catch (error) { fail(error); } finally { setPending(false); }
+  } catch (error) {
+    fail(error);
+    if (state.account) await loadAccounts(state.account.id);
+  } finally { setPending(false); }
 }
 
 async function placeOrder(event) {
@@ -122,7 +126,10 @@ async function placeOrder(event) {
     if (error) throw error;
     elements.message.textContent = String(data?.response?.status ?? "ORDER ACCEPTED").toUpperCase();
     await loadAccounts(state.account.id);
-  } catch (error) { fail(error); } finally { setPending(false); }
+  } catch (error) {
+    fail(error);
+    if (state.account) await loadAccounts(state.account.id);
+  } finally { setPending(false); }
 }
 
 async function cancelOrder(event) {
