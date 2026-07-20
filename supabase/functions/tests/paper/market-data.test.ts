@@ -57,7 +57,7 @@ Deno.test("catalog rejects an asset whose margin table is missing", () => {
 Deno.test("legacy leverage-id assets derive an untiered margin table", () => {
   const [legacy] = normalizePerpCatalog([{ name: null }], [{
     collateralToken: 0,
-    universe: [{ name: "ATOM", szDecimals: 2, maxLeverage: 5, marginTableId: 5 }],
+    universe: [{ name: "ATOM", szDecimals: 2, maxLeverage: 5 }],
     marginTables: [],
   }]);
   assertEquals(legacy.marginTiers, [{
@@ -66,6 +66,7 @@ Deno.test("legacy leverage-id assets derive an untiered margin table", () => {
     maintenanceRate: "0.1",
     maintenanceDeduction: "0",
   }]);
+  assertEquals(legacy.marginTableId, 5);
 });
 
 Deno.test("derived maintenance deductions are continuous", () => {

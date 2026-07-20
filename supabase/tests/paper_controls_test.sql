@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(10);
+select plan(12);
 
 select function_privs_are('public', 'create_paper_account', array['text'], 'authenticated', array[]::text[], 'account creation is disabled by default');
 select function_privs_are('public', 'configure_paper_mutation_access', array['boolean'], 'service_role', array['EXECUTE'], 'service controls paper mutation activation');
@@ -14,6 +14,13 @@ insert into auth.users (
   '00000000-0000-0000-0000-000000000141', '00000000-0000-0000-0000-000000000000',
   'authenticated', 'authenticated', 'jasonblick@zohomail.com', '', now(), '{}', '{}', now(), now()
 );
+insert into public.paper_market_inputs (
+  asset, input_kind, input_version, source_timestamp, payload, fidelity
+) values (
+  '*', 'metadata', 'controls-metadata-v1', now(),
+  '{"assets":[{"asset":"xyz:ORCL","maxLeverage":20,"onlyIsolated":true}]}'::jsonb,
+  'live'
+);
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000141","email":"jasonblick@zohomail.com","role":"authenticated"}', true);
 select public.create_paper_account('Controls account');
@@ -23,6 +30,14 @@ select is((select margin_mode from public.paper_leverage_settings), 'isolated', 
 select throws_ok(
   $$select public.set_paper_leverage((select id from public.paper_accounts), 'xyz:ORCL', 'cross', 0, null)$$,
   'P0001', 'invalid leverage setting', 'invalid leverage rejects'
+);
+select throws_ok(
+  $$select public.set_paper_leverage((select id from public.paper_accounts), 'xyz:ORCL', 'isolated', 21, 1000)$$,
+  'P0001', 'asset leverage exceeds market maximum', 'asset maximum leverage rejects'
+);
+select throws_ok(
+  $$select public.set_paper_leverage((select id from public.paper_accounts), 'xyz:ORCL', 'cross', 5, null)$$,
+  'P0001', 'asset requires isolated margin', 'isolated-only asset rejects cross margin'
 );
 
 reset role;

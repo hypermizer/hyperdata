@@ -57,15 +57,18 @@ export function normalizePerpCatalog(
     for (const rawAsset of meta.universe ?? []) {
       if (rawAsset.isDelisted) continue;
       if (!rawAsset.name || !Number.isInteger(rawAsset.szDecimals) ||
-        !Number.isInteger(rawAsset.maxLeverage) || !Number.isInteger(rawAsset.marginTableId)) {
+        !Number.isInteger(rawAsset.maxLeverage)) {
         throw new Error("malformed perp asset metadata");
       }
-      let rawTiers = tables.get(rawAsset.marginTableId!)?.marginTiers;
-      if (!rawTiers?.length && rawAsset.marginTableId === rawAsset.maxLeverage) {
+      const marginTableId = Number.isInteger(rawAsset.marginTableId)
+        ? rawAsset.marginTableId!
+        : rawAsset.maxLeverage!;
+      let rawTiers = tables.get(marginTableId)?.marginTiers;
+      if (!rawTiers?.length && marginTableId === rawAsset.maxLeverage) {
         rawTiers = [{ lowerBound: "0", maxLeverage: rawAsset.maxLeverage! }];
       }
       if (!rawTiers?.length) {
-        throw new Error(`missing margin table ${rawAsset.marginTableId} for ${rawAsset.name}`);
+        throw new Error(`missing margin table ${marginTableId} for ${rawAsset.name}`);
       }
       catalog.push({
         asset: rawAsset.name,
@@ -73,7 +76,7 @@ export function normalizePerpCatalog(
         collateralToken: 0,
         sizeDecimals: rawAsset.szDecimals!,
         maxLeverage: rawAsset.maxLeverage!,
-        marginTableId: rawAsset.marginTableId!,
+        marginTableId,
         onlyIsolated: rawAsset.onlyIsolated === true,
         marginMode: rawAsset.marginMode ?? null,
         growthMode: rawAsset.growthMode ?? null,

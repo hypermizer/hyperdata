@@ -315,6 +315,7 @@ security definer
 set search_path = public, auth
 as $$
 declare target_epoch_id uuid;
+declare asset_metadata jsonb;
 begin
   perform public.require_paper_owner();
   if p_margin_mode not in ('cross', 'isolated') or p_leverage <= 0 then
@@ -326,6 +327,20 @@ begin
   where a.id = p_account_id and a.user_id = auth.uid() and a.archived_at is null and e.state = 'active'
   for update of e;
   if target_epoch_id is null then raise exception 'paper account not found'; end if;
+  select candidate.asset into asset_metadata
+  from public.paper_market_inputs input
+  cross join lateral jsonb_array_elements(input.payload -> 'assets') candidate(asset)
+  where input.asset = '*' and input.input_kind = 'metadata'
+    and candidate.asset ->> 'asset' = p_asset
+  order by input.created_at desc
+  limit 1;
+  if asset_metadata is null then raise exception 'paper asset metadata unavailable'; end if;
+  if p_leverage > (asset_metadata ->> 'maxLeverage')::integer then
+    raise exception 'asset leverage exceeds market maximum';
+  end if;
+  if coalesce((asset_metadata ->> 'onlyIsolated')::boolean, false) and p_margin_mode <> 'isolated' then
+    raise exception 'asset requires isolated margin';
+  end if;
   insert into public.paper_leverage_settings (epoch_id, asset, margin_mode, leverage, isolated_margin)
   values (target_epoch_id, p_asset, p_margin_mode, p_leverage, p_isolated_margin)
   on conflict (epoch_id, asset) do update set
