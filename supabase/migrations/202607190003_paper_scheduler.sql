@@ -151,6 +151,10 @@ begin
     status = p_effects ->> 'status',
     remaining_size = (p_effects ->> 'remainingSize')::numeric,
     queue_ahead = nullif(p_effects ->> 'queueAhead', '')::numeric,
+    reserved_margin = case
+      when p_effects ->> 'status' in ('resting', 'partially_filled', 'trigger_waiting') then reserved_margin
+      else 0
+    end,
     fidelity = 'trade_replay',
     source_timestamp = (p_effects ->> 'sourceTimestamp')::timestamptz,
     rejection_reason = p_effects ->> 'reason',
@@ -305,6 +309,8 @@ declare liquidation_id uuid;
 declare total_fee numeric(38, 6) := coalesce((p_effect ->> 'totalFee')::numeric, 0);
 declare total_realized numeric(38, 6) := coalesce((p_effect ->> 'realizedPnl')::numeric, 0);
 declare total_volume numeric(38, 6) := 0;
+declare cash_delta numeric(38, 6);
+declare isolated_shortfall numeric(38, 6) := 0;
 begin
   select version into current_version from public.paper_account_epochs
   where id = p_epoch_id and state = 'active' for update;
@@ -312,7 +318,11 @@ begin
 
   update public.paper_orders set
     status = 'canceled', rejection_reason = 'liquidation', reserved_margin = 0, updated_at = now()
-  where epoch_id = p_epoch_id and status in ('resting', 'partially_filled', 'trigger_waiting');
+  where epoch_id = p_epoch_id and status in ('resting', 'partially_filled', 'trigger_waiting')
+    and (
+      p_effect ->> 'marginMode' <> 'isolated'
+      or asset = p_effect ->> 'asset'
+    );
 
   insert into public.paper_liquidations (
     epoch_id, asset, classification, trigger_snapshot, attempted_fills,
@@ -341,6 +351,11 @@ begin
 
   select coalesce(sum((fill ->> 'size')::numeric * (fill ->> 'price')::numeric), 0)
   into total_volume from jsonb_array_elements(coalesce(p_effect -> 'fills', '[]'::jsonb)) fill;
+  cash_delta := total_realized - total_fee;
+  if p_effect ->> 'marginMode' = 'isolated' then
+    cash_delta := greatest(cash_delta, -coalesce((p_effect ->> 'isolatedMargin')::numeric, 0));
+    isolated_shortfall := cash_delta - (total_realized - total_fee);
+  end if;
 
   if p_effect -> 'position' = 'null'::jsonb then
     delete from public.paper_positions where epoch_id = p_epoch_id and asset = p_effect ->> 'asset';
@@ -362,9 +377,13 @@ begin
     insert into public.paper_ledger_entries (epoch_id, entry_type, amount, asset, reference_id, source_timestamp)
     values (p_epoch_id, 'fee', -total_fee, p_effect ->> 'asset', liquidation_id, (p_effect ->> 'sourceTimestamp')::timestamptz);
   end if;
+  if isolated_shortfall > 0 then
+    insert into public.paper_ledger_entries (epoch_id, entry_type, amount, asset, reference_id, source_timestamp)
+    values (p_epoch_id, 'isolated_transfer', isolated_shortfall, p_effect ->> 'asset', liquidation_id, (p_effect ->> 'sourceTimestamp')::timestamptz);
+  end if;
 
   update public.paper_account_summaries set
-    cash_balance = cash_balance + total_realized - total_fee,
+    cash_balance = cash_balance + cash_delta,
     realized_pnl = realized_pnl + total_realized,
     cumulative_fees = cumulative_fees + total_fee,
     trailing_volume = trailing_volume + total_volume,

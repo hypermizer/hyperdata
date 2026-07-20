@@ -9,6 +9,8 @@ import type { MarginTier, PaperPosition } from "../_shared/paper/types.ts";
 interface LiquidationEffectInput {
   asset: string;
   position: PaperPosition;
+  marginMode: "cross" | "isolated";
+  isolatedMargin: string | null;
   markPrice: string;
   equity: string;
   maintenanceMargin: string;
@@ -23,6 +25,8 @@ interface LiquidationEffectInput {
 export interface LiquidationEffect {
   asset: string;
   classification: "partial" | "book" | "backstop";
+  marginMode: "cross" | "isolated";
+  isolatedMargin: string | null;
   maintenanceMargin: string;
   positionMaintenanceMargin: string;
   remainingPositionMaintenanceMargin: string;
@@ -72,6 +76,7 @@ export function buildLiquidationEffect(input: LiquidationEffectInput): Liquidati
   });
   return {
     asset: input.asset, classification: decision.action,
+    marginMode: input.marginMode, isolatedMargin: input.isolatedMargin,
     maintenanceMargin: input.maintenanceMargin,
     positionMaintenanceMargin: input.positionMaintenanceMargin,
     remainingPositionMaintenanceMargin: position === null ? "0" : maintenanceMargin(

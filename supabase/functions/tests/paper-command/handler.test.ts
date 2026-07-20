@@ -143,6 +143,20 @@ Deno.test("pure reduction bypasses expansion margin at a lower command leverage"
   assertEquals((await response.json()).position.signedSize, "0.5");
 });
 
+Deno.test("resting order reserves its incremental initial margin", async () => {
+  const response = await handlePaperCommand(request({
+    ...marketBuy,
+    idempotencyKey: "resting-reservation",
+    order: {
+      ...marketBuy.order, size: "1", orderType: "limit", timeInForce: "GTC", limitPrice: "98",
+    },
+  }), dependencies());
+  assertEquals(response.status, 200);
+  const body = await response.json();
+  assertEquals(body.response.status, "resting");
+  assertEquals(body.order.reservedMargin, "19.6");
+});
+
 Deno.test("authorization and ownership happen before any market request", async () => {
   let marketCalls = 0;
   const response = await handlePaperCommand(request(marketBuy, "bad"), dependencies({

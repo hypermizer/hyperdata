@@ -6,7 +6,7 @@ const marginTiers = [{ lowerBound: "0", maxLeverage: 10, maintenanceRate: "0.05"
 
 Deno.test("book liquidation closes a small breached long at visible depth", () => {
   const effect = buildLiquidationEffect({
-    asset: "ORCL", position: { signedSize: "2", entryPrice: "110" }, markPrice: "100",
+    asset: "ORCL", position: { signedSize: "2", entryPrice: "110" }, markPrice: "100", marginMode: "cross", isolatedMargin: null,
     equity: "40", maintenanceMargin: "50", positionMaintenanceMargin: "10", marginTiers,
     book, feeRate: "0.001", inputVersion: "v1", nowMs: 10_000,
   })!;
@@ -17,7 +17,7 @@ Deno.test("book liquidation closes a small breached long at visible depth", () =
 
 Deno.test("backstop closes residual size only after visible book", () => {
   const effect = buildLiquidationEffect({
-    asset: "ORCL", position: { signedSize: "10", entryPrice: "110" }, markPrice: "100",
+    asset: "ORCL", position: { signedSize: "10", entryPrice: "110" }, markPrice: "100", marginMode: "cross", isolatedMargin: null,
     equity: "20", maintenanceMargin: "50", positionMaintenanceMargin: "50", marginTiers,
     book, feeRate: "0", inputVersion: "v2", nowMs: 10_000,
   })!;
@@ -30,7 +30,7 @@ Deno.test("backstop closes residual size only after visible book", () => {
 
 Deno.test("partial liquidation reports maintenance for the remaining position", () => {
   const effect = buildLiquidationEffect({
-    asset: "ORCL", position: { signedSize: "1000", entryPrice: "100" }, markPrice: "100",
+    asset: "ORCL", position: { signedSize: "1000", entryPrice: "100" }, markPrice: "100", marginMode: "cross", isolatedMargin: null,
     equity: "4000", maintenanceMargin: "5000", positionMaintenanceMargin: "5000", marginTiers,
     book: { ...book, bids: [{ price: "99", size: "500", orders: 5 }] },
     feeRate: "0", inputVersion: "v-partial", nowMs: 10_000,
@@ -42,7 +42,7 @@ Deno.test("partial liquidation reports maintenance for the remaining position", 
 
 Deno.test("healthy position produces no effect", () => {
   assertEquals(buildLiquidationEffect({
-    asset: "ORCL", position: { signedSize: "2", entryPrice: "100" }, markPrice: "100",
+    asset: "ORCL", position: { signedSize: "2", entryPrice: "100" }, markPrice: "100", marginMode: "cross", isolatedMargin: null,
     equity: "100", maintenanceMargin: "50", positionMaintenanceMargin: "10", marginTiers,
     book, feeRate: "0", inputVersion: "v", nowMs: 0,
   }), null);

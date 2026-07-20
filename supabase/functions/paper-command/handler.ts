@@ -127,6 +127,12 @@ export async function handlePaperCommand(
     if (!validTriggerSide(command.order.side, triggerKind, command.order.triggerPrice, mark.markPrice)) {
       return jsonError("invalid_trigger_side", 422);
     }
+    const reservation = command.order.reduceOnly ? decimal(0) : decimal(initialMargin(
+      decimalString(decimal(command.order.size).times(command.order.limitPrice ?? command.order.triggerPrice)),
+      command.order.leverage,
+      asset.marginTiers,
+    ));
+    if (reservation.gt(account.availableMargin)) return jsonError("insufficient_margin", 422);
     const effects: Record<string, unknown> = {
       response: {
         status: "trigger_waiting",
@@ -141,6 +147,7 @@ export async function handlePaperCommand(
         requestedSize: command.order.size,
         remainingSize: command.order.size,
         queueAhead: null,
+        reservedMargin: decimalString(reservation),
         status: "trigger_waiting",
       },
       fills: [],
@@ -208,6 +215,21 @@ export async function handlePaperCommand(
   if (!pureReduction && finalInitialMargin.gt(marginCapacity)) {
     return jsonError("insufficient_margin", 422);
   }
+  let executedRiskPosition = account.position;
+  for (const fill of execution.fills) {
+    executedRiskPosition = applyFill(executedRiskPosition, {
+      side: command.order.side, size: fill.size, price: fill.price, feeRate: "0",
+    }).position;
+  }
+  const executedRiskMark = execution.fills.at(-1)?.price ?? referencePrice;
+  const executedInitialMargin = executedRiskPosition === null ? decimal(0) : decimal(initialMargin(
+    decimalString(decimal(executedRiskPosition.signedSize).abs().times(executedRiskMark)),
+    command.order.leverage,
+    asset.marginTiers,
+  ));
+  const reservedMargin = ["resting", "partially_filled"].includes(execution.status)
+    ? finalInitialMargin.minus(executedInitialMargin)
+    : decimal(0);
 
   const feeInput = await dependencies.loadFeeSchedule();
   const feeRate = selectFeeRate(feeInput.schedule, account.trailingVolume, account.makerFraction, "taker");
@@ -260,6 +282,7 @@ export async function handlePaperCommand(
       requestedSize: execution.requestedSize,
       remainingSize: execution.remainingSize,
       queueAhead: execution.queueAhead,
+      reservedMargin: decimalString(reservedMargin.isPositive() ? reservedMargin : 0),
       status: execution.status,
     },
     fills,

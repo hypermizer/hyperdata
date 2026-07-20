@@ -179,7 +179,7 @@ begin
       coalesce((p_effects -> 'order' ->> 'reduceOnly')::boolean, false),
       p_effects -> 'order' ->> 'status',
       nullif(p_effects -> 'order' ->> 'queueAhead', '')::numeric,
-      0,
+      coalesce((p_effects -> 'order' ->> 'reservedMargin')::numeric, 0),
       p_effects -> 'response' ->> 'reason',
       p_effects -> 'response' ->> 'fidelity',
       (p_effects -> 'response' ->> 'sourceTimestamp')::timestamptz

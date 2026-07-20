@@ -57,16 +57,18 @@ function dependencies(): PaperCommandDependencies {
         .eq("epoch_number", account.active_epoch).eq("state", "active").maybeSingle();
       if (epochError) throw new Error(epochError.message);
       if (!epoch) return null;
-      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }, catalog] = await Promise.all([
+      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }, { data: orders, error: ordersError }, catalog] = await Promise.all([
         service.from("paper_account_summaries").select("cash_balance,equity,trailing_volume,maker_volume").eq("epoch_id", epoch.id).single(),
         service.from("paper_positions").select("signed_size,entry_price").eq("epoch_id", epoch.id).eq("asset", asset).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,mark_price,isolated_margin").eq("epoch_id", epoch.id),
         service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epoch.id),
+        service.from("paper_orders").select("reserved_margin").eq("epoch_id", epoch.id)
+          .in("status", ["resting", "partially_filled", "trigger_waiting"]),
         loadCatalog(),
       ]);
       if (summaryError) throw new Error(summaryError.message);
       if (positionError) throw new Error(positionError.message);
-      if (positionsError || settingsError) throw new Error(positionsError?.message ?? settingsError?.message);
+      if (positionsError || settingsError || ordersError) throw new Error(positionsError?.message ?? settingsError?.message ?? ordersError?.message);
       const leverageByAsset = new Map((settings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
       const metadataByAsset = new Map(catalog.assets.map((item) => [item.asset, item]));
       const marginByAsset = new Map<string, ReturnType<typeof decimal>>();
@@ -83,7 +85,8 @@ function dependencies(): PaperCommandDependencies {
         marginByAsset.set(item.asset, positionMargin);
         return used.plus(positionMargin);
       }, decimal(0));
-      const availableMargin = decimal(summary.equity).minus(marginUsed);
+      const reservedMargin = (orders ?? []).reduce((total, order) => total.plus(order.reserved_margin), decimal(0));
+      const availableMargin = decimal(summary.equity).minus(marginUsed).minus(reservedMargin);
       return {
         epochNumber: epoch.epoch_number,
         version: Number(epoch.version),

@@ -329,6 +329,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       }
       const liquidation = buildLiquidationEffect({
         asset: snapshot.asset, position, markPrice: payload.markPrice,
+        marginMode: currentStored.margin_mode, isolatedMargin: currentStored.isolated_margin === null ? null : String(currentStored.isolated_margin),
         equity: risk.equity, maintenanceMargin: risk.maintenanceMargin,
         positionMaintenanceMargin: requiredMaintenance, marginTiers: payload.metadata.marginTiers,
         book: payload.book, feeRate: feeRates.taker,
