@@ -15,3 +15,11 @@ Deno.test("missed funding applies chronologically to strict boundary exposure", 
     { at: "1970-01-01T00:00:02.000Z", size: "2", payment: "-0.04" },
   ]);
 });
+
+Deno.test("funding fails closed without a boundary oracle", () => {
+  assertEquals(missingFundingEffects(
+    [{ asset: "ORCL", timestampMs: 1_000, fundingRate: "0.0001", premium: null }],
+    [{ side: "buy", size: "2", price: "100", timestampMs: 900 }],
+    new Set(), () => null, "funding-v1",
+  ), []);
+});

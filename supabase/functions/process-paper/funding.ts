@@ -18,7 +18,7 @@ export function missingFundingEffects(
   points: FundingRatePoint[],
   fills: HistoricalFill[],
   appliedTimestamps: Set<number>,
-  oraclePrice: string,
+  oraclePrice: string | ((timestampMs: number) => string | null),
   inputVersion: string,
 ): FundingEffect[] {
   return points
@@ -26,13 +26,14 @@ export function missingFundingEffects(
     .sort((left, right) => left.timestampMs - right.timestampMs)
     .flatMap((point) => {
       const boundaryPosition = reconstructPositionAt(fills, point.timestampMs);
-      if (!boundaryPosition) return [];
+      const boundaryOracle = typeof oraclePrice === "function" ? oraclePrice(point.timestampMs) : oraclePrice;
+      if (!boundaryPosition || boundaryOracle === null) return [];
       return [{
         fundingTimestamp: new Date(point.timestampMs).toISOString(),
         signedSize: boundaryPosition.signedSize,
-        oraclePrice,
+        oraclePrice: boundaryOracle,
         fundingRate: point.fundingRate,
-        payment: fundingCashFlow(boundaryPosition.signedSize, oraclePrice, point.fundingRate),
+        payment: fundingCashFlow(boundaryPosition.signedSize, boundaryOracle, point.fundingRate),
         inputVersion,
       }];
     });

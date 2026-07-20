@@ -84,10 +84,13 @@ function runtimeDependencies(): ProcessPaperDependencies {
     },
     async fetchSnapshot(asset) {
       const dex = asset.includes(":") ? asset.split(":", 1)[0] : "";
-      const { data: priorInput, error: priorError } = await service.from("paper_market_inputs")
-        .select("payload").eq("asset", asset).eq("input_kind", "trades")
-        .order("source_timestamp", { ascending: false }).limit(1).maybeSingle();
-      if (priorError) throw new Error(priorError.message);
+      const [{ data: priorInput, error: priorError }, { data: oracleInputs, error: oracleError }] = await Promise.all([
+        service.from("paper_market_inputs").select("payload").eq("asset", asset).eq("input_kind", "trades")
+          .order("source_timestamp", { ascending: false }).limit(1).maybeSingle(),
+        service.from("paper_market_inputs").select("payload").eq("asset", asset).eq("input_kind", "context")
+          .order("source_timestamp", { ascending: false }).limit(1000),
+      ]);
+      if (priorError || oracleError) throw new Error(priorError?.message ?? oracleError?.message);
       const cursor = (priorInput?.payload as { cursor?: { lastTradeId: string | null; lastTimestampMs: number | null } } | null)?.cursor ??
         { lastTradeId: null, lastTimestampMs: null };
       const { data: cachedFunding, error: fundingCacheError } = await service.from("paper_market_inputs")
@@ -122,6 +125,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
           cursor: tradeInput.cursor, bookVersion: bookInput.inputVersion,
           tradeVersion: tradeInput.inputVersion,
           fundingPoints: fundingInput.points, fundingVersion: fundingInput.inputVersion,
+          oracleHistory: (oracleInputs ?? []).map((input) => input.payload),
           metadata, catalog: catalogInput.assets,
           feeRates: {
             maker: selectFeeRate(feeInput.schedule, "0", "0", "maker"),
@@ -156,6 +160,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         trades: ReplaySnapshot["trades"]; tradeGap: boolean;
         cursor: unknown; bookVersion: string; tradeVersion: string;
         fundingPoints: Parameters<typeof missingFundingEffects>[0]; fundingVersion: string;
+        oracleHistory: Array<{ observed_at?: string; oracle_price?: number | null }>;
         feeRates: { maker: string; taker: string };
         metadata: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"][number];
         catalog: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"];
@@ -209,7 +214,14 @@ function runtimeDependencies(): ProcessPaperDependencies {
           timestampMs: Date.parse(fill.source_timestamp),
         })),
         new Set((fundingPayments ?? []).map((payment) => Date.parse(payment.funding_timestamp))),
-        String((payload.observation as { oracle_price?: number | null }).oracle_price ?? payload.markPrice),
+        (timestampMs) => {
+          const current = payload.observation as { observed_at?: string; oracle_price?: number | null };
+          const candidates = [current, ...payload.oracleHistory]
+            .filter((item) => item.oracle_price && item.observed_at)
+            .map((item) => ({ price: String(item.oracle_price), distance: Math.abs(Date.parse(item.observed_at!) - timestampMs) }))
+            .sort((left, right) => left.distance - right.distance);
+          return candidates[0]?.distance <= 30_000 ? candidates[0].price : null;
+        },
         payload.fundingVersion,
       );
       for (const effect of fundingEffects) {

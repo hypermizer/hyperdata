@@ -22,6 +22,13 @@ begin
     epoch_id, asset, margin_mode, signed_size, entry_price, mark_price,
     isolated_margin, input_version
   ) values (epoch_id, 'xyz:ORCL', 'isolated', 0.001, 100, 100, 500, 'shadow-seed-v1');
+  insert into public.paper_fills (
+    epoch_id, asset, side, liquidity, size, price, fee, source_id,
+    source_timestamp, input_version, fidelity
+  ) values (
+    epoch_id, 'xyz:ORCL', 'buy', 'taker', 0.001, 100, 0,
+    'shadow-seed-v1', now(), 'shadow-seed-v1', 'reconciled'
+  );
   return account_id;
 end;
 $$;
