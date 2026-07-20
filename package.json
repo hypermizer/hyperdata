@@ -8,7 +8,7 @@
     "test": "node --test test/*.test.js",
     "test:edge": "npx --yes deno task --config supabase/functions/deno.json test",
     "test:db": "supabase test db",
-    "check": "node --check public/app.js && node --check public/asset-picker.js && node --check public/paper.js && node --check public/lib/alert-rules.js && node --check public/lib/alerts.js && node --check public/lib/assets.js && node --check public/lib/hyperliquid.js && node --check public/lib/market-catalog.js && node --check public/lib/paper.js && node --check public/lib/stream-health.js && node --check public/lib/supabase.js && node --check scripts/check-alerts.js && node --check scripts/deploy-supabase-migrations.mjs && node --check scripts/configure-supabase-runtime.mjs",
+    "check": "node --check public/app.js && node --check public/asset-picker.js && node --check public/paper.js && node --check public/lib/alert-rules.js && node --check public/lib/alerts.js && node --check public/lib/assets.js && node --check public/lib/hyperliquid.js && node --check public/lib/market-catalog.js && node --check public/lib/paper.js && node --check public/lib/routes.js && node --check public/lib/stream-health.js && node --check public/lib/supabase.js && node --check scripts/check-alerts.js && node --check scripts/deploy-supabase-migrations.mjs && node --check scripts/configure-supabase-runtime.mjs",
     "alerts": "node scripts/check-alerts.js",
     "serve": "npx --yes serve public"
   },

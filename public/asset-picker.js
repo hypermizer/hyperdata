@@ -11,7 +11,7 @@ export class AssetPicker {
     this.activeIndex = -1;
     this.disabled = false;
     this.input.addEventListener("focus", () => this.open());
-    this.input.addEventListener("input", () => { this.syncValue(); this.open(); });
+    this.input.addEventListener("input", () => { this.syncValue(); this.emitChange(); this.open(); });
     this.input.addEventListener("keydown", (event) => this.onKeyDown(event));
     this.list.addEventListener("pointerdown", (event) => {
       const option = event.target.closest("button[data-asset-id]");
@@ -38,11 +38,16 @@ export class AssetPicker {
     return this.hidden.value || resolveAsset(this.catalog, this.input.value)?.id || "";
   }
 
+  get selectedAsset() {
+    return this.catalog.find((asset) => asset.id === this.value) ?? null;
+  }
+
   clear() {
     this.input.value = "";
     this.hidden.value = "";
     this.activeIndex = -1;
     this.render();
+    this.emitChange();
   }
 
   open() {
@@ -69,6 +74,11 @@ export class AssetPicker {
     this.input.value = displayAssetSymbol(asset);
     this.hidden.value = asset.id;
     this.close();
+    this.emitChange();
+  }
+
+  emitChange() {
+    this.root.dispatchEvent(new CustomEvent("assetchange", { detail: { assetId: this.value } }));
   }
 
   onKeyDown(event) {
