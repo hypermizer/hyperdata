@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, paperSignClass } from "../public/lib/paper.js";
+import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, normalizeStartingCapital, paperSignClass } from "../public/lib/paper.js";
 
 test("paper account and order inputs normalize without binary calculations", () => {
   assert.equal(normalizeAccountName("  Mean   Reversion "), "Mean Reversion");
+  assert.equal(normalizeStartingCapital("12500.50"), "12500.50");
+  assert.throws(() => normalizeStartingCapital("0"), /positive/);
   assert.deepEqual(normalizePaperOrder({ asset: "xyz:ORCL", side: "buy", size: "1.25", orderType: "limit", timeInForce: "GTC", limitPrice: "100", triggerPrice: "", leverage: "5", marginMode: "isolated", reduceOnly: true }), {
     asset: "xyz:ORCL", side: "buy", size: "1.25", orderType: "limit", timeInForce: "GTC",
     limitPrice: "100", triggerPrice: null, leverage: 5, marginMode: "isolated", reduceOnly: true,
