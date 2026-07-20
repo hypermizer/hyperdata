@@ -8,6 +8,7 @@ import {
   inputVersion,
 } from "../_shared/paper/market-data.ts";
 import { handlePaperCommand, type PaperCommandDependencies } from "./handler.ts";
+import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 
 const corsHeaders = {
   "access-control-allow-origin": "*",
@@ -52,17 +53,27 @@ function dependencies(): PaperCommandDependencies {
         .eq("epoch_number", account.active_epoch).eq("state", "active").maybeSingle();
       if (epochError) throw new Error(epochError.message);
       if (!epoch) return null;
-      const [{ data: summary, error: summaryError }, { data: position, error: positionError }] = await Promise.all([
+      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }] = await Promise.all([
         service.from("paper_account_summaries").select("cash_balance,withdrawable").eq("epoch_id", epoch.id).single(),
         service.from("paper_positions").select("signed_size,entry_price").eq("epoch_id", epoch.id).eq("asset", asset).maybeSingle(),
+        service.from("paper_positions").select("asset,margin_mode,signed_size,mark_price,isolated_margin").eq("epoch_id", epoch.id),
+        service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epoch.id),
       ]);
       if (summaryError) throw new Error(summaryError.message);
       if (positionError) throw new Error(positionError.message);
+      if (positionsError || settingsError) throw new Error(positionsError?.message ?? settingsError?.message);
+      const leverageByAsset = new Map((settings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
+      const marginUsed = (positions ?? []).reduce((used, item) => {
+        if (item.margin_mode === "isolated") return used.plus(item.isolated_margin ?? 0);
+        const leverage = leverageByAsset.get(item.asset) ?? 1;
+        return used.plus(decimal(item.signed_size).abs().times(item.mark_price).div(leverage));
+      }, decimal(0));
+      const availableMargin = decimal(summary.withdrawable).minus(marginUsed);
       return {
         epochNumber: epoch.epoch_number,
         version: Number(epoch.version),
         cashBalance: String(summary.cash_balance),
-        availableMargin: String(summary.withdrawable),
+        availableMargin: decimalString(availableMargin.isPositive() ? availableMargin : 0),
         position: position ? { signedSize: String(position.signed_size), entryPrice: String(position.entry_price) } : null,
       };
     },

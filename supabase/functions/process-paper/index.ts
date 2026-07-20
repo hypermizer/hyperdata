@@ -3,7 +3,7 @@ import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import { inputVersion } from "../_shared/paper/market-data.ts";
 import { fetchPaperBook, fetchPaperCatalog, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
 import { selectFeeRate } from "../_shared/paper/fees.ts";
-import { crossRisk, isolatedRisk, maintenanceMargin } from "../_shared/paper/margin.ts";
+import { crossRisk, initialMargin, isolatedRisk, maintenanceMargin } from "../_shared/paper/margin.ts";
 import { unrealizedPnl } from "../_shared/paper/accounting.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
@@ -135,7 +135,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       };
     },
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
-      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }] = await Promise.all([
+      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }, { data: leverageSettings, error: leverageError }] = await Promise.all([
         service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
         service.from("paper_account_summaries").select("cash_balance,equity,withdrawable").eq("epoch_id", epochId).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
@@ -144,8 +144,9 @@ function runtimeDependencies(): ProcessPaperDependencies {
           .order("created_at", { ascending: true }),
         service.from("paper_fills").select("side,size,price,source_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
         service.from("paper_funding_payments").select("funding_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
+        service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
       ]);
-      if (epochError || summaryError || positionsError || ordersError || fillsError || fundingError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message ?? fillsError?.message ?? fundingError?.message);
+      if (epochError || summaryError || positionsError || ordersError || fillsError || fundingError || leverageError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message ?? fillsError?.message ?? fundingError?.message ?? leverageError?.message);
       if (!epoch || !summary) return { mutated: false };
       const reconciled = reconcileAccount({
         cashBalance: String(summary.cash_balance), cachedEquity: String(summary.equity),
@@ -185,6 +186,20 @@ function runtimeDependencies(): ProcessPaperDependencies {
         markPrice: payload.markPrice, book: payload.book, trades: payload.trades,
         tradeGap: payload.tradeGap, inputVersion: snapshot.inputVersion,
       };
+      const metadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
+      const leverageByAsset = new Map((leverageSettings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
+      const marginUsedByOtherAssets = (positions ?? []).filter((item) => item.asset !== snapshot.asset)
+        .reduce((used, item) => {
+          if (item.margin_mode === "isolated") return used.plus(item.isolated_margin ?? 0);
+          const metadata = metadataByAsset.get(item.asset);
+          if (!metadata) return used.plus(decimal(item.signed_size).abs().times(item.mark_price));
+          return used.plus(initialMargin(
+            decimalString(decimal(item.signed_size).abs().times(item.mark_price)),
+            leverageByAsset.get(item.asset) ?? 1,
+            metadata.marginTiers,
+          ));
+        }, decimal(0));
+      const marginAvailableForAsset = decimal(summary.withdrawable).minus(marginUsedByOtherAssets);
       for (const order of orders ?? []) {
         const effect = replayOrder({
           id: order.id, side: order.side, orderType: order.order_type,
@@ -195,7 +210,8 @@ function runtimeDependencies(): ProcessPaperDependencies {
           reduceOnly: order.reduce_only, createdAtMs: Date.parse(order.created_at),
         }, position, replaySnapshot, payload.feeRates);
         if (!effect) continue;
-        if (!hasMatchMargin(position, effect.position, payload.markPrice, Number(order.leverage), payload.metadata.marginTiers, String(summary.withdrawable))) {
+        if (!hasMatchMargin(position, effect.position, payload.markPrice, Number(order.leverage), payload.metadata.marginTiers,
+          decimalString(marginAvailableForAsset.isPositive() ? marginAvailableForAsset : 0))) {
             effect.status = "canceled";
             effect.remainingSize = order.remaining_size;
             effect.queueAhead = order.queue_ahead;
@@ -272,7 +288,6 @@ function runtimeDependencies(): ProcessPaperDependencies {
       if (currentStored.margin_mode === "isolated") {
         risk = isolatedRisk(String(currentStored.isolated_margin ?? 0), unrealizedPnl(position, payload.markPrice), requiredMaintenance);
       } else {
-        const metadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
         const isolatedReservations = (currentPositions ?? []).filter((item) => item.margin_mode === "isolated")
           .reduce((sum, item) => sum.plus(item.isolated_margin ?? 0), decimal(0));
         risk = crossRisk(decimalString(decimal(currentSummary.cash_balance).minus(isolatedReservations)),
