@@ -2,13 +2,14 @@ import { decimal, decimalString } from "./decimal.ts";
 import type { Side } from "./types.ts";
 
 interface QueueOrder { side: Side; price: string; remainingSize: string; queueAhead: string }
-interface QueueTrade { aggressor: "buy" | "sell"; price: string; size: string }
+interface QueueTrade { aggressor: "buy" | "sell"; price: string; size: string; timestampMs?: number }
 
 export function advanceMakerQueue(order: QueueOrder, trades: QueueTrade[], gap: boolean) {
-  if (gap) return { queueAhead: order.queueAhead, remainingSize: order.remainingSize, filledSize: "0" };
+  if (gap) return { queueAhead: order.queueAhead, remainingSize: order.remainingSize, filledSize: "0", fills: [] };
   let queue = decimal(order.queueAhead);
   let remaining = decimal(order.remainingSize);
   let filled = decimal(0);
+  const fills: Array<{ size: string; timestampMs?: number }> = [];
   for (const trade of trades) {
     const relevantSide = order.side === "buy" ? trade.aggressor === "sell" : trade.aggressor === "buy";
     const relevantPrice = order.side === "buy"
@@ -22,11 +23,13 @@ export function advanceMakerQueue(order: QueueOrder, trades: QueueTrade[], gap: 
     const orderFill = flow.lte(remaining) ? flow : remaining;
     remaining = remaining.minus(orderFill);
     filled = filled.plus(orderFill);
+    if (!orderFill.isZero()) fills.push({ size: decimalString(orderFill), timestampMs: trade.timestampMs });
   }
   return {
     queueAhead: decimalString(queue),
     remainingSize: decimalString(remaining),
     filledSize: decimalString(filled),
+    fills,
   };
 }
 

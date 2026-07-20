@@ -10,8 +10,7 @@ interface OrderConstraintInput {
 }
 
 function decimalPlaces(value: string): number {
-  const [, fraction = ""] = value.toLowerCase().split("e")[0].split(".");
-  return fraction.replace(/0+$/, "").length;
+  return decimal(value).decimalPlaces();
 }
 
 function significantFigures(value: string): number {

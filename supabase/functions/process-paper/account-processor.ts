@@ -33,7 +33,7 @@ export interface ReplayEffect {
   status: "resting" | "partially_filled" | "filled" | "canceled";
   remainingSize: string;
   queueAhead: string | null;
-  fills: Array<{ price: string; size: string; fee: string; liquidity: "maker" | "taker"; sourceId: string }>;
+  fills: Array<{ price: string; size: string; fee: string; liquidity: "maker" | "taker"; sourceId: string; sourceTimestamp?: string }>;
   position: PaperPosition | null;
   realizedPnl: string;
   fee: string;
@@ -72,7 +72,7 @@ function reduceOnlySize(order: ReplayOrder, position: PaperPosition | null, requ
 function transitionFills(
   order: ReplayOrder,
   position: PaperPosition | null,
-  raw: Array<{ price: string; size: string; liquidity: "maker" | "taker" }>,
+  raw: Array<{ price: string; size: string; liquidity: "maker" | "taker"; sourceTimestamp?: string }>,
   makerFeeRate: string,
   takerFeeRate: string,
   inputVersion: string,
@@ -154,7 +154,10 @@ export function replayOrder(
   }, snapshot.trades.filter((trade) => trade.timestampMs > (order.createdAtMs ?? 0)), snapshot.tradeGap);
   if (snapshot.tradeGap) return null;
   const transitioned = transitionFills(order, position,
-    decimal(queue.filledSize).isZero() ? [] : [{ price: order.limitPrice, size: queue.filledSize, liquidity: "maker" }],
+    queue.fills.map((fill) => ({
+      price: order.limitPrice!, size: fill.size, liquidity: "maker" as const,
+      sourceTimestamp: fill.timestampMs === undefined ? undefined : new Date(fill.timestampMs).toISOString(),
+    })),
     feeRates.maker, feeRates.taker, snapshot.inputVersion);
   return {
     orderId: order.id,

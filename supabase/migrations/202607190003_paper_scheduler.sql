@@ -161,10 +161,10 @@ begin
     source_id, source_timestamp, input_version, fidelity
   ) select p_epoch_id, order_row.id, order_row.asset, order_row.side,
     fill.liquidity, fill.size::numeric, fill.price::numeric, fill.fee::numeric,
-    fill."sourceId", (p_effects ->> 'sourceTimestamp')::timestamptz,
+    fill."sourceId", coalesce(fill."sourceTimestamp", p_effects ->> 'sourceTimestamp')::timestamptz,
     p_effects ->> 'inputVersion', 'trade_replay'
   from jsonb_to_recordset(coalesce(p_effects -> 'fills', '[]'::jsonb))
-    as fill(price text, size text, fee text, liquidity text, "sourceId" text)
+    as fill(price text, size text, fee text, liquidity text, "sourceId" text, "sourceTimestamp" text)
   on conflict (epoch_id, source_id) do nothing;
 
   select coalesce(sum((fill ->> 'fee')::numeric), 0),

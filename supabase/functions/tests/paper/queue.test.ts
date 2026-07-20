@@ -6,23 +6,29 @@ const order = { side: "buy" as const, price: "100", remainingSize: "5", queueAhe
 Deno.test("maker queue does not fill until observed flow clears quantity ahead", () => {
   assertEquals(advanceMakerQueue(order, [
     { aggressor: "sell", price: "100", size: "8" },
-  ], false), { queueAhead: "2", remainingSize: "5", filledSize: "0" });
+  ], false), { queueAhead: "2", remainingSize: "5", filledSize: "0", fills: [] });
   assertEquals(advanceMakerQueue(order, [
     { aggressor: "sell", price: "100", size: "12" },
-  ], false), { queueAhead: "0", remainingSize: "3", filledSize: "2" });
+  ], false), { queueAhead: "0", remainingSize: "3", filledSize: "2", fills: [{ size: "2", timestampMs: undefined }] });
 });
 
 Deno.test("trade-through fills after queue while irrelevant flow is ignored", () => {
   assertEquals(advanceMakerQueue({ ...order, queueAhead: "1" }, [
     { aggressor: "buy", price: "100", size: "20" },
     { aggressor: "sell", price: "99", size: "4" },
-  ], false), { queueAhead: "0", remainingSize: "2", filledSize: "3" });
+  ], false), { queueAhead: "0", remainingSize: "2", filledSize: "3", fills: [{ size: "3", timestampMs: undefined }] });
 });
 
 Deno.test("cursor gap suspends maker fills without mutating queue", () => {
   assertEquals(advanceMakerQueue(order, [{ aggressor: "sell", price: "99", size: "100" }], true), {
-    queueAhead: "10", remainingSize: "5", filledSize: "0",
+    queueAhead: "10", remainingSize: "5", filledSize: "0", fills: [],
   });
+});
+
+Deno.test("maker fills retain the public trade timestamp that cleared the queue", () => {
+  assertEquals(advanceMakerQueue({ ...order, queueAhead: "1" }, [
+    { aggressor: "sell", price: "100", size: "2", timestampMs: 3_600_000 },
+  ], false).fills, [{ size: "1", timestampMs: 3_600_000 }]);
 });
 
 Deno.test("mark price activates stop and take orders on the correct side", () => {

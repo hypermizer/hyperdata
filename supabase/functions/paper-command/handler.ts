@@ -98,11 +98,11 @@ export async function handlePaperCommand(
 
   const account = await dependencies.loadAccount(command.accountId, user.id, command.order.asset);
   if (!account) return jsonError("account_not_found", 404);
+  const stored = await dependencies.findCommand(command.accountId, command.epochNumber, command.idempotencyKey);
+  if (stored !== null) return Response.json(stored);
   if (account.epochNumber !== command.epochNumber || account.version !== command.expectedVersion) {
     return jsonError("stale_account", 409);
   }
-  const stored = await dependencies.findCommand(command.accountId, command.epochNumber, command.idempotencyKey);
-  if (stored !== null) return Response.json(stored);
 
   const asset = await dependencies.loadAsset(command.order.asset);
   if (!asset) return jsonError("unknown_asset", 422);

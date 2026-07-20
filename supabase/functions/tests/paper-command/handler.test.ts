@@ -110,6 +110,16 @@ Deno.test("stored idempotent result bypasses market retrieval", async () => {
   assertEquals(marketCalls, 0);
 });
 
+Deno.test("stored idempotent retry wins over a stale expected version", async () => {
+  const stored = { response: { status: "filled" }, stored: true };
+  const response = await handlePaperCommand(request(marketBuy), dependencies({
+    loadAccount: async () => ({ epochNumber: 1, version: 1, cashBalance: "4900", availableMargin: "4800", position: null }),
+    findCommand: async () => stored,
+  }));
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), stored);
+});
+
 Deno.test("nonzero collateral asset rejects without book retrieval", async () => {
   let bookCalls = 0;
   const response = await handlePaperCommand(request(marketBuy), dependencies({

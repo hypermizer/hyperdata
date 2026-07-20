@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(23);
+select plan(24);
 select public.configure_paper_mutation_access(true);
 
 insert into auth.users (
@@ -37,7 +37,7 @@ select ok(public.apply_paper_replay_effect(
   jsonb_build_object(
     'orderId', (select id from public.paper_orders limit 1),
     'status', 'partially_filled', 'remainingSize', '0.5', 'queueAhead', '0',
-    'fills', '[{"price":"100","size":"1.5","fee":"-0.0015","liquidity":"maker","sourceId":"trades-v1:o1:0"}]'::jsonb,
+    'fills', '[{"price":"100","size":"1.5","fee":"-0.0015","liquidity":"maker","sourceId":"trades-v1:o1:0","sourceTimestamp":"2026-07-19T12:00:05Z"}]'::jsonb,
     'position', '{"signedSize":"1.5","entryPrice":"100"}'::jsonb,
     'realizedPnl', '0', 'fee', '-0.0015', 'markPrice', '100',
     'inputVersion', 'trades-v1', 'sourceTimestamp', '2026-07-19T12:00:10Z'
@@ -46,6 +46,7 @@ select ok(public.apply_paper_replay_effect(
 select is((select status from public.paper_orders), 'partially_filled', 'order status advances');
 select is((select remaining_size::text from public.paper_orders), '0.500000000000', 'remaining size advances');
 select is((select count(*)::integer from public.paper_fills), 1, 'one maker fill persists');
+select is((select source_timestamp::text from public.paper_fills), '2026-07-19 12:00:05+00', 'maker fill retains its clearing trade timestamp');
 select is((select signed_size::text from public.paper_positions), '1.500000000000', 'position persists');
 select is((select cash_balance::text from public.paper_account_summaries), '5000.001500', 'maker rebate credits cash');
 select is((select equity::text from public.paper_account_summaries), '5000.001500', 'summary reconciles after fill');

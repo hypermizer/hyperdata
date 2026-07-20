@@ -12,7 +12,10 @@ Deno.test("continuous public flow clears queue then creates a maker rebate", () 
   ] }), fees)!;
   assertEquals(effect.status, "partially_filled");
   assertEquals(effect.remainingSize, "0.5");
-  assertEquals(effect.fills[0], { price: "100", size: "1.5", liquidity: "maker", fee: "-0.0015", sourceId: "input-v1:o1:0" });
+  assertEquals(effect.fills[0], {
+    price: "100", size: "1.5", liquidity: "maker", fee: "-0.0015",
+    sourceId: "input-v1:o1:0", sourceTimestamp: "1970-01-01T00:00:00.900Z",
+  });
   assertEquals(effect.position, { signedSize: "1.5", entryPrice: "100" });
 });
 

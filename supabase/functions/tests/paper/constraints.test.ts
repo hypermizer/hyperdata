@@ -43,3 +43,13 @@ Deno.test("stale context suspends execution even with a valid mark", () => {
     marketState: "stale",
   }), ["market_stale"]);
 });
+
+Deno.test("scientific notation is checked after exponent expansion", () => {
+  assertEquals(validateOrderConstraints({ ...asset, sizeDecimals: 2 }, {
+    size: "1e-3",
+    price: "10000",
+    leverage: 1,
+    marginMode: "cross",
+    marketState: "open",
+  }), ["size_precision"]);
+});
