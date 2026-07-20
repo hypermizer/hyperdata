@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260721-audio" />
+    <link rel="stylesheet" href="./styles.css?v=20260722-order-ticket" />
   </head>
   <body>
     <main>
@@ -136,25 +136,94 @@
 
         <div id="paper-order-panel" role="tabpanel" aria-labelledby="paper-order-tab" data-paper-panel="order" hidden>
           <form id="paper-order-form" class="paper-order-form">
-          <div id="paper-asset-picker" class="asset-picker">
-            <input id="paper-asset-search" data-asset-input placeholder="ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="paper-asset-list" aria-label="Asset" required />
-            <input data-asset-value name="asset" type="hidden" />
-            <div id="paper-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
-          </div>
-          <select name="side" aria-label="Side"><option value="buy">BUY</option><option value="sell">SELL</option></select>
-          <select id="paper-order-type" name="orderType" aria-label="Order type">
-            <option value="market">MARKET</option><option value="limit">LIMIT</option>
-            <option value="stop_market">STOP MARKET</option><option value="stop_limit">STOP LIMIT</option>
-            <option value="take_market">TAKE MARKET</option><option value="take_limit">TAKE LIMIT</option>
-          </select>
-          <input name="size" type="number" min="0" step="any" placeholder="SIZE" aria-label="Size" required />
-          <input name="limitPrice" type="number" min="0" step="any" placeholder="LIMIT" aria-label="Limit price" />
-          <input name="triggerPrice" type="number" min="0" step="any" placeholder="TRIGGER" aria-label="Trigger price" />
-          <label class="paper-leverage-field" for="paper-leverage"><span id="paper-leverage-label">LEVERAGE</span><input id="paper-leverage" name="leverage" type="number" min="1" step="1" value="1" aria-label="Leverage" /></label>
-          <select name="marginMode" aria-label="Margin mode"><option value="cross">CROSS</option><option value="isolated">ISOLATED</option></select>
-          <select name="timeInForce" aria-label="Time in force"><option value="GTC">GTC</option><option value="ALO">ALO</option><option value="IOC">IOC</option></select>
-          <label class="paper-check"><input name="reduceOnly" type="checkbox" /> REDUCE</label>
-          <button type="submit">PLACE</button>
+            <div class="paper-order-grid">
+              <div class="paper-order-column">
+                <label class="paper-field-label" for="paper-asset-search">ASSET</label>
+                <div id="paper-asset-picker" class="asset-picker">
+                  <input id="paper-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="paper-asset-list" aria-label="Asset" required />
+                  <input data-asset-value name="asset" type="hidden" />
+                  <div id="paper-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+                </div>
+
+                <fieldset class="paper-ticket-fieldset">
+                  <legend>DIRECTION</legend>
+                  <div class="paper-segmented paper-direction">
+                    <label><input name="side" type="radio" value="buy" checked /><span>LONG</span></label>
+                    <label><input name="side" type="radio" value="sell" /><span>SHORT</span></label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="paper-ticket-fieldset">
+                  <legend>ORDER TYPE</legend>
+                  <div class="paper-segmented">
+                    <label><input name="orderType" type="radio" value="market" checked /><span>MARKET</span></label>
+                    <label><input name="orderType" type="radio" value="limit" /><span>LIMIT</span></label>
+                  </div>
+                </fieldset>
+
+                <div id="paper-limit-fields" class="paper-limit-fields" hidden>
+                  <label class="paper-ticket-field">LIMIT PRICE <span>USD</span><input id="paper-limit-price" name="limitPrice" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00" /></label>
+                  <label class="paper-ticket-field">TIME IN FORCE
+                    <select name="timeInForce" aria-label="Time in force"><option value="GTC">GTC</option><option value="ALO">POST ONLY</option><option value="IOC">IOC</option></select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="paper-order-column">
+                <div class="paper-live-quote">
+                  <span>LIVE MARK</span>
+                  <strong id="paper-live-price">—</strong>
+                  <small id="paper-live-status">SELECT AN ASSET</small>
+                </div>
+
+                <label class="paper-ticket-field" for="paper-size">AMOUNT <span id="paper-size-unit">SHARES</span>
+                  <input id="paper-size" name="size" type="number" min="0" step="any" inputmode="decimal" placeholder="0" aria-describedby="paper-size-help" required />
+                </label>
+                <p id="paper-size-help" class="paper-field-help">ENTER THE NUMBER OF SHARES</p>
+                <div class="paper-size-controls" aria-label="Order size percentage">
+                  <input id="paper-size-slider" type="range" min="0" max="100" step="1" value="0" aria-label="Order size percentage" />
+                  <button type="button" data-size-percent="25">25%</button>
+                  <button type="button" data-size-percent="50">50%</button>
+                  <button type="button" data-size-percent="75">75%</button>
+                  <button type="button" data-size-percent="100">MAX</button>
+                </div>
+
+                <label class="paper-ticket-field" for="paper-leverage">LEVERAGE <span id="paper-leverage-label">—</span>
+                  <div class="paper-input-suffix"><input id="paper-leverage" name="leverage" type="number" min="1" step="1" value="1" aria-label="Leverage" /><span>×</span></div>
+                </label>
+                <input id="paper-leverage-slider" class="paper-leverage-slider" type="range" min="1" max="1" step="1" value="1" aria-label="Leverage slider" />
+
+                <fieldset class="paper-ticket-fieldset">
+                  <legend>MARGIN TYPE</legend>
+                  <div class="paper-segmented">
+                    <label><input name="marginMode" type="radio" value="cross" checked /><span>CROSS</span></label>
+                    <label><input name="marginMode" type="radio" value="isolated" /><span>ISOLATED</span></label>
+                  </div>
+                </fieldset>
+
+                <label class="paper-check"><input name="reduceOnly" type="checkbox" /> REDUCE ONLY</label>
+              </div>
+            </div>
+
+            <div class="paper-order-preview" aria-live="polite">
+              <span><small>AVAILABLE MARGIN</small><strong id="paper-available-margin">—</strong></span>
+              <span><small>CURRENT POSITION</small><strong id="paper-current-position">—</strong></span>
+              <span><small>ORDER PRICE</small><strong id="paper-order-price">—</strong></span>
+              <span><small>ORDER VALUE</small><strong id="paper-order-value">—</strong></span>
+              <span><small>MARGIN REQUIRED</small><strong id="paper-margin-required">—</strong></span>
+              <span><small>EST. FEE</small><strong id="paper-estimated-fee">—</strong></span>
+              <span><small>FEES (MAKER / TAKER)</small><strong id="paper-fee-rates">—</strong></span>
+              <span><small>MAX SIZE</small><strong id="paper-max-size">—</strong></span>
+              <span><small>EST. SLIPPAGE</small><strong id="paper-slippage">—</strong></span>
+              <span><small>EST. LIQ. PRICE</small><strong id="paper-liquidation-price">—</strong></span>
+              <span><small>QUOTE AGE</small><strong id="paper-quote-age">—</strong></span>
+            </div>
+
+            <div class="paper-order-submit">
+              <span><small>ESTIMATED COST</small><strong id="paper-estimated-cost">—</strong></span>
+              <button id="paper-place-order" type="submit" disabled>PLACE LONG</button>
+            </div>
+            <p id="paper-order-validation" class="paper-field-help" role="status">SELECT AN ASSET AND ENTER AN AMOUNT</p>
           </form>
           <p id="paper-message" class="message" role="alert"></p>
         </div>
@@ -221,6 +290,6 @@
     </dialog>
     <script type="module" src="./app.js?v=20260721-audio"></script>
     <script type="module" src="./audio.js?v=20260721-audio"></script>
-    <script type="module" src="./paper.js?v=20260721-audio"></script>
+    <script type="module" src="./paper.js?v=20260722-order-ticket"></script>
   </body>
 </html>

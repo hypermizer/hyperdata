@@ -46,7 +46,10 @@ test("fetchDexNames includes the default perp dex", async () => {
 test("fetchMarketsForDex combines metadata and market context", async () => {
   const fetchImpl = async () =>
     jsonResponse([
-      { universe: [{ name: "xyz:ORCL", maxLeverage: 10 }] },
+      {
+        universe: [{ name: "xyz:ORCL", maxLeverage: 10, szDecimals: 2, marginTableId: 7 }],
+        marginTables: [[7, { marginTiers: [{ lowerBound: "0", maxLeverage: 10 }, { lowerBound: "100000", maxLeverage: 5 }] }]],
+      },
       [{ markPx: "250", prevDayPx: "200", dayNtlVlm: "1000", openInterest: "20", funding: "0.0001" }],
     ]);
   const [market] = await fetchMarketsForDex("xyz", fetchImpl);
@@ -62,6 +65,8 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
     openInterest: 20,
     funding: 0.0001,
     maxLeverage: 10,
+    sizeDecimals: 2,
+    marginTiers: [{ lowerBound: 0, maxLeverage: 10 }, { lowerBound: 100000, maxLeverage: 5 }],
     isDelisted: false,
   });
 });
