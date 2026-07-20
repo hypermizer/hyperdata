@@ -1,5 +1,5 @@
 import { APP_CONFIG } from "./config.js?v=20260720-paper";
-import { AssetPicker } from "./asset-picker.js?v=20260720-assets";
+import { AssetPicker } from "./asset-picker.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, normalizeStartingCapital, paperSignClass } from "./lib/paper.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";

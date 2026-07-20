@@ -1,4 +1,4 @@
-import { displayAssetSymbol, resolveAsset, searchAssets } from "./lib/assets.js?v=20260720-assets";
+import { displayAssetSymbol, resolveAsset, searchAssets } from "./lib/assets.js?v=20260720-stream";
 
 export class AssetPicker {
   constructor(root) {
@@ -87,7 +87,7 @@ export class AssetPicker {
   }
 
   render() {
-    this.matches = searchAssets(this.catalog, this.input.value, 10);
+    this.matches = searchAssets(this.catalog, this.input.value);
     if (this.activeIndex >= this.matches.length) this.activeIndex = -1;
     this.list.replaceChildren(...this.matches.map((asset, index) => this.option(asset, index)));
     this.list.hidden = !this.matches.length;
@@ -103,9 +103,13 @@ export class AssetPicker {
     button.className = index === this.activeIndex ? "is-active" : "";
     const symbol = document.createElement("strong");
     symbol.textContent = displayAssetSymbol(asset);
-    const details = document.createElement("span");
-    details.textContent = `${asset.dex || "Hyperliquid"} · ${formatMark(asset.markPrice)} · ${asset.maxLeverage ?? "—"}×`;
-    button.append(symbol, details);
+    const price = document.createElement("span");
+    price.className = "asset-picker-price";
+    price.textContent = formatMark(asset.markPrice);
+    const leverage = document.createElement("span");
+    leverage.className = "asset-picker-leverage";
+    leverage.textContent = `${asset.maxLeverage ?? "—"}×`;
+    button.append(symbol, price, leverage);
     if (index === this.activeIndex) this.input.setAttribute("aria-activedescendant", button.id);
     return button;
   }

@@ -7,11 +7,9 @@ import {
   fetchPriceHistory,
 } from "./lib/hyperliquid.js?v=20260720-assets";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { AssetPicker } from "./asset-picker.js?v=20260720-assets";
+import { AssetPicker } from "./asset-picker.js?v=20260720-stream";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
-
-const QUOTE_STALE_MS = 3_500;
-const QUOTE_RECONNECT_COOLDOWN_MS = 5_000;
+import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
 
 const state = {
   accountMessage: "",
@@ -20,10 +18,12 @@ const state = {
   markets: new Map(),
   openDot: null,
   priceHistories: new Map(),
-  quoteUpdatedAt: new Map(),
   supabase: createWatchlistClient(APP_CONFIG),
   stream: null,
-  streamConnectedAt: 0,
+  streamMessageAt: 0,
+  streamOpenedAt: 0,
+  streamPhase: "loading",
+  streamStartedAt: 0,
   reconnectTimer: null,
   signingIn: false,
   user: null,
@@ -69,10 +69,10 @@ async function initialize() {
     await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
     renderCatalog();
     render();
-    setConnection(true);
     connectMarketStream();
   } catch (error) {
-    setConnection(false, error.message);
+    state.streamPhase = "error";
+    renderConnectionStatus(error.message);
     elements.marketList.textContent = "Market data unavailable.";
   }
 }
@@ -476,11 +476,21 @@ function setActiveView(viewName) {
   });
 }
 
-function setConnection(connected, detail = "") {
-  elements.connectionLabel.textContent = connected
-    ? "HYPERLIQUID CONNECTED"
-    : `CONNECTION ERROR${detail ? `: ${detail}` : ""}`;
-  elements.connectionLabel.className = connected ? "positive" : "negative";
+function renderConnectionStatus(detail = "") {
+  const health = deriveStreamHealth({
+    phase: state.streamPhase,
+    startedAt: state.streamStartedAt,
+    openedAt: state.streamOpenedAt,
+    lastMessageAt: state.streamMessageAt,
+    detail,
+  });
+  if (elements.connectionLabel.textContent !== health.label) {
+    elements.connectionLabel.textContent = health.label;
+  }
+  if (elements.connectionLabel.className !== health.tone) {
+    elements.connectionLabel.className = health.tone;
+  }
+  return health;
 }
 
 function setWatchlistMessage(message) {
@@ -502,27 +512,36 @@ function formatAuthError(error) {
 function connectMarketStream() {
   window.clearTimeout(state.reconnectTimer);
   state.stream?.close();
-  state.streamConnectedAt = Date.now();
+  state.streamPhase = "connecting";
+  state.streamStartedAt = Date.now();
+  state.streamOpenedAt = 0;
+  state.streamMessageAt = 0;
+  renderConnectionStatus();
   const stream = new WebSocket(APP_CONFIG.websocketUrl);
   state.stream = stream;
 
   stream.addEventListener("open", () => {
+    if (state.stream !== stream) return;
+    state.streamPhase = "open";
+    state.streamOpenedAt = Date.now();
     state.watchlist.forEach((coin) => {
       stream.send(JSON.stringify({
         method: "subscribe",
         subscription: { type: "activeAssetCtx", coin },
       }));
     });
-    setConnection(true);
+    renderConnectionStatus();
   });
 
   stream.addEventListener("message", ({ data }) => {
+    if (state.stream !== stream) return;
+    state.streamMessageAt = Date.now();
+    renderConnectionStatus();
     const message = JSON.parse(data);
     if (message.channel !== "activeAssetCtx") return;
     const market = state.markets.get(message.data.coin);
     if (!market) return;
     state.markets.set(message.data.coin, applyLiveMarketContext(market, message.data.ctx));
-    state.quoteUpdatedAt.set(message.data.coin, Date.now());
     updateLastSync();
     renderMarkets();
     renderAlertOptions();
@@ -530,7 +549,8 @@ function connectMarketStream() {
 
   stream.addEventListener("close", () => {
     if (state.stream !== stream) return;
-    setConnection(false, "live stream disconnected");
+    state.streamPhase = "closed";
+    renderConnectionStatus();
     state.reconnectTimer = window.setTimeout(connectMarketStream, 3_000);
   });
 
@@ -538,18 +558,8 @@ function connectMarketStream() {
 }
 
 function checkQuoteHealth() {
-  if (!state.watchlist.length) return;
-  const now = Date.now();
-  const staleAssets = state.watchlist.filter((asset) => {
-    const updatedAt = state.quoteUpdatedAt.get(asset);
-    return !updatedAt || now - updatedAt > QUOTE_STALE_MS;
-  });
-  if (!staleAssets.length) return;
-
-  setConnection(false, `stale quote: ${staleAssets.join(", ")}`);
-  if (now - state.streamConnectedAt >= QUOTE_RECONNECT_COOLDOWN_MS) {
-    connectMarketStream();
-  }
+  const health = renderConnectionStatus();
+  if (health.shouldReconnect) connectMarketStream();
 }
 
 function sendStreamHeartbeat() {
