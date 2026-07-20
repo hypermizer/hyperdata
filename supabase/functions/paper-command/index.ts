@@ -127,11 +127,23 @@ function dependencies(): PaperCommandDependencies {
         p_idempotency_key: context.idempotencyKey,
         p_effects: effects,
       });
-      if (error) throw new Error(error.message);
+      if (error) throw error;
       return data;
     },
     now: Date.now,
   };
+}
+
+export function paperCommandFailureResponse(error: unknown): Response {
+  const failure = error as { code?: unknown; message?: unknown };
+  const message = typeof failure?.message === "string" ? failure.message : String(error);
+  if (failure?.code === "40001" || message === "stale paper account version") {
+    return Response.json({ error: "stale_account" }, { status: 409, headers: corsHeaders });
+  }
+  return Response.json(
+    { error: "paper_command_failed", detail: message },
+    { status: 500, headers: corsHeaders },
+  );
 }
 
 export async function servePaperCommand(request: Request): Promise<Response> {
@@ -142,10 +154,7 @@ export async function servePaperCommand(request: Request): Promise<Response> {
     Object.entries(corsHeaders).forEach(([key, value]) => headers.set(key, value));
     return new Response(response.body, { status: response.status, headers });
   } catch (error) {
-    return Response.json(
-      { error: "paper_command_failed", detail: error instanceof Error ? error.message : String(error) },
-      { status: 500, headers: corsHeaders },
-    );
+    return paperCommandFailureResponse(error);
   }
 }
 
