@@ -1,4 +1,4 @@
-import { fetchAllMarkets } from "./hyperliquid.js?v=20260720-assets";
+import { fetchAllMarkets } from "./hyperliquid.js?v=20260722-order-ticket";
 
 let catalogPromise;
 
