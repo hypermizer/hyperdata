@@ -21,8 +21,36 @@ function required(name: string): string {
 
 function runtimeDependencies(): ProcessPaperDependencies {
   const service = createServiceClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"));
-  let catalogPromise: ReturnType<typeof fetchPaperCatalog> | null = null;
-  let feePromise: ReturnType<typeof fetchPaperFeeSchedule> | null = null;
+  let catalogPromise: Promise<Awaited<ReturnType<typeof fetchPaperCatalog>> & { fetched: boolean }> | null = null;
+  let feePromise: Promise<Awaited<ReturnType<typeof fetchPaperFeeSchedule>> & { fetched: boolean }> | null = null;
+  const cachedInput = async (kind: "metadata" | "fees") => {
+    const { data, error } = await service.from("paper_market_inputs").select("payload,input_version,created_at")
+      .eq("asset", "*").eq("input_kind", kind).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data && Date.now() - Date.parse(data.created_at) < 5 * 60_000 ? data : null;
+  };
+  const loadCatalog = () => catalogPromise ??= (async () => {
+    const cached = await cachedInput("metadata");
+    if (cached) return { assets: (cached.payload as { assets: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"] }).assets, inputVersion: cached.input_version, fetched: false };
+    const fresh = await fetchPaperCatalog();
+    const { error } = await service.from("paper_market_inputs").upsert({
+      asset: "*", input_kind: "metadata", input_version: fresh.inputVersion,
+      source_timestamp: new Date().toISOString(), payload: { assets: fresh.assets }, fidelity: "live",
+    }, { onConflict: "asset,input_kind,input_version", ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+    return { ...fresh, fetched: true };
+  })();
+  const loadFees = () => feePromise ??= (async () => {
+    const cached = await cachedInput("fees");
+    if (cached) return { schedule: (cached.payload as { schedule: Awaited<ReturnType<typeof fetchPaperFeeSchedule>>["schedule"] }).schedule, inputVersion: cached.input_version, fetched: false };
+    const fresh = await fetchPaperFeeSchedule();
+    const { error } = await service.from("paper_market_inputs").upsert({
+      asset: "*", input_kind: "fees", input_version: fresh.inputVersion,
+      source_timestamp: new Date().toISOString(), payload: { schedule: fresh.schedule }, fidelity: "live",
+    }, { onConflict: "asset,input_kind,input_version", ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+    return { ...fresh, fetched: true };
+  })();
   const processor: PaperProcessorDependencies = {
     estimateSnapshotWeight: () => 142,
     async loadWork() {
@@ -70,11 +98,9 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const fundingPromise = fundingIsFresh
         ? Promise.resolve({ points: (cachedFunding.payload as { points?: never[] }).points ?? [], inputVersion: cachedFunding.input_version, fetched: false })
         : fetchPaperFunding(asset, Date.now() - 24 * 60 * 60 * 1_000, Date.now()).then((value) => ({ ...value, fetched: true }));
-      catalogPromise ??= fetchPaperCatalog();
-      feePromise ??= fetchPaperFeeSchedule();
       const [results, bookInput, tradeInput, feeInput, fundingInput, catalogInput] = await Promise.all([
         fetchMarketBatches([{ asset, dex }], new Date()),
-        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), feePromise, fundingPromise, catalogPromise,
+        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), loadFees(), fundingPromise, loadCatalog(),
       ]);
       const result = results.get(dex);
       if (!result?.ok || result.observations.length !== 1) {
@@ -88,7 +114,8 @@ function runtimeDependencies(): ProcessPaperDependencies {
         trades: tradeInput.inputVersion, fees: feeInput.inputVersion, funding: fundingInput.inputVersion,
       });
       return {
-        asset, inputVersion: version, apiWeight: 122 + (fundingInput.fetched ? 20 : 0),
+        asset, inputVersion: version,
+        apiWeight: 42 + (fundingInput.fetched ? 20 : 0) + (feeInput.fetched ? 20 : 0) + (catalogInput.fetched ? 40 : 0),
         degraded: tradeInput.gap, payload: {
           markPrice: String(observation.mark_price), observation,
           book: bookInput.book, trades: tradeInput.trades, tradeGap: tradeInput.gap,
@@ -260,7 +287,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       if (error) throw new Error(error.message);
       return data === true;
     },
-    process: () => processPaperBatch(processor, 500),
+    process: () => processPaperBatch(processor, 500, Math.floor(Date.now() / 10_000)),
     async finish(bucket, state, metrics) {
       const { error } = await service.rpc("finish_paper_processor_bucket", {
         p_bucket: bucket, p_state: state, p_metrics: metrics,

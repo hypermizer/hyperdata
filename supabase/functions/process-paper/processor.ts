@@ -43,11 +43,20 @@ export interface PaperProcessorResult {
 export async function processPaperBatch(
   dependencies: PaperProcessorDependencies,
   apiWeightLimit: number,
+  rotationKey = 0,
 ): Promise<PaperProcessorResult> {
   const budget = new RequestBudget(apiWeightLimit);
-  const work = (await dependencies.loadWork()).sort((left, right) =>
-    Number(right.hasPosition) - Number(left.hasPosition) || left.asset.localeCompare(right.asset)
-  );
+  const loaded = await dependencies.loadWork();
+  const rotate = (items: ProcessorAssetWork[]) => {
+    const sorted = items.sort((left, right) => left.asset.localeCompare(right.asset));
+    if (!sorted.length) return sorted;
+    const offset = Math.abs(rotationKey) % sorted.length;
+    return [...sorted.slice(offset), ...sorted.slice(0, offset)];
+  };
+  const work = [
+    ...rotate(loaded.filter((item) => item.hasPosition)),
+    ...rotate(loaded.filter((item) => !item.hasPosition)),
+  ];
   let assetsProcessed = 0;
   let accountsProcessed = 0;
   let reconciliationFailures = 0;

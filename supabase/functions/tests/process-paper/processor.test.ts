@@ -62,3 +62,20 @@ Deno.test("an asset failure is isolated and reconciliation failure makes run par
   assertEquals(result.reconciliationFailures, 1);
   assertEquals(result.degradedAssets, [{ asset: "BAD", reason: "cursor_gap" }]);
 });
+
+Deno.test("budgeted assets rotate without placing resting work ahead of risk", async () => {
+  const fetched: string[] = [];
+  await processPaperBatch({
+    loadWork: async () => [
+      { asset: "A", hasPosition: true, accountIds: ["a"] },
+      { asset: "B", hasPosition: true, accountIds: ["b"] },
+      { asset: "C", hasPosition: false, accountIds: ["c"] },
+    ],
+    estimateSnapshotWeight: () => 10,
+    fetchSnapshot: async (asset) => {
+      fetched.push(asset); return { asset, inputVersion: asset, apiWeight: 10, degraded: false, payload: {} };
+    },
+    processAccount: async () => ({ mutated: true }),
+  }, 20, 1);
+  assertEquals(fetched, ["B", "A"]);
+});
