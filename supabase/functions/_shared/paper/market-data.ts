@@ -128,6 +128,15 @@ export interface NormalizedTrade {
   aggressor: "buy" | "sell";
 }
 
+function compareTradeIds(left: string, right: string): number {
+  if (/^\d+$/.test(left) && /^\d+$/.test(right)) {
+    const leftId = BigInt(left);
+    const rightId = BigInt(right);
+    if (leftId !== rightId) return leftId < rightId ? -1 : 1;
+  }
+  return left.localeCompare(right);
+}
+
 export function normalizeTrades(payload: unknown, cursor: TradeCursor): {
   trades: NormalizedTrade[];
   cursor: TradeCursor;
@@ -149,13 +158,20 @@ export function normalizeTrades(payload: unknown, cursor: TradeCursor): {
       aggressor: item.side === "B" ? "buy" : "sell",
     };
   });
-  parsed.sort((a, b) => a.timestampMs - b.timestampMs || a.id.localeCompare(b.id));
+  parsed.sort((a, b) => a.timestampMs - b.timestampMs || compareTradeIds(a.id, b.id));
   if (parsed.length === 0) return { trades: [], cursor, gap: false };
 
   let newTrades = parsed;
   if (cursor.lastTradeId !== null) {
     const overlapIndex = parsed.findIndex((trade) => trade.id === cursor.lastTradeId);
-    if (overlapIndex < 0) return { trades: [], cursor, gap: true };
+    if (overlapIndex < 0) {
+      const latest = parsed[parsed.length - 1];
+      return {
+        trades: [],
+        cursor: { lastTradeId: latest.id, lastTimestampMs: latest.timestampMs },
+        gap: true,
+      };
+    }
     newTrades = parsed.slice(overlapIndex + 1);
   }
   const latest = parsed[parsed.length - 1];

@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(11);
+select plan(14);
 select public.configure_paper_mutation_access(true);
 
 insert into auth.users (
@@ -46,6 +46,24 @@ select is((select trailing_volume::text from public.paper_account_summaries), '7
 select is((select version from public.paper_account_epochs), 1::bigint, 'economic transaction advances version');
 select is((select equity::text from public.paper_account_summaries), '5000.466137', 'initial fill stores reconciled equity');
 select is((select leverage from public.paper_leverage_settings), 5, 'validated leverage persists for scheduled fills');
+
+select lives_ok(
+  $$select public.apply_paper_effects(
+    (select id from public.paper_accounts where name = 'Execution account'), 1, 1, 'partial-close-1',
+    '{
+      "response":{"status":"filled","remainingSize":"0","reason":null,"fidelity":"exact_book","sourceTimestamp":"2026-07-19T12:01:00Z"},
+      "order":{"asset":"xyz:ORCL","side":"sell","size":"0.25","orderType":"market","timeInForce":null,"limitPrice":null,"leverage":5,"marginMode":"isolated","reduceOnly":true,"requestedSize":"0.25","remainingSize":"0","queueAhead":null,"status":"filled"},
+      "fills":[{"price":"110","size":"0.25","fee":"0","liquidity":"taker","sourceId":"book-v2:0"}],
+      "position":{"signedSize":"0.5","entryPrice":"100.33333333333333333333"},
+      "positionProjection":{"asset":"xyz:ORCL","marginMode":"isolated","signedSize":"0.5","entryPrice":"100.33333333333333333333","markPrice":"110","leverage":5,"inputVersion":"book-v2"},
+      "ledger":[{"entry_type":"realized_pnl","amount":"2.41666666666666666667","asset":"xyz:ORCL","source_timestamp":"2026-07-19T12:01:00Z"}],
+      "inputVersions":{"book":"book-v2","fees":"fees-v1"}
+    }'::jsonb
+  )$$,
+  'partial close applies while retaining the position'
+);
+select is((select realized_pnl::numeric(38, 6)::text from public.paper_positions), '2.416667', 'position accumulates command realized pnl');
+select is((select realized_pnl::numeric(38, 6)::text from public.paper_account_summaries), '2.416667', 'summary accumulates the same realized pnl');
 
 select * from finish();
 rollback;

@@ -218,7 +218,7 @@ begin
     else
       insert into public.paper_positions (
         epoch_id, asset, margin_mode, signed_size, entry_price, mark_price,
-        isolated_margin, input_version
+        isolated_margin, realized_pnl, input_version
       ) values (
         epoch_row.id,
         p_effects -> 'positionProjection' ->> 'asset',
@@ -231,6 +231,12 @@ begin
             * (p_effects -> 'positionProjection' ->> 'markPrice')::numeric
             / (p_effects -> 'positionProjection' ->> 'leverage')::integer
           else null end,
+        coalesce((
+          select sum((entry ->> 'amount')::numeric)
+          from jsonb_array_elements(coalesce(p_effects -> 'ledger', '[]'::jsonb)) entry
+          where entry ->> 'entry_type' = 'realized_pnl'
+            and (entry ->> 'asset') = (p_effects -> 'positionProjection' ->> 'asset')
+        ), 0),
         p_effects -> 'positionProjection' ->> 'inputVersion'
       )
       on conflict (epoch_id, asset) do update set
@@ -239,6 +245,7 @@ begin
         entry_price = excluded.entry_price,
         mark_price = excluded.mark_price,
         isolated_margin = excluded.isolated_margin,
+        realized_pnl = paper_positions.realized_pnl + excluded.realized_pnl,
         input_version = excluded.input_version,
         updated_at = now();
     end if;

@@ -106,6 +106,14 @@ Deno.test("trade cursor overlap deduplicates and gaps fail closed", () => {
   });
   assertEquals(gap.gap, true);
   assertEquals(gap.trades, []);
+  assertEquals(gap.cursor, { lastTradeId: "15", lastTimestampMs: 1500 });
+
+  const sameMillisecond = normalizeTrades([
+    { tid: 10, time: 2000, px: "102", sz: "1", side: "B" },
+    { tid: 9, time: 2000, px: "101", sz: "1", side: "B" },
+  ], { lastTradeId: null, lastTimestampMs: null });
+  assertEquals(sameMillisecond.trades.map((trade) => trade.id), ["9", "10"]);
+  assertEquals(sameMillisecond.cursor.lastTradeId, "10");
 });
 
 Deno.test("funding history is chronological and idempotently deduplicated", () => {
