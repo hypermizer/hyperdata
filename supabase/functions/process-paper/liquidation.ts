@@ -2,8 +2,9 @@ import { applyFill } from "../_shared/paper/accounting.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 import { executeOrder } from "../_shared/paper/execution.ts";
 import { liquidationDecision } from "../_shared/paper/liquidation.ts";
+import { maintenanceMargin } from "../_shared/paper/margin.ts";
 import type { NormalizedBook } from "../_shared/paper/market-data.ts";
-import type { PaperPosition } from "../_shared/paper/types.ts";
+import type { MarginTier, PaperPosition } from "../_shared/paper/types.ts";
 
 interface LiquidationEffectInput {
   asset: string;
@@ -11,6 +12,8 @@ interface LiquidationEffectInput {
   markPrice: string;
   equity: string;
   maintenanceMargin: string;
+  positionMaintenanceMargin: string;
+  marginTiers: MarginTier[];
   book: NormalizedBook;
   feeRate: string;
   inputVersion: string;
@@ -21,6 +24,8 @@ export interface LiquidationEffect {
   asset: string;
   classification: "partial" | "book" | "backstop";
   maintenanceMargin: string;
+  positionMaintenanceMargin: string;
+  remainingPositionMaintenanceMargin: string;
   remainingEquity: string;
   cooldownUntil: string | null;
   sourceTimestamp: string;
@@ -68,6 +73,10 @@ export function buildLiquidationEffect(input: LiquidationEffectInput): Liquidati
   return {
     asset: input.asset, classification: decision.action,
     maintenanceMargin: input.maintenanceMargin,
+    positionMaintenanceMargin: input.positionMaintenanceMargin,
+    remainingPositionMaintenanceMargin: position === null ? "0" : maintenanceMargin(
+      decimalString(decimal(position.signedSize).abs().times(input.markPrice)), input.marginTiers,
+    ),
     remainingEquity: decimalString(decimal(input.equity).plus(realized).minus(totalFee)),
     cooldownUntil: decision.cooldownUntilMs === null ? null : new Date(decision.cooldownUntilMs).toISOString(),
     sourceTimestamp: new Date(input.book.timestampMs).toISOString(), inputVersion: input.inputVersion,

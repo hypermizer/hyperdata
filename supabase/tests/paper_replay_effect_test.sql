@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(24);
+select plan(25);
 select public.configure_paper_mutation_access(true);
 
 insert into auth.users (
@@ -68,11 +68,20 @@ select ok(public.apply_paper_funding_effect(
   '{"fundingTimestamp":"2026-07-19T13:00:00Z","signedSize":"1.5","oraclePrice":"100","fundingRate":"0.0001","payment":"-0.015","inputVersion":"funding-v1"}'::jsonb
 ), 'duplicate funding is an exactly-once no-op');
 
+insert into public.paper_positions (
+  epoch_id, asset, margin_mode, signed_size, entry_price, mark_price, input_version
+) values (
+  (select id from public.paper_account_epochs limit 1), 'OIL', 'cross', 1, 50, 50, 'oil-v1'
+);
+update public.paper_account_summaries set maintenance_margin = 125
+where epoch_id = (select id from public.paper_account_epochs limit 1);
+
 select ok(public.apply_paper_liquidation_effect(
   (select id from public.paper_account_epochs limit 1), 3,
   jsonb_build_object(
     'asset', 'xyz:ORCL', 'classification', 'book',
-    'maintenanceMargin', '100', 'remainingEquity', '4984.8515',
+    'maintenanceMargin', '125', 'positionMaintenanceMargin', '100',
+    'remainingPositionMaintenanceMargin', '0', 'remainingEquity', '4984.8515',
     'cooldownUntil', null, 'sourceTimestamp', '2026-07-19T13:00:10Z',
     'inputVersion', 'liq-v1',
     'fills', '[{"price":"90","size":"1.5","fee":"0.135","liquidity":"liquidation","sourceId":"liq-v1:liquidation:0"}]'::jsonb,
@@ -84,7 +93,8 @@ select is((select status from public.paper_orders), 'canceled', 'open orders can
 select is((select rejection_reason from public.paper_orders), 'liquidation', 'cancellation reason is preserved');
 select is((select count(*)::integer from public.paper_liquidations), 1, 'liquidation event persists');
 select is((select count(*)::integer from public.paper_fills), 2, 'liquidation fill persists');
-select is((select count(*)::integer from public.paper_positions), 0, 'closed position is removed');
+select is((select count(*)::integer from public.paper_positions where asset = 'xyz:ORCL'), 0, 'closed position is removed');
+select is((select maintenance_margin::text from public.paper_account_summaries), '25.000000', 'surviving position maintenance remains in the summary');
 select is((select cash_balance::text from public.paper_account_summaries), '4984.851500', 'liquidation pnl and fee reconcile cash');
 select is((select version from public.paper_account_epochs), 4::bigint, 'liquidation advances account version');
 

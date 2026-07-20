@@ -63,10 +63,13 @@ function dependencies(): PaperCommandDependencies {
       if (positionError) throw new Error(positionError.message);
       if (positionsError || settingsError) throw new Error(positionsError?.message ?? settingsError?.message);
       const leverageByAsset = new Map((settings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
+      const marginByAsset = new Map<string, ReturnType<typeof decimal>>();
       const marginUsed = (positions ?? []).reduce((used, item) => {
-        if (item.margin_mode === "isolated") return used.plus(item.isolated_margin ?? 0);
-        const leverage = leverageByAsset.get(item.asset) ?? 1;
-        return used.plus(decimal(item.signed_size).abs().times(item.mark_price).div(leverage));
+        const positionMargin = item.margin_mode === "isolated"
+          ? decimal(item.isolated_margin ?? 0)
+          : decimal(item.signed_size).abs().times(item.mark_price).div(leverageByAsset.get(item.asset) ?? 1);
+        marginByAsset.set(item.asset, positionMargin);
+        return used.plus(positionMargin);
       }, decimal(0));
       const availableMargin = decimal(summary.equity).minus(marginUsed);
       return {
@@ -74,6 +77,7 @@ function dependencies(): PaperCommandDependencies {
         version: Number(epoch.version),
         cashBalance: String(summary.cash_balance),
         availableMargin: decimalString(availableMargin.isPositive() ? availableMargin : 0),
+        currentMargin: decimalString(marginByAsset.get(asset) ?? decimal(0)),
         position: position ? { signedSize: String(position.signed_size), entryPrice: String(position.entry_price) } : null,
       };
     },

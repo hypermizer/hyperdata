@@ -371,7 +371,12 @@ begin
     unrealized_pnl = totals.unrealized,
     equity = summary.cash_balance + totals.unrealized,
     total_notional = totals.notional,
-    maintenance_margin = 0
+    maintenance_margin = greatest(
+      summary.maintenance_margin
+        - coalesce((p_effect ->> 'positionMaintenanceMargin')::numeric, 0)
+        + coalesce((p_effect ->> 'remainingPositionMaintenanceMargin')::numeric, 0),
+      0
+    )
   from (select
       coalesce(sum(signed_size * (mark_price - entry_price)), 0)::numeric(38, 6) as unrealized,
       coalesce(sum(abs(signed_size) * mark_price), 0)::numeric(38, 6) as notional

@@ -24,7 +24,7 @@ function dependencies(overrides: Partial<PaperCommandDependencies> = {}): PaperC
   return {
     enabled: true,
     authenticate: async (token) => token === "good" ? { id: "user-1", email: "jasonblick@zohomail.com" } : null,
-    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", position: null }),
+    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", currentMargin: "0", position: null }),
     findCommand: async () => null,
     loadAsset: async () => asset,
     loadMark: async () => ({ markPrice: "100", inputVersion: "mark-v1" }),
@@ -70,7 +70,32 @@ Deno.test("immediate execution checks margin against filled notional after slipp
     idempotencyKey: "slippage-margin",
     order: { ...marketBuy.order, size: "1", leverage: 1 },
   }), dependencies({
-    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "100.25", position: null }),
+    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "100.25", currentMargin: "0", position: null }),
+    applyEffects: async (effects) => { applied = true; return effects; },
+  }));
+  assertEquals(response.status, 422);
+  assertEquals((await response.json()).error, "insufficient_margin");
+  assertEquals(applied, false);
+});
+
+Deno.test("immediate execution checks final position margin across tier boundaries", async () => {
+  let applied = false;
+  const response = await handlePaperCommand(request({
+    ...marketBuy,
+    idempotencyKey: "tier-crossing-margin",
+    order: { ...marketBuy.order, size: "1", leverage: 10 },
+  }), dependencies({
+    loadAccount: async () => ({
+      epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "20", currentMargin: "10",
+      position: { signedSize: "1", entryPrice: "100" },
+    }),
+    loadAsset: async () => ({
+      ...asset,
+      marginTiers: [
+        { lowerBound: "0", maxLeverage: 10, maintenanceRate: "0.05", maintenanceDeduction: "0" },
+        { lowerBound: "150", maxLeverage: 2, maintenanceRate: "0.1", maintenanceDeduction: "7.5" },
+      ],
+    }),
     applyEffects: async (effects) => { applied = true; return effects; },
   }));
   assertEquals(response.status, 422);
@@ -113,7 +138,7 @@ Deno.test("stored idempotent result bypasses market retrieval", async () => {
 Deno.test("stored idempotent retry wins over a stale expected version", async () => {
   const stored = { response: { status: "filled" }, stored: true };
   const response = await handlePaperCommand(request(marketBuy), dependencies({
-    loadAccount: async () => ({ epochNumber: 1, version: 1, cashBalance: "4900", availableMargin: "4800", position: null }),
+    loadAccount: async () => ({ epochNumber: 1, version: 1, cashBalance: "4900", availableMargin: "4800", currentMargin: "0", position: null }),
     findCommand: async () => stored,
   }));
   assertEquals(response.status, 200);
@@ -148,7 +173,7 @@ Deno.test("valid trigger persists without fetching an execution book", async () 
     order: { ...marketBuy.order, side: "sell", orderType: "stop_market", triggerPrice: "90", reduceOnly: true },
   };
   const response = await handlePaperCommand(request(command), dependencies({
-    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", position: { signedSize: "1", entryPrice: "100" } }),
+    loadAccount: async () => ({ epochNumber: 1, version: 0, cashBalance: "5000", availableMargin: "5000", currentMargin: "20", position: { signedSize: "1", entryPrice: "100" } }),
     loadBook: async () => { bookCalls += 1; return { book, inputVersion: "book-v1" }; },
   }));
   assertEquals(response.status, 200);

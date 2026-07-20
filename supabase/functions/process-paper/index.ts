@@ -318,6 +318,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const liquidation = buildLiquidationEffect({
         asset: snapshot.asset, position, markPrice: payload.markPrice,
         equity: risk.equity, maintenanceMargin: risk.maintenanceMargin,
+        positionMaintenanceMargin: requiredMaintenance, marginTiers: payload.metadata.marginTiers,
         book: payload.book, feeRate: payload.feeRates.taker,
         inputVersion: snapshot.inputVersion, nowMs: Date.now(),
       });

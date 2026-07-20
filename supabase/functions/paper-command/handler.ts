@@ -16,6 +16,7 @@ export interface PaperAccountState {
   version: number;
   cashBalance: string;
   availableMargin: string;
+  currentMargin: string;
   position: PaperPosition | null;
 }
 export interface ApplyContext {
@@ -169,12 +170,6 @@ export async function handlePaperCommand(
   });
   if (constraintErrors.length) return jsonError("invalid_order", 422, constraintErrors);
 
-  const estimatedInitialMargin = decimal(command.order.size).times(referencePrice)
-    .div(command.order.leverage);
-  if (!command.order.reduceOnly && estimatedInitialMargin.gt(account.availableMargin)) {
-    return jsonError("insufficient_margin", 422);
-  }
-
   const execution = executeOrder({
     side: command.order.side,
     size: command.order.size,
@@ -184,16 +179,25 @@ export async function handlePaperCommand(
     reduceOnly: command.order.reduceOnly,
   }, book, account.position?.signedSize ?? "0");
   if (execution.status === "rejected") return jsonError(execution.reason ?? "order_rejected", 422);
-  const executedNotional = execution.fills.reduce(
-    (total, fill) => total.plus(decimal(fill.size).times(fill.price)),
-    decimal(0),
-  );
-  const executedInitialMargin = initialMargin(
-    decimalString(executedNotional),
+
+  const riskFills = [...execution.fills];
+  if (["resting", "partially_filled"].includes(execution.status) && decimal(execution.remainingSize).isPositive()) {
+    riskFills.push({ price: command.order.limitPrice ?? referencePrice, size: execution.remainingSize });
+  }
+  let riskPosition = account.position;
+  for (const fill of riskFills) {
+    riskPosition = applyFill(riskPosition, {
+      side: command.order.side, size: fill.size, price: fill.price, feeRate: "0",
+    }).position;
+  }
+  const riskMark = riskFills.at(-1)?.price ?? referencePrice;
+  const finalInitialMargin = riskPosition === null ? decimal(0) : decimal(initialMargin(
+    decimalString(decimal(riskPosition.signedSize).abs().times(riskMark)),
     command.order.leverage,
     asset.marginTiers,
-  );
-  if (!command.order.reduceOnly && decimal(executedInitialMargin).gt(account.availableMargin)) {
+  ));
+  const marginCapacity = decimal(account.availableMargin).plus(account.currentMargin);
+  if (finalInitialMargin.gt(marginCapacity)) {
     return jsonError("insufficient_margin", 422);
   }
 
