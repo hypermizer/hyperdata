@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260720-paper";
-import { AssetPicker } from "./asset-picker.js?v=20260720-stream";
+import { AssetPicker } from "./asset-picker.js?v=20260721-routing";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, normalizeStartingCapital, paperSignClass } from "./lib/paper.js?v=20260720-assets";
+import { activePaperEpoch, formatPaperNumber, normalizeAccountName, normalizePaperOrder, normalizeStartingCapital, paperSignClass } from "./lib/paper.js?v=20260721-routing";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -15,6 +15,7 @@ const elements = {
   accountDialog: $("#paper-account-dialog"), accountForm: $("#paper-account-form"),
   accountMessage: $("#paper-account-message"), accountName: $("#paper-account-name"),
   startingCapital: $("#paper-starting-capital"),
+  leverage: $("#paper-leverage"), leverageLabel: $("#paper-leverage-label"),
 };
 const paperAssetPicker = new AssetPicker($("#paper-asset-picker"));
 
@@ -31,6 +32,8 @@ function wire() {
   elements.form.addEventListener("submit", placeOrder);
   elements.orders.addEventListener("click", cancelOrder);
   elements.orderType.addEventListener("change", updateOrderFields);
+  paperAssetPicker.root.addEventListener("assetchange", updateLeverageLimit);
+  elements.leverage.addEventListener("input", clampLeverage);
   setInterval(() => { if (!document.hidden && state.user && state.account) loadAccountState(); }, 5_000);
 }
 
@@ -38,6 +41,7 @@ async function initialize() {
   if (!client) return renderStatus("STORAGE UNAVAILABLE");
   const [catalog, { data }] = await Promise.all([getMarketCatalog(), client.auth.getSession()]);
   paperAssetPicker.setCatalog(catalog);
+  updateLeverageLimit();
   await setSession(data.session);
   client.auth.onAuthStateChange((_event, session) => setTimeout(() => setSession(session), 0));
 }
@@ -139,7 +143,8 @@ async function placeOrder(event) {
     const form = Object.fromEntries(formData);
     form.asset = paperAssetPicker.value;
     form.reduceOnly = formData.has("reduceOnly");
-    const order = normalizePaperOrder(form);
+    const market = selectedMarket();
+    const order = normalizePaperOrder(form, market?.maxLeverage ?? Infinity);
     const { data, error } = await client.functions.invoke("paper-command", { body: {
       type: "place_order", accountId: state.account.id, epochNumber: state.epoch.epoch_number,
       expectedVersion: Number(state.epoch.version), idempotencyKey: crypto.randomUUID(), order,
@@ -165,6 +170,25 @@ function updateOrderFields() {
   elements.form.elements.limitPrice.disabled = locked || !type.includes("limit");
   elements.form.elements.triggerPrice.disabled = locked || !(type.startsWith("stop_") || type.startsWith("take_"));
   elements.form.elements.timeInForce.disabled = locked || type === "market" || type.endsWith("_market");
+}
+
+function selectedMarket() {
+  return paperAssetPicker.selectedAsset;
+}
+
+function updateLeverageLimit() {
+  const maxLeverage = selectedMarket()?.maxLeverage;
+  if (Number.isFinite(maxLeverage)) elements.leverage.max = String(maxLeverage);
+  else elements.leverage.removeAttribute("max");
+  elements.leverageLabel.textContent = Number.isFinite(maxLeverage) ? `LEVERAGE ≤ ${maxLeverage}×` : "LEVERAGE";
+  clampLeverage();
+}
+
+function clampLeverage() {
+  const maxLeverage = Number(elements.leverage.max);
+  if (maxLeverage > 0 && Number(elements.leverage.value) > maxLeverage) {
+    elements.leverage.value = String(maxLeverage);
+  }
 }
 
 function render() {

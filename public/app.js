@@ -7,9 +7,10 @@ import {
   fetchPriceHistory,
 } from "./lib/hyperliquid.js?v=20260720-assets";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { AssetPicker } from "./asset-picker.js?v=20260720-stream";
+import { AssetPicker } from "./asset-picker.js?v=20260721-routing";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-routing";
 
 const state = {
   accountMessage: "",
@@ -50,7 +51,9 @@ const elements = {
   settingsButton: document.querySelector("#settings-button"),
   settingsDialog: document.querySelector("#watchlist-settings"),
   tabs: [...document.querySelectorAll("[data-tab]")],
-  views: [...document.querySelectorAll("[role=tabpanel]")],
+  views: [...document.querySelectorAll("main > section[role=tabpanel]")],
+  paperTabs: [...document.querySelectorAll("[data-paper-tab]")],
+  paperPanels: [...document.querySelectorAll("[data-paper-panel]")],
   watchlistForm: document.querySelector("#watchlist-form"),
   watchlistMessage: document.querySelector("#watchlist-message"),
 };
@@ -81,9 +84,10 @@ function wireEvents() {
   elements.accountButton.addEventListener("click", handleAccountAction);
   elements.alertType.addEventListener("change", renderAlertFields);
   elements.settingsButton.addEventListener("click", openSettings);
-  elements.tabs.forEach((tab) => {
-    tab.addEventListener("click", () => setActiveView(tab.dataset.tab));
-  });
+  elements.tabs.forEach((tab) => tab.addEventListener("click", () => navigate(tab.dataset.tab)));
+  elements.paperTabs.forEach((tab) => tab.addEventListener("click", () => navigate("paper", tab.dataset.paperTab)));
+  window.addEventListener("hashchange", renderRoute);
+  renderRoute();
 
   elements.watchlistForm.addEventListener("submit", addToWatchlist);
   elements.removeAssetForm.addEventListener("submit", (event) => {
@@ -467,13 +471,28 @@ function renderAlertFields() {
   elements.alertForm.querySelector("button[type=submit]").disabled = !state.user;
 }
 
-function setActiveView(viewName) {
+function navigate(viewName, paperView = "home") {
+  const route = routeFor(viewName, paperView);
+  if (window.location.hash === route) renderRoute();
+  else window.location.hash = route;
+}
+
+function renderRoute() {
+  const { view, paperView } = parseRoute(window.location.hash);
   elements.tabs.forEach((tab) => {
-    tab.setAttribute("aria-selected", String(tab.dataset.tab === viewName));
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === view));
   });
-  elements.views.forEach((view) => {
-    view.hidden = view.id !== `${viewName}-view`;
+  elements.views.forEach((panel) => {
+    panel.hidden = panel.id !== `${view}-view`;
   });
+  elements.paperTabs.forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.paperTab === paperView));
+  });
+  elements.paperPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.paperPanel !== paperView;
+  });
+  const canonical = routeFor(view, paperView);
+  if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
 }
 
 function renderConnectionStatus(detail = "") {

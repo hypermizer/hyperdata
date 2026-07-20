@@ -11,7 +11,7 @@ export function normalizeStartingCapital(value) {
   return capital;
 }
 
-export function normalizePaperOrder(input) {
+export function normalizePaperOrder(input, maxLeverage = Infinity) {
   const asset = String(input.asset ?? "").trim();
   const size = String(input.size ?? "").trim();
   const leverage = Number(input.leverage);
@@ -21,6 +21,7 @@ export function normalizePaperOrder(input) {
   if (!/^[a-zA-Z0-9_.:-]+$/.test(asset)) throw new Error("Enter a valid asset.");
   if (!(Number(size) > 0)) throw new Error("Size must be positive.");
   if (!Number.isInteger(leverage) || leverage < 1) throw new Error("Leverage must be a positive integer.");
+  if (leverage > maxLeverage) throw new Error(`Leverage cannot exceed this asset's maximum of ${maxLeverage}×.`);
   if (!["buy", "sell"].includes(input.side)) throw new Error("Invalid side.");
   if (!["market", "limit", "stop_market", "stop_limit", "take_market", "take_limit"].includes(orderType)) throw new Error("Invalid order type.");
   if (orderType.includes("limit") && !(Number(limitPrice) > 0)) throw new Error("Limit price is required.");
