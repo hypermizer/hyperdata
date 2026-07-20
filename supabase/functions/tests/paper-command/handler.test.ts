@@ -145,3 +145,20 @@ Deno.test("valid trigger persists without fetching an execution book", async () 
   assertEquals((await response.json()).response.status, "trigger_waiting");
   assertEquals(bookCalls, 0);
 });
+
+Deno.test("every limit-family order requires a limit price", async () => {
+  for (const orderType of ["limit", "stop_limit", "take_limit"]) {
+    const response = await handlePaperCommand(request({
+      ...marketBuy,
+      idempotencyKey: `missing-limit-${orderType}`,
+      order: {
+        ...marketBuy.order,
+        orderType,
+        limitPrice: null,
+        triggerPrice: orderType === "limit" ? null : "90",
+      },
+    }), dependencies());
+    assertEquals(response.status, 400);
+    assertEquals((await response.json()).error, "invalid_command");
+  }
+});

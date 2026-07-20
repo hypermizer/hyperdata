@@ -11,7 +11,7 @@ import { hasMatchMargin, replayOrder, type ReplaySnapshot } from "./account-proc
 import { missingFundingEffects } from "./funding.ts";
 import { buildLiquidationEffect } from "./liquidation.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
-import { processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
+import { buildProcessorWork, processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 
 function required(name: string): string {
   const value = Deno.env.get(name)?.trim();
@@ -66,23 +66,14 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const activeByAccount = new Map(accounts.map((account) => [account.id, account.active_epoch]));
       const epochIds = (epochs ?? []).filter((epoch) => activeByAccount.get(epoch.account_id) === epoch.epoch_number).map((epoch) => epoch.id);
       if (!epochIds.length) return [];
-      const [{ data: positions, error: positionError }, { data: orders, error: orderError }] = await Promise.all([
+      const [{ data: positions, error: positionError }, { data: orders, error: orderError }, { data: recentFills, error: fillError }] = await Promise.all([
         service.from("paper_positions").select("epoch_id,asset").in("epoch_id", epochIds),
         service.from("paper_orders").select("epoch_id,asset").in("epoch_id", epochIds).in("status", ["resting", "partially_filled", "trigger_waiting"]),
+        service.from("paper_fills").select("epoch_id,asset").in("epoch_id", epochIds)
+          .gte("source_timestamp", new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString()),
       ]);
-      if (positionError || orderError) throw new Error(positionError?.message ?? orderError?.message);
-      const byAsset = new Map<string, { hasPosition: boolean; accountIds: Set<string> }>();
-      for (const row of positions ?? []) {
-        const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
-        entry.hasPosition = true; entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
-      }
-      for (const row of orders ?? []) {
-        const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
-        entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
-      }
-      return [...byAsset].map(([asset, entry]) => ({
-        asset, hasPosition: entry.hasPosition, accountIds: [...entry.accountIds],
-      }));
+      if (positionError || orderError || fillError) throw new Error(positionError?.message ?? orderError?.message ?? fillError?.message);
+      return buildProcessorWork(positions ?? [], orders ?? [], recentFills ?? []);
     },
     async fetchSnapshot(work) {
       const asset = work.asset;

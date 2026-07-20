@@ -37,6 +37,23 @@ export interface PaperProcessorResult {
   degradedAssets: Array<{ asset: string; reason: string }>;
 }
 
+export function buildProcessorWork(
+  positions: Array<{ epoch_id: string; asset: string }>,
+  orders: Array<{ epoch_id: string; asset: string }>,
+  recentFills: Array<{ epoch_id: string; asset: string }>,
+): ProcessorAssetWork[] {
+  const byAsset = new Map<string, { hasPosition: boolean; accountIds: Set<string> }>();
+  for (const row of positions) {
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
+    entry.hasPosition = true; entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
+  }
+  for (const row of [...orders, ...recentFills]) {
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
+    entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
+  }
+  return [...byAsset].map(([asset, entry]) => ({ asset, hasPosition: entry.hasPosition, accountIds: [...entry.accountIds] }));
+}
+
 /**
  * Coordinates a single claimed processor bucket. Economic calculations and
  * persistence stay behind processAccount so this function remains replayable

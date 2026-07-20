@@ -65,6 +65,7 @@ function parseCommand(value: unknown): PlaceOrderCommand | null {
   if (!value || typeof value !== "object") return null;
   const command = value as Partial<PlaceOrderCommand>;
   const order = command.order as Partial<PlaceOrderCommand["order"]> | undefined;
+  const limitRequired = order && ["limit", "stop_limit", "take_limit"].includes(String(order.orderType));
   if (command.type !== "place_order" || typeof command.accountId !== "string" ||
     !Number.isInteger(command.epochNumber) || !Number.isInteger(command.expectedVersion) ||
     typeof command.idempotencyKey !== "string" || !order || typeof order.asset !== "string" ||
@@ -72,6 +73,7 @@ function parseCommand(value: unknown): PlaceOrderCommand | null {
     !["market", "limit", "stop_market", "stop_limit", "take_market", "take_limit"].includes(String(order.orderType)) ||
     (order.timeInForce !== null && !["GTC", "ALO", "IOC"].includes(String(order.timeInForce))) ||
     (order.limitPrice !== null && typeof order.limitPrice !== "string") ||
+    (limitRequired && typeof order.limitPrice !== "string") ||
     (order.triggerPrice !== undefined && order.triggerPrice !== null && typeof order.triggerPrice !== "string") ||
     !Number.isInteger(order.leverage) || !["cross", "isolated"].includes(String(order.marginMode)) ||
     typeof order.reduceOnly !== "boolean") return null;

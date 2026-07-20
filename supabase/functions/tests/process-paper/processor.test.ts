@@ -1,5 +1,11 @@
 import { assertEquals } from "@std/assert";
-import { processPaperBatch, type ProcessorSnapshot } from "../../process-paper/processor.ts";
+import { buildProcessorWork, processPaperBatch, type ProcessorSnapshot } from "../../process-paper/processor.ts";
+
+Deno.test("recent fills keep closed positions eligible for funding settlement", () => {
+  assertEquals(buildProcessorWork([], [], [{ epoch_id: "closed-account", asset: "OIL" }]), [
+    { asset: "OIL", hasPosition: false, accountIds: ["closed-account"] },
+  ]);
+});
 
 Deno.test("one asset fetch advances every account in deterministic order", async () => {
   const fetched: string[] = [];

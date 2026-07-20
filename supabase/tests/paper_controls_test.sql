@@ -1,6 +1,11 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(7);
+select plan(10);
+
+select function_privs_are('public', 'create_paper_account', array['text'], 'authenticated', array[]::text[], 'account creation is disabled by default');
+select function_privs_are('public', 'configure_paper_mutation_access', array['boolean'], 'service_role', array['EXECUTE'], 'service controls paper mutation activation');
+select public.configure_paper_mutation_access(true);
+select function_privs_are('public', 'create_paper_account', array['text'], 'authenticated', array['EXECUTE'], 'activation enables owner mutations');
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
