@@ -9,4 +9,6 @@ export const APP_CONFIG = {
   supabaseUrl: "https://itheknkmuutquriojdzt.supabase.co",
   supabasePublishableKey: "sb_publishable_M28yZeembNrLCMR2B1mICQ_W3Hg4mGd",
   paperTradingEnabled: true,
+  strategyCommandsEnabled: true,
+  strategyExecutionEnabled: false,
 };

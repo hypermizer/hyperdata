@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260724-order-outcome" />
+    <link rel="stylesheet" href="./styles.css?v=20260721-strats" />
   </head>
   <body>
     <main>
@@ -21,6 +21,7 @@
             <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
             <a id="analysis-tab" href="#/analysis" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
             <a id="paper-tab" href="#/paper/home" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</a>
+            <a id="strats-tab" href="#/strats" role="tab" aria-selected="false" aria-controls="strats-view" data-tab="strats">Strats</a>
           </div>
           <div class="account-actions">
             <span id="account-status" class="hint">Storage unavailable</span>
@@ -235,7 +236,53 @@
           <p id="paper-message" class="message" role="alert"></p>
         </div>
       </section>
+
+      <section id="strats-view" role="tabpanel" aria-labelledby="strats-tab" hidden>
+        <div class="strats-toolbar"><h2>STRATS</h2><span id="strats-status" class="hint">SIGN IN TO LOAD</span></div>
+        <p id="strats-rule" class="strats-rule">WILDER RSI(14) · 5M + 1H · CURRENT ÷ PRIOR-100 AVERAGE · SHORT ≥ 1.90 · LONG ≤ 0.10 · -10% / +20% NET RETURN ON INITIAL MARGIN</p>
+
+        <form id="strats-definition-form" class="strats-form">
+          <label>NEW STRATEGY <input name="name" maxlength="80" value="DUAL RSI MEAN REVERSION" required /></label>
+          <label>ALLOCATION % <input name="marginAllocationPct" type="number" min="1" max="100" step="1" value="10" required /></label>
+          <button type="submit">CREATE</button>
+        </form>
+
+        <form id="strats-assignment-form" class="strats-form">
+          <label>STRATEGY <select id="strats-definition" name="definitionId" required></select></label>
+          <label>ACCOUNT <select id="strats-account" name="accountId" required></select></label>
+          <label>ASSET
+            <div id="strats-asset-picker" class="asset-picker" data-picker-details="none">
+              <input id="strats-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="strats-asset-list" required />
+              <input data-asset-value name="asset" type="hidden" />
+              <div id="strats-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+            </div>
+          </label>
+          <label>ALLOCATION % <input name="marginAllocationPct" type="number" min="1" max="100" step="1" value="10" required /></label>
+          <button type="submit">ASSIGN PAUSED</button>
+        </form>
+
+        <h3 class="paper-heading">ASSIGNMENTS</h3>
+        <div id="strats-assignments" class="paper-table-wrap"><p class="hint">NONE</p></div>
+
+        <form id="strats-backtest-form" class="strats-form strats-backtest-form">
+          <label>REVISION <select id="strats-revision" name="revisionId" required></select></label>
+          <label>START <input id="strats-start" name="start" type="date" required /></label>
+          <label>END <input id="strats-end" name="end" type="date" required /></label>
+          <label>CAPITAL <input name="initialCapital" type="number" min="1" max="1000000000" step="1" value="5000" required /></label>
+          <fieldset class="strats-assets"><legend>ASSETS</legend><label><input type="checkbox" name="assets" value="xyz:DRAM" checked /> DRAM</label><label><input type="checkbox" name="assets" value="xyz:XYZ100" checked /> XYZ100</label><label><input type="checkbox" name="assets" value="BTC" checked /> BTC</label></fieldset>
+          <button type="submit">RUN BACKTEST</button>
+        </form>
+        <h3 class="paper-heading">BACKTESTS</h3>
+        <div id="strats-backtests" class="paper-table-wrap"><p class="hint">NONE</p></div>
+        <p id="strats-message" class="message" role="alert"></p>
+      </section>
     </main>
+
+    <dialog id="strats-pause-dialog" class="settings-dialog" aria-labelledby="strats-pause-title">
+      <div class="settings-header"><h2 id="strats-pause-title">PAUSE STRATEGY</h2><button class="icon-button" type="button" data-close-strats-pause aria-label="Close">×</button></div>
+      <p class="strats-dialog-copy">THIS ASSIGNMENT HAS AN OPEN POSITION.</p>
+      <div class="dialog-actions"><button type="button" data-strats-pause-mode="keep_exit_management">KEEP EXIT MANAGEMENT</button><button type="button" data-strats-pause-mode="close_and_pause">CLOSE AND PAUSE</button></div>
+    </dialog>
 
     <dialog id="paper-account-dialog" class="settings-dialog" aria-labelledby="paper-account-dialog-title">
       <div class="settings-header">
@@ -295,8 +342,9 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260721-audio"></script>
-    <script type="module" src="./audio.js?v=20260721-audio"></script>
-    <script type="module" src="./paper.js?v=20260724-history-prices"></script>
+    <script type="module" src="./app.js?v=20260721-strats"></script>
+    <script type="module" src="./audio.js?v=20260721-strats"></script>
+    <script type="module" src="./paper.js?v=20260721-strats"></script>
+    <script type="module" src="./strats.js?v=20260721-strats"></script>
   </body>
 </html>

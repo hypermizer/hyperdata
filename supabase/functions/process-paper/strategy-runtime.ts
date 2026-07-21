@@ -122,6 +122,7 @@ export function createStrategyRuntime(options: RuntimeOptions) {
       }
       const netReturn = executableStrategyReturn({ side, size: String(strategyPosition.entry_size), entryPrice: String(strategyPosition.entry_price),
         entryInitialMargin: String(strategyPosition.entry_initial_margin), entryFees: String(strategyPosition.entry_fees), fundingCashflows: decimalString(fundingCashflows) }, executable.price, executable.size, exitFeeRate);
+      await service.from("strategy_assignments").update({ last_net_return: netReturn }).eq("id", assignment.id);
       if (decimal(netReturn).lte(parameters.stopReturn) || decimal(netReturn).gte(parameters.takeReturn) || assignment.degraded_reason === "close_and_pause_requested") {
         const reason = decimal(netReturn).lte(parameters.stopReturn) ? "stop" : decimal(netReturn).gte(parameters.takeReturn) ? "take" : "pause";
         const idempotencyKey = `strategy:exit:${strategyPosition.id}:${reason}`;
@@ -135,7 +136,7 @@ export function createStrategyRuntime(options: RuntimeOptions) {
         const outcome = await submit(assignment, snapshot, command);
         await service.from("strategy_actions").update({ state: "succeeded", outcome }).eq("assignment_id", assignment.id).eq("idempotency_key", idempotencyKey);
         await service.from("strategy_positions").update({ state: "closed", exit_reason: reason, closed_at: new Date(options.now()).toISOString() }).eq("id", strategyPosition.id);
-        await service.from("strategy_assignments").update({ state: reason === "pause" ? "paused" : "await_rearm", rearm_ready: false, degraded_reason: null }).eq("id", assignment.id);
+        await service.from("strategy_assignments").update({ state: reason === "pause" ? "paused" : "await_rearm", rearm_ready: false, degraded_reason: null, last_net_return: null }).eq("id", assignment.id);
         return { evaluations: 0, actions: 1 };
       }
       return { evaluations: 0, actions: 0 };
@@ -195,7 +196,7 @@ export function createStrategyRuntime(options: RuntimeOptions) {
       side: entrySide === "buy" ? "long" : "short", entry_size: entry.size, entry_price: entry.price,
       entry_initial_margin: sizing.margin, entry_fees: decimalString(entryFees), state: "open" });
     await service.from("strategy_actions").update({ state: "succeeded", outcome }).eq("assignment_id", assignment.id).eq("idempotency_key", idempotencyKey);
-    await service.from("strategy_assignments").update({ state: "position_open", rearm_ready: false }).eq("id", assignment.id);
+    await service.from("strategy_assignments").update({ state: "position_open", rearm_ready: false, last_net_return: null }).eq("id", assignment.id);
     return { evaluations: 1, actions: 1 };
   };
 }

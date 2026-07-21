@@ -7,6 +7,7 @@ test("site routes resolve top-level and nested paper views", () => {
   assert.deepEqual(parseRoute("#/analysis"), { view: "analysis", paperView: "home" });
   assert.deepEqual(parseRoute("#/paper/order"), { view: "paper", paperView: "order" });
   assert.deepEqual(parseRoute("#/paper"), { view: "paper", paperView: "home" });
+  assert.deepEqual(parseRoute("#/strats"), { view: "strats", paperView: "home" });
 });
 
 test("unknown routes fall back to the watchlist", () => {
@@ -15,4 +16,5 @@ test("unknown routes fall back to the watchlist", () => {
   assert.equal(routeFor("paper", "order"), "#/paper/order");
   assert.equal(routeFor("watchlist"), "#/watchlist");
   assert.equal(routeFor("analysis"), "#/analysis");
+  assert.equal(routeFor("strats"), "#/strats");
 });
