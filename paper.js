@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260720-paper";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
-import { applyLiveMarketContext, postInfo } from "./lib/hyperliquid.js?v=20260722-order-ticket";
-import { getMarketCatalog } from "./lib/market-catalog.js?v=20260722-order-ticket";
+import { applyLiveMarketContext, postInfo } from "./lib/hyperliquid.js?v=20260723-sizing-audit";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20260723-sizing-audit";
 import {
   activePaperEpoch,
   estimateIsolatedLiquidationPrice,
@@ -12,9 +12,13 @@ import {
   normalizePaperOrder,
   normalizeStartingCapital,
   paperFeeRates,
+  paperInitialMargin,
+  paperOrderSize,
   paperOrderPreview,
+  paperPriceValid,
   paperSignClass,
-} from "./lib/paper.js?v=20260722-order-ticket";
+  scalePerpFeeRate,
+} from "./lib/paper.js?v=20260723-sizing-audit";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -22,6 +26,7 @@ const state = {
   user: null, accounts: [], epochs: [], account: null, epoch: null, pending: false,
   feeSchedule: null, feeRates: { maker: 0.00015, taker: 0.00045 },
   quoteStream: null, quotedAsset: "", quoteUpdatedAt: 0, bookUpdatedAt: 0, book: null,
+  sizeMode: "shares",
 };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
@@ -35,6 +40,7 @@ const elements = {
   leverage: $("#paper-leverage"), leverageLabel: $("#paper-leverage-label"),
   leverageSlider: $("#paper-leverage-slider"), limitFields: $("#paper-limit-fields"),
   limitPrice: $("#paper-limit-price"), size: $("#paper-size"), sizeUnit: $("#paper-size-unit"),
+  sizeHelp: $("#paper-size-help"),
   sizeSlider: $("#paper-size-slider"), livePrice: $("#paper-live-price"),
   liveStatus: $("#paper-live-status"), availableMargin: $("#paper-available-margin"),
   currentPosition: $("#paper-current-position"), orderPrice: $("#paper-order-price"),
@@ -123,16 +129,23 @@ async function selectAccount(id) {
 async function loadAccountState() {
   if (!state.epoch) return render();
   const epochId = state.epoch.id;
-  const [epoch, summary, positions, orders, ledger] = await Promise.all([
+  const [epoch, summary, positions, orders, ledger, leverageSettings, feeVolume] = await Promise.all([
     client.from("paper_account_epochs").select("version,epoch_number,state").eq("id", epochId).single(),
     client.from("paper_account_summaries").select("*").eq("epoch_id", epochId).single(),
     client.from("paper_positions").select("*").eq("epoch_id", epochId).order("asset"),
     client.from("paper_orders").select("*").eq("epoch_id", epochId).in("status", ["resting", "partially_filled", "trigger_waiting"]).order("created_at", { ascending: false }),
     client.from("paper_ledger_entries").select("*").eq("epoch_id", epochId).order("created_at", { ascending: false }).limit(100),
+    client.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
+    client.rpc("paper_fee_volume", { p_epoch_id: epochId }).single(),
   ]);
-  const error = epoch.error ?? summary.error ?? positions.error ?? orders.error ?? ledger.error;
+  const error = epoch.error ?? summary.error ?? positions.error ?? orders.error ?? ledger.error ?? leverageSettings.error ?? feeVolume.error;
   if (error) return fail(error);
-  state.epoch = { ...state.epoch, ...epoch.data, summary: summary.data, positions: positions.data ?? [], orders: orders.data ?? [], ledger: ledger.data ?? [] };
+  state.epoch = {
+    ...state.epoch, ...epoch.data,
+    summary: { ...summary.data, trailing_volume: feeVolume.data.trailing_volume, maker_volume: feeVolume.data.maker_volume },
+    positions: positions.data ?? [], orders: orders.data ?? [], ledger: ledger.data ?? [],
+    leverageSettings: leverageSettings.data ?? [],
+  };
   render();
 }
 
@@ -187,6 +200,7 @@ async function placeOrder(event) {
     form.asset = paperAssetPicker.value;
     form.reduceOnly = formData.has("reduceOnly");
     const market = selectedMarket();
+    form.size = previewOrder().shareSize ?? "";
     const order = normalizePaperOrder(form, market?.maxLeverage ?? Infinity);
     setPending(true);
     const { data, error } = await client.functions.invoke("paper-command", { body: {
@@ -218,6 +232,11 @@ function updateOrderFields() {
   elements.limitFields.hidden = !isLimit;
   elements.form.elements.limitPrice.disabled = locked || !isLimit;
   elements.form.elements.timeInForce.disabled = locked || !isLimit;
+  const cross = elements.form.querySelector('input[name="marginMode"][value="cross"]');
+  const isolated = elements.form.querySelector('input[name="marginMode"][value="isolated"]');
+  if (selectedMarket()?.onlyIsolated) isolated.checked = true;
+  cross.disabled = locked || selectedMarket()?.onlyIsolated === true;
+  isolated.disabled = locked;
   if (isLimit && !(Number(elements.limitPrice.value) > 0) && Number(selectedMarket()?.markPrice) > 0) {
     elements.limitPrice.value = String(selectedMarket().markPrice);
   }
@@ -231,8 +250,7 @@ function selectedMarket() {
 function handleAssetChange() {
   updateLeverageLimit(true);
   subscribeQuote(selectedMarket()?.id ?? "");
-  const symbol = selectedMarket()?.symbol ?? "SHARES";
-  elements.sizeUnit.textContent = symbol;
+  updateSizeLabels();
   updateOrderPreview();
 }
 
@@ -277,6 +295,10 @@ function handleOrderInput(event) {
     setSizeFromPercent(Number(elements.sizeSlider.value));
     return;
   }
+  if (event.target.name === "sizeMode") {
+    changeSizeMode(event.target.value);
+    return;
+  }
   if (event.target.name === "orderType") {
     updateOrderFields();
     return;
@@ -298,28 +320,67 @@ function setSizeFromPercent(percent) {
   const decimals = Math.max(0, Math.min(8, Number(selectedMarket()?.sizeDecimals) || 0));
   const scale = 10 ** decimals;
   const size = Math.floor(preview.maxSize * Math.max(0, Math.min(100, percent)) / 100 * scale) / scale;
-  elements.size.value = size > 0 ? String(size) : "";
+  if (state.sizeMode === "usdc") {
+    elements.size.value = usdcAmountForShares(size, preview.inputPrice);
+  } else {
+    elements.size.value = size > 0 ? String(size) : "";
+  }
   updateOrderPreview();
+}
+
+function changeSizeMode(nextMode) {
+  const preview = previewOrder();
+  const shareSize = preview.shareSize;
+  state.sizeMode = nextMode === "usdc" ? "usdc" : "shares";
+  if (shareSize !== null) {
+    elements.size.value = state.sizeMode === "usdc"
+      ? usdcAmountForShares(shareSize, preview.inputPrice)
+      : shareSize;
+  }
+  updateSizeLabels();
+  updateOrderPreview();
+}
+
+function usdcAmountForShares(shares, price) {
+  const amount = Number(shares) * Number(price);
+  return amount > 0 ? String(Math.ceil((amount - Number.EPSILON) * 100) / 100) : "";
+}
+
+function updateSizeLabels() {
+  const symbol = selectedMarket()?.symbol ?? "SHARES";
+  elements.sizeUnit.textContent = state.sizeMode === "usdc" ? "USDC" : symbol;
+  elements.sizeHelp.textContent = state.sizeMode === "usdc"
+    ? "ENTER ORDER VALUE IN USDC"
+    : `ENTER THE NUMBER OF ${symbol} SHARES`;
 }
 
 function previewOrder() {
   const market = selectedMarket();
   const summary = state.epoch?.summary;
-  const currentPosition = Number(state.epoch?.positions?.find(({ asset }) => asset === market?.id)?.signed_size) || 0;
+  const positionRecord = state.epoch?.positions?.find(({ asset }) => asset === market?.id);
+  const currentPosition = Number(positionRecord?.signed_size) || 0;
+  const persistedLeverage = Number(state.epoch?.leverageSettings?.find(({ asset }) => asset === market?.id)?.leverage) || 1;
+  const currentMargin = positionRecord?.margin_mode === "isolated"
+    ? Number(positionRecord.isolated_margin || 0)
+    : paperInitialMargin(Math.abs(currentPosition) * Number(positionRecord?.mark_price || market?.markPrice || 0), persistedLeverage, market?.marginTiers);
   const reservedMargin = (state.epoch?.orders ?? []).reduce((total, order) => total + Number(order.reserved_margin || 0), 0);
   const availableMargin = Math.max(0, Number(summary?.equity || 0) - Number(summary?.margin_used || 0) - reservedMargin);
   const orderType = selectedOrderType();
   const side = selectedSide();
+  const inputPrice = orderType === "limit" ? elements.limitPrice.value : (market?.markPriceRaw ?? market?.markPrice);
+  const shareSize = paperOrderSize(elements.size.value, state.sizeMode, inputPrice, market?.sizeDecimals);
   const hasFreshBook = state.bookUpdatedAt > 0 && Date.now() - state.bookUpdatedAt <= 5_000;
+  const bestBid = Number(state.book?.levels?.[0]?.[0]?.px);
+  const bestAsk = Number(state.book?.levels?.[1]?.[0]?.px);
+  const bookMid = Number.isFinite(bestBid) && Number.isFinite(bestAsk) ? (bestBid + bestAsk) / 2 : market?.markPrice;
   const marketFill = orderType === "market"
     ? estimateMarketFill(hasFreshBook && side === "buy" ? state.book?.levels?.[1]
-      : hasFreshBook ? state.book?.levels?.[0] : [], elements.size.value, market?.markPrice, side)
+      : hasFreshBook ? state.book?.levels?.[0] : [], shareSize, market?.markPrice, side, 5, bookMid)
     : null;
-  const feeRate = orderType === "limit" && elements.form.elements.timeInForce.value === "ALO"
-    ? state.feeRates.maker
-    : state.feeRates.taker;
+  const rates = selectedFeeRates(market);
+  const feeRate = limitLiquidity(side) === "maker" ? rates.maker : rates.taker;
   const preview = paperOrderPreview({
-    size: elements.size.value,
+    size: shareSize,
     markPrice: market?.markPrice,
     executionPrice: marketFill?.averagePrice,
     limitPrice: elements.limitPrice.value,
@@ -327,6 +388,7 @@ function previewOrder() {
     leverage: elements.leverage.value,
     feeRate,
     availableMargin,
+    currentMargin,
     marginTiers: market?.marginTiers,
     currentPosition,
     reduceOnly: elements.form.elements.reduceOnly.checked,
@@ -338,6 +400,9 @@ function previewOrder() {
     && (!nextTier || preview.orderValue < Number(nextTier.lowerBound));
   return {
     ...preview,
+    shareSize,
+    inputPrice,
+    feeRates: rates,
     marketFill,
     liquidationPrice: simpleIsolatedEstimate
       ? estimateIsolatedLiquidationPrice(preview.price, side, elements.leverage.value, market?.maxLeverage)
@@ -351,14 +416,18 @@ function updateOrderPreview() {
   const side = selectedSide();
   const orderType = selectedOrderType();
   const quoteAge = state.quoteUpdatedAt ? Date.now() - state.quoteUpdatedAt : null;
-  const size = Number(elements.size.value);
+  const size = Number(preview.shareSize);
   const enabled = Boolean(state.user && state.account && APP_CONFIG.paperTradingEnabled && !state.pending);
   const hasAmount = Number.isFinite(size) && size > 0;
   const hasPrice = Number.isFinite(preview.price) && preview.price > 0;
   const hasFreshQuote = quoteAge !== null && quoteAge <= 5_000;
   const hasExecutionPreview = orderType === "limit" || Boolean(preview.marketFill);
   const withinCapacity = preview.maxSize === null || size <= preview.maxSize + Number.EPSILON;
-  const valid = enabled && Boolean(market) && hasAmount && hasPrice && hasFreshQuote && hasExecutionPreview && withinCapacity;
+  const sizePrecisionValid = state.sizeMode === "usdc" || decimalPlaces(elements.size.value) <= Number(market?.sizeDecimals ?? 0);
+  const pricePrecisionValid = orderType !== "limit" || paperPriceValid(elements.limitPrice.value, market?.sizeDecimals);
+  const minimumNotionalValid = preview.orderValue === null || preview.orderValue >= 10;
+  const valid = enabled && Boolean(market) && hasAmount && hasPrice && hasFreshQuote && hasExecutionPreview
+    && withinCapacity && sizePrecisionValid && pricePrecisionValid && minimumNotionalValid;
 
   elements.livePrice.textContent = money(market?.markPrice);
   elements.liveStatus.textContent = quoteStatus(market, quoteAge);
@@ -369,7 +438,7 @@ function updateOrderPreview() {
   elements.marginRequired.textContent = money(preview.marginRequired);
   elements.estimatedFee.textContent = money(preview.estimatedFee, 4);
   elements.estimatedCost.textContent = money(preview.estimatedCost, 4);
-  elements.feeRates.textContent = `${percentRate(state.feeRates.maker)} / ${percentRate(state.feeRates.taker)}`;
+  elements.feeRates.textContent = `${percentRate(preview.feeRates.maker)} / ${percentRate(preview.feeRates.taker)}`;
   elements.maxSize.textContent = market && preview.maxSize !== null ? `${formatPaperNumber(preview.maxSize, market.sizeDecimals ?? 4)} ${market.symbol}` : "—";
   elements.slippage.textContent = orderType === "limit" ? "N/A"
     : preview.marketFill ? `${preview.marketFill.slippagePercent >= 0 ? "+" : ""}${preview.marketFill.slippagePercent.toFixed(4)}%${preview.marketFill.complete ? "" : " PARTIAL"}` : "AWAITING BOOK";
@@ -384,7 +453,10 @@ function updateOrderPreview() {
   if (!state.user) elements.validation.textContent = "SIGN IN TO PLACE PAPER ORDERS";
   else if (!state.account) elements.validation.textContent = "CREATE A PAPER ACCOUNT FIRST";
   else if (!market) elements.validation.textContent = "SELECT AN ASSET";
-  else if (!hasAmount) elements.validation.textContent = `ENTER AN AMOUNT GREATER THAN 0 ${market.symbol}`;
+  else if (!hasAmount) elements.validation.textContent = `ENTER AN AMOUNT LARGE ENOUGH FOR 1 ${market.symbol} SIZE INCREMENT`;
+  else if (!sizePrecisionValid) elements.validation.textContent = `${market.symbol} SUPPORTS ${market.sizeDecimals} SIZE DECIMALS`;
+  else if (!pricePrecisionValid) elements.validation.textContent = `PRICE MUST USE AT MOST 5 SIGNIFICANT FIGURES AND ${Math.max(0, 6 - market.sizeDecimals)} DECIMALS`;
+  else if (!minimumNotionalValid) elements.validation.textContent = "HYPERLIQUID MINIMUM ORDER VALUE IS $10";
   else if (!hasFreshQuote) elements.validation.textContent = "WAITING FOR A LIVE HYPERLIQUID MARK";
   else if (!hasExecutionPreview) elements.validation.textContent = "WAITING FOR THE LIVE ORDER BOOK";
   else if (orderType === "limit" && !hasPrice) elements.validation.textContent = "ENTER A LIMIT PRICE GREATER THAN 0";
@@ -396,6 +468,28 @@ function updateOrderPreview() {
   if (document.activeElement !== elements.sizeSlider && preview.maxSize > 0 && hasAmount) {
     elements.sizeSlider.value = String(Math.max(0, Math.min(100, Math.round(size / preview.maxSize * 100))));
   }
+}
+
+function selectedFeeRates(market) {
+  return {
+    maker: scalePerpFeeRate(state.feeRates.maker, market, "maker"),
+    taker: scalePerpFeeRate(state.feeRates.taker, market, "taker"),
+  };
+}
+
+function limitLiquidity(side) {
+  if (selectedOrderType() === "market") return "taker";
+  if (elements.form.elements.timeInForce.value === "ALO") return "maker";
+  const price = Number(elements.limitPrice.value);
+  const best = Number(side === "buy" ? state.book?.levels?.[1]?.[0]?.px : state.book?.levels?.[0]?.[0]?.px);
+  if (!Number.isFinite(price) || !Number.isFinite(best)) return "taker";
+  return side === "buy" ? (price >= best ? "taker" : "maker") : (price <= best ? "taker" : "maker");
+}
+
+function decimalPlaces(value) {
+  const text = String(value ?? "").toLowerCase();
+  if (text.includes("e-")) return Number(text.split("e-")[1]) || 0;
+  return text.includes(".") ? text.split(".")[1].length : 0;
 }
 
 function quoteStatus(market, quoteAge) {
