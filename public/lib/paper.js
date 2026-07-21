@@ -262,6 +262,21 @@ export function formatPaperNumber(value, digits = 2) {
   return number.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+export function formatPaperPrice(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return `$${number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 8 })}`;
+}
+
+export function paperHistoryViewUnavailable(error) {
+  return ["42P01", "PGRST205"].includes(String(error?.code ?? ""));
+}
+
+export function normalizeLegacyPaperHistory(entries) {
+  return (entries ?? []).map((entry) => ({ ...entry, event_at: entry.source_timestamp ?? entry.created_at, asset_price: null }));
+}
+
 export function paperSignClass(value) {
   return Number(value) > 0 ? "positive" : Number(value) < 0 ? "negative" : "";
 }
