@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260721-strats" />
+    <link rel="stylesheet" href="./styles.css?v=20260721-tools" />
   </head>
   <body>
     <main>
@@ -22,6 +22,7 @@
             <a id="analysis-tab" href="#/analysis" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
             <a id="paper-tab" href="#/paper/home" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</a>
             <a id="strats-tab" href="#/strats" role="tab" aria-selected="false" aria-controls="strats-view" data-tab="strats">Strats</a>
+            <a id="tools-tab" href="#/tools/exposure-ladder" role="tab" aria-selected="false" aria-controls="tools-view" data-tab="tools">Tools</a>
           </div>
           <div class="account-actions">
             <span id="account-status" class="hint">Storage unavailable</span>
@@ -282,6 +283,57 @@
         <div id="strats-backtests" class="paper-table-wrap"><p class="hint">NONE</p></div>
         <p id="strats-message" class="message" role="alert"></p>
       </section>
+
+      <section id="tools-view" role="tabpanel" aria-labelledby="tools-tab" hidden>
+        <div class="section-header"><h2>TOOLS</h2><span class="hint">ANALYSIS ONLY</span></div>
+        <div class="paper-subtabs tools-subtabs" role="tablist" aria-label="Tools">
+          <a id="exposure-ladder-tab" href="#/tools/exposure-ladder" role="tab" aria-selected="true" aria-controls="exposure-ladder-panel" data-tools-tab="exposure-ladder">EXPOSURE LADDER</a>
+        </div>
+
+        <div id="exposure-ladder-panel" role="tabpanel" aria-labelledby="exposure-ladder-tab" data-tools-panel="exposure-ladder">
+          <p class="tool-intro">SCALE OUT AS PRICE MOVES AGAINST THE POSITION, THEN RESTORE THE REDUCED TRANCHES AS PRICE RECOVERS. THIS IS A DISCRETE, PRICE-BANDED RELATIVE OF DYNAMIC PORTFOLIO INSURANCE. IT IS PRO-CYCLICAL AND CAN REDUCE CONTINUATION RISK, BUT A REVERSAL CREATES A SELL-LOW / BUY-HIGH TIMING COST.</p>
+
+          <form id="exposure-ladder-form" class="ladder-form">
+            <div class="ladder-basics">
+              <fieldset class="paper-ticket-fieldset">
+                <legend>DIRECTION</legend>
+                <div class="paper-segmented paper-direction">
+                  <label><input name="direction" type="radio" value="long" checked /><span>LONG</span></label>
+                  <label><input name="direction" type="radio" value="short" /><span>SHORT</span></label>
+                </div>
+              </fieldset>
+              <label>ANCHOR PRICE <input name="anchorPrice" type="number" min="0.00000001" step="any" value="100" /></label>
+              <label>STARTING UNITS <input name="initialUnits" type="number" min="0.00000001" step="any" value="100" /></label>
+              <fieldset class="paper-ticket-fieldset">
+                <legend>TRANCHE BASIS</legend>
+                <div class="paper-segmented">
+                  <label><input name="trancheBasis" type="radio" value="original" checked /><span>ORIGINAL</span></label>
+                  <label><input name="trancheBasis" type="radio" value="remaining" /><span>REMAINING</span></label>
+                </div>
+              </fieldset>
+            </div>
+
+            <div class="ladder-sliders">
+              <label><span>ADVERSE STEP <output data-output-for="adverseStepPct">10%</output></span><input name="adverseStepPct" type="range" min="1" max="25" step="1" value="10" /></label>
+              <label><span>TRANCHE SIZE <output data-output-for="tranchePct">10%</output></span><input name="tranchePct" type="range" min="1" max="50" step="1" value="10" /></label>
+              <label><span>MAX REDUCTION <output data-output-for="maxReductionPct">100%</output></span><input name="maxReductionPct" type="range" min="0" max="100" step="5" value="100" /></label>
+              <label><span>ADVERSE MOVE TO TURN <output data-output-for="adverseMovePct">50%</output></span><input name="adverseMovePct" type="range" min="0" max="90" step="1" value="50" /></label>
+              <label><span>RECOVERY FROM TURN <output data-output-for="recoveryPct">100%</output></span><input name="recoveryPct" type="range" min="0" max="100" step="1" value="100" /></label>
+              <label><span>RE-ENTRY STEP <output data-output-for="reentryStepPct">10%</output></span><input name="reentryStepPct" type="range" min="1" max="25" step="1" value="10" /></label>
+              <label><span>FEE PER TRADE <output data-output-for="feeBps">0 BPS</output></span><input name="feeBps" type="range" min="0" max="10" step="0.1" value="0" /></label>
+            </div>
+          </form>
+
+          <p id="exposure-ladder-error" class="message" role="alert"></p>
+          <div id="exposure-ladder-metrics" class="paper-metrics ladder-metrics" aria-live="polite"></div>
+          <div class="ladder-chart-wrap">
+            <svg id="exposure-ladder-chart" class="ladder-chart" viewBox="0 0 860 330" role="img" aria-label="Price path and position exposure"></svg>
+          </div>
+          <p class="ladder-note">THE PATH IS MONOTONIC TO THE SELECTED TURN, THEN MONOTONIC THROUGH THE SELECTED RECOVERY. ALL MOVE STEPS ARE PERCENTAGE POINTS OF THE ANCHOR PRICE. RE-ENTRY RESTORES THE MOST RECENTLY REMOVED TRANCHE FIRST.</p>
+          <h3 class="paper-heading">EVENT LEDGER</h3>
+          <div id="exposure-ladder-events" class="paper-table-wrap"></div>
+        </div>
+      </section>
     </main>
 
     <dialog id="strats-pause-dialog" class="settings-dialog" aria-labelledby="strats-pause-title">
@@ -348,9 +400,10 @@
       </section>
       <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260721-strats"></script>
+    <script type="module" src="./app.js?v=20260721-tools"></script>
     <script type="module" src="./audio.js?v=20260721-strats"></script>
     <script type="module" src="./paper.js?v=20260721-strats"></script>
     <script type="module" src="./strats.js?v=20260722-strats2"></script>
+    <script type="module" src="./tools.js?v=20260721-tools"></script>
   </body>
 </html>

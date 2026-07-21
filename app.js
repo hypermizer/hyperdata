@@ -10,7 +10,7 @@ import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-strats";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-tools";
 
 const state = {
   accountMessage: "",
@@ -54,6 +54,8 @@ const elements = {
   views: [...document.querySelectorAll("main > section[role=tabpanel]")],
   paperTabs: [...document.querySelectorAll("[data-paper-tab]")],
   paperPanels: [...document.querySelectorAll("[data-paper-panel]")],
+  toolsTabs: [...document.querySelectorAll("[data-tools-tab]")],
+  toolsPanels: [...document.querySelectorAll("[data-tools-panel]")],
   watchlistForm: document.querySelector("#watchlist-form"),
   watchlistMessage: document.querySelector("#watchlist-message"),
 };
@@ -476,7 +478,7 @@ function renderAlertFields() {
 }
 
 function renderRoute() {
-  const { view, paperView } = parseRoute(window.location.hash);
+  const { view, paperView, toolsView } = parseRoute(window.location.hash);
   elements.tabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === view));
   });
@@ -489,7 +491,13 @@ function renderRoute() {
   elements.paperPanels.forEach((panel) => {
     panel.hidden = panel.dataset.paperPanel !== paperView;
   });
-  const canonical = routeFor(view, paperView);
+  elements.toolsTabs.forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.toolsTab === toolsView));
+  });
+  elements.toolsPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.toolsPanel !== toolsView;
+  });
+  const canonical = routeFor(view, paperView, toolsView);
   if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
 }
 
