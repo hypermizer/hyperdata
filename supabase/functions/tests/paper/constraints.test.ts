@@ -11,6 +11,7 @@ const asset = {
   onlyIsolated: false,
   marginMode: null,
   growthMode: null,
+  deployerFeeScale: null,
   marginTiers: [],
 };
 

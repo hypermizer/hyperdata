@@ -56,6 +56,17 @@ Deno.test("crossed stop market walks visible book once and cancels unavailable r
   assertEquals(effect.fills.map(({ price, size }) => ({ price, size })), [{ price: "101", size: "2" }, { price: "102", size: "4" }]);
 });
 
+Deno.test("crossed stop market respects the SDK five-percent protection limit", () => {
+  const order: ReplayOrder = { ...baseOrder, orderType: "stop_market", status: "trigger_waiting", remainingSize: "8", limitPrice: null, triggerPrice: "105", queueAhead: null };
+  const effect = replayOrder(order, null, snapshot({
+    markPrice: "106", sizeDecimals: 2,
+    book: { ...book, bids: [{ price: "99", size: "10", orders: 1 }], asks: [{ price: "101", size: "2", orders: 1 }, { price: "106", size: "6", orders: 1 }] },
+  }), fees)!;
+  assertEquals(effect.status, "canceled");
+  assertEquals(effect.remainingSize, "6");
+  assertEquals(effect.fills.map(({ price, size }) => ({ price, size })), [{ price: "101", size: "2" }]);
+});
+
 Deno.test("reduce-only replay cannot reverse exposure", () => {
   const effect = replayOrder({ ...baseOrder, side: "sell", reduceOnly: true, remainingSize: "5", queueAhead: "0" },
     { signedSize: "1", entryPrice: "90" }, snapshot({ trades: [{ id: "1", timestampMs: 900, price: "100", size: "5", aggressor: "buy" }] }), fees)!;
@@ -66,6 +77,7 @@ Deno.test("reduce-only replay cannot reverse exposure", () => {
 Deno.test("match-time margin permits reductions and rejects unsupported increases", () => {
   const tiers = [{ lowerBound: "0", maxLeverage: 10, maintenanceRate: "0.05", maintenanceDeduction: "0" }];
   assertEquals(hasMatchMargin(null, { signedSize: "100", entryPrice: "100" }, "100", 2, tiers, "1000"), false);
+  assertEquals(hasMatchMargin(null, { signedSize: "10", entryPrice: "100" }, "100", 2, tiers, "500", "0.01"), false);
   assertEquals(hasMatchMargin({ signedSize: "2", entryPrice: "100" }, { signedSize: "1", entryPrice: "100" }, "100", 2, tiers, "0"), true);
   assertEquals(hasMatchMargin({ signedSize: "2", entryPrice: "100" }, { signedSize: "-1", entryPrice: "100" }, "100", 2, tiers, "0"), false);
   assertEquals(hasMatchMargin({ signedSize: "-2", entryPrice: "100" }, { signedSize: "1", entryPrice: "100" }, "100", 2, tiers, "100"), true);

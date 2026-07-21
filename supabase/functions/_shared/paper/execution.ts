@@ -20,6 +20,21 @@ export interface ExecutionResult {
   reason: string | null;
 }
 
+export function marketOrderLimit(
+  book: NormalizedBook,
+  side: Side,
+  sizeDecimals: number,
+  slippage = "0.05",
+): string | null {
+  const bestBid = book.bids[0]?.price;
+  const bestAsk = book.asks[0]?.price;
+  if (!bestBid || !bestAsk) return null;
+  const mid = decimal(bestBid).plus(bestAsk).div(2);
+  const protectedPrice = mid.times(side === "buy" ? decimal(1).plus(slippage) : decimal(1).minus(slippage));
+  const maximumDecimals = Math.max(0, 6 - sizeDecimals);
+  return decimalString(protectedPrice.toSignificantDigits(5).toDecimalPlaces(maximumDecimals));
+}
+
 export function validTriggerSide(
   side: Side,
   kind: "stop" | "take",

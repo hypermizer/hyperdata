@@ -54,6 +54,7 @@ export interface PaperAssetMetadata {
   onlyIsolated: boolean;
   marginMode: string | null;
   growthMode: string | null;
+  deployerFeeScale: string | null;
   marginTiers: MarginTier[];
 }
 
@@ -68,6 +69,7 @@ export interface LiquidationInput {
   equity: string;
   maintenanceMargin: string;
   nowMs: number;
+  partialCooldownActive?: boolean;
 }
 
 export interface LiquidationDecision {

@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { executeOrder, validTriggerSide } from "../../_shared/paper/execution.ts";
+import { executeOrder, marketOrderLimit, validTriggerSide } from "../../_shared/paper/execution.ts";
 
 const book = {
   asset: "xyz:ORCL",
@@ -20,6 +20,25 @@ Deno.test("market order never extrapolates beyond visible depth", () => {
   assertEquals(result.status, "canceled");
   assertEquals(result.fills, [{ price: "100", size: "0.5" }, { price: "101", size: "0.5" }]);
   assertEquals(result.remainingSize, "1");
+  assertEquals(result.reason, "visible_depth_exhausted");
+});
+
+Deno.test("market order protection matches the SDK five-percent IOC limit", () => {
+  assertEquals(marketOrderLimit({
+    asset: "ORCL", timestampMs: 1,
+    bids: [{ price: "99", size: "1", orders: 1 }],
+    asks: [{ price: "101", size: "1", orders: 1 }],
+  }, "buy", 3), "105");
+  const result = executeOrder({
+    side: "buy", size: "2", type: "market", timeInForce: null,
+    limitPrice: "105", reduceOnly: false,
+  }, {
+    asset: "ORCL", timestampMs: 1,
+    bids: [{ price: "99", size: "1", orders: 1 }],
+    asks: [{ price: "101", size: "1", orders: 1 }, { price: "106", size: "1", orders: 1 }],
+  });
+  assertEquals(result.status, "canceled");
+  assertEquals(result.fills, [{ price: "101", size: "1" }]);
   assertEquals(result.reason, "visible_depth_exhausted");
 });
 

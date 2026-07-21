@@ -18,6 +18,13 @@ export function liquidationDecision(input: LiquidationInput): LiquidationDecisio
       cooldownUntilMs: null,
     };
   }
+  if (input.partialCooldownActive) {
+    return {
+      action: "book",
+      liquidationSize: decimalString(input.absoluteSize),
+      cooldownUntilMs: null,
+    };
+  }
   if (decimal(input.positionNotional).gte(LARGE_POSITION_NOTIONAL)) {
     return {
       action: "partial",

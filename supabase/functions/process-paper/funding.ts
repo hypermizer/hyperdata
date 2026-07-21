@@ -1,4 +1,5 @@
 import { fundingCashFlow } from "../_shared/paper/accounting.ts";
+import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 import type { FundingRatePoint } from "../_shared/paper/market-data.ts";
 import { reconstructPositionAt } from "../_shared/paper/reconciliation.ts";
 import type { Side } from "../_shared/paper/types.ts";
@@ -20,20 +21,23 @@ export function missingFundingEffects(
   appliedTimestamps: Set<number>,
   oraclePrice: string | ((timestampMs: number) => string | null),
   inputVersion: string,
+  persistedExposure?: Map<number, string>,
 ): FundingEffect[] {
   return points
     .filter((point) => !appliedTimestamps.has(point.timestampMs))
     .sort((left, right) => left.timestampMs - right.timestampMs)
     .flatMap((point) => {
-      const boundaryPosition = reconstructPositionAt(fills, point.timestampMs);
+      const replayedPosition = reconstructPositionAt(fills, point.timestampMs);
+      const signedSize = decimal(persistedExposure?.get(point.timestampMs) ?? 0)
+        .plus(replayedPosition?.signedSize ?? 0);
       const boundaryOracle = typeof oraclePrice === "function" ? oraclePrice(point.timestampMs) : oraclePrice;
-      if (!boundaryPosition || boundaryOracle === null) return [];
+      if (signedSize.isZero() || boundaryOracle === null) return [];
       return [{
         fundingTimestamp: new Date(point.timestampMs).toISOString(),
-        signedSize: boundaryPosition.signedSize,
+        signedSize: decimalString(signedSize),
         oraclePrice: boundaryOracle,
         fundingRate: point.fundingRate,
-        payment: fundingCashFlow(boundaryPosition.signedSize, boundaryOracle, point.fundingRate),
+        payment: fundingCashFlow(decimalString(signedSize), boundaryOracle, point.fundingRate),
         inputVersion,
       }];
     });

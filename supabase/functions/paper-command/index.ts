@@ -57,18 +57,19 @@ function dependencies(): PaperCommandDependencies {
         .eq("epoch_number", account.active_epoch).eq("state", "active").maybeSingle();
       if (epochError) throw new Error(epochError.message);
       if (!epoch) return null;
-      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }, { data: orders, error: ordersError }, catalog] = await Promise.all([
+      const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }, { data: orders, error: ordersError }, { data: feeVolume, error: feeVolumeError }, catalog] = await Promise.all([
         service.from("paper_account_summaries").select("cash_balance,equity,trailing_volume,maker_volume").eq("epoch_id", epoch.id).single(),
         service.from("paper_positions").select("signed_size,entry_price").eq("epoch_id", epoch.id).eq("asset", asset).maybeSingle(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,mark_price,isolated_margin").eq("epoch_id", epoch.id),
         service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epoch.id),
         service.from("paper_orders").select("reserved_margin").eq("epoch_id", epoch.id)
           .in("status", ["resting", "partially_filled", "trigger_waiting"]),
+        service.rpc("paper_fee_volume", { p_epoch_id: epoch.id }).single(),
         loadCatalog(),
       ]);
       if (summaryError) throw new Error(summaryError.message);
       if (positionError) throw new Error(positionError.message);
-      if (positionsError || settingsError || ordersError) throw new Error(positionsError?.message ?? settingsError?.message ?? ordersError?.message);
+      if (positionsError || settingsError || ordersError || feeVolumeError) throw new Error(positionsError?.message ?? settingsError?.message ?? ordersError?.message ?? feeVolumeError?.message);
       const leverageByAsset = new Map((settings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
       const metadataByAsset = new Map(catalog.assets.map((item) => [item.asset, item]));
       const marginByAsset = new Map<string, ReturnType<typeof decimal>>();
@@ -87,14 +88,18 @@ function dependencies(): PaperCommandDependencies {
       }, decimal(0));
       const reservedMargin = (orders ?? []).reduce((total, order) => total.plus(order.reserved_margin), decimal(0));
       const availableMargin = decimal(summary.equity).minus(marginUsed).minus(reservedMargin);
+      const feeTotals = feeVolume as { trailing_volume: unknown; maker_volume: unknown };
+      const rollingVolume = {
+        trailingVolume: String(feeTotals.trailing_volume), makerVolume: String(feeTotals.maker_volume),
+      };
       return {
         epochNumber: epoch.epoch_number,
         version: Number(epoch.version),
         cashBalance: String(summary.cash_balance),
         availableMargin: decimalString(availableMargin.isPositive() ? availableMargin : 0),
         currentMargin: decimalString(marginByAsset.get(asset) ?? decimal(0)),
-        trailingVolume: String(summary.trailing_volume),
-        makerFraction: makerFraction(String(summary.maker_volume), String(summary.trailing_volume)),
+        trailingVolume: rollingVolume.trailingVolume,
+        makerFraction: makerFraction(rollingVolume.makerVolume, rollingVolume.trailingVolume),
         position: position ? { signedSize: String(position.signed_size), entryPrice: String(position.entry_price) } : null,
       };
     },

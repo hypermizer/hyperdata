@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { makerFraction, selectFeeRate } from "../../_shared/paper/fees.ts";
+import { makerFraction, scalePerpFeeRate, selectFeeRate } from "../../_shared/paper/fees.ts";
 import type { FeeSchedule } from "../../_shared/paper/types.ts";
 
 const schedule: FeeSchedule = {
@@ -27,4 +27,11 @@ Deno.test("maker fraction selects the strongest earned maker rate", () => {
 Deno.test("maker fraction derives from persisted notional volumes", () => {
   assertEquals(makerFraction("250", "1000"), "0.25");
   assertEquals(makerFraction("0", "0"), "0");
+});
+
+Deno.test("HIP-3 growth mode scales positive fees and maker rebates", () => {
+  const asset = { dex: "xyz", deployerFeeScale: "1", growthMode: "enabled" };
+  assertEquals(scalePerpFeeRate("0.00045", asset, "taker"), "0.00009");
+  assertEquals(scalePerpFeeRate("0.00015", asset, "maker"), "0.00003");
+  assertEquals(scalePerpFeeRate("-0.00001", asset, "maker"), "-0.000001");
 });

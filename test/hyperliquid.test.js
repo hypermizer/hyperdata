@@ -52,13 +52,14 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
       },
       [{ markPx: "250", prevDayPx: "200", dayNtlVlm: "1000", openInterest: "20", funding: "0.0001" }],
     ]);
-  const [market] = await fetchMarketsForDex("xyz", fetchImpl);
+  const [market] = await fetchMarketsForDex("xyz", fetchImpl, { deployerFeeScale: "1" });
   assert.deepEqual(market, {
     id: "xyz:ORCL",
     symbol: "ORCL",
     dex: "xyz",
     dexId: "xyz",
     markPrice: 250,
+    markPriceRaw: "250",
     previousPrice: 200,
     changePercent: 25,
     volume24h: 1000,
@@ -66,6 +67,10 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
     funding: 0.0001,
     maxLeverage: 10,
     sizeDecimals: 2,
+    onlyIsolated: false,
+    marginMode: null,
+    growthMode: null,
+    deployerFeeScale: "1",
     marginTiers: [{ lowerBound: 0, maxLeverage: 10 }, { lowerBound: 100000, maxLeverage: 5 }],
     isDelisted: false,
   });

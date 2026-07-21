@@ -4,6 +4,7 @@ import { handlePaperCommand, type PaperCommandDependencies } from "../../paper-c
 const asset = {
   asset: "xyz:ORCL", dex: "xyz", collateralToken: 0, sizeDecimals: 3, maxLeverage: 10,
   marginTableId: 10, onlyIsolated: true, marginMode: "noCross", growthMode: "enabled",
+  deployerFeeScale: "1",
   marginTiers: [{ lowerBound: "0", maxLeverage: 10, maintenanceRate: "0.05", maintenanceDeduction: "0" }],
 };
 const book = {
@@ -59,7 +60,7 @@ Deno.test("authenticated market command produces canonical multi-level effects",
   assertEquals(body.fills.map((fill: { price: string; size: string }) => [fill.price, fill.size]), [["100", "0.5"], ["101", "0.25"]]);
   assertEquals(body.fills.map((fill: { sourceId: string }) => fill.sourceId), ["cmd-1:book-v1:0", "cmd-1:book-v1:1"]);
   assertEquals(body.position, { signedSize: "0.75", entryPrice: "100.33333333333333333333" });
-  assertEquals(body.ledger, [{ entry_type: "fee", amount: "-0.0338625", asset: "xyz:ORCL", source_timestamp: "1970-01-01T00:00:01.000Z" }]);
+  assertEquals(body.ledger, [{ entry_type: "fee", amount: "-0.0067725", asset: "xyz:ORCL", source_timestamp: "1970-01-01T00:00:01.000Z" }]);
   assertEquals(applied, body);
 });
 
@@ -83,7 +84,20 @@ Deno.test("immediate fills use the account's earned volume fee tier", async () =
     }),
   }));
   assertEquals(response.status, 200);
-  assertEquals((await response.json()).fills[0].fee, "0.02");
+  assertEquals((await response.json()).fills[0].fee, "0.004");
+});
+
+Deno.test("opening risk reserves the immediate execution fee", async () => {
+  const response = await handlePaperCommand(request({
+    ...marketBuy, idempotencyKey: "fee-capacity", order: { ...marketBuy.order, size: "0.5", leverage: 1 },
+  }), dependencies({
+    loadAccount: async () => ({
+      epochNumber: 1, version: 0, cashBalance: "50", availableMargin: "50", currentMargin: "0",
+      trailingVolume: "0", makerFraction: "0", position: null,
+    }),
+  }));
+  assertEquals(response.status, 422);
+  assertEquals((await response.json()).error, "insufficient_margin");
 });
 
 Deno.test("immediate execution checks margin against filled notional after slippage", async () => {
@@ -154,7 +168,7 @@ Deno.test("resting order reserves its incremental initial margin", async () => {
   assertEquals(response.status, 200);
   const body = await response.json();
   assertEquals(body.response.status, "resting");
-  assertEquals(body.order.reservedMargin, "19.6");
+  assertEquals(body.order.reservedMargin, "19.60294");
 });
 
 Deno.test("authorization and ownership happen before any market request", async () => {
@@ -233,6 +247,16 @@ Deno.test("valid trigger persists without fetching an execution book", async () 
   assertEquals(response.status, 200);
   assertEquals((await response.json()).response.status, "trigger_waiting");
   assertEquals(bookCalls, 0);
+});
+
+Deno.test("opening trigger reserves fee as well as initial margin", async () => {
+  const response = await handlePaperCommand(request({
+    ...marketBuy,
+    idempotencyKey: "trigger-fee-reserve",
+    order: { ...marketBuy.order, side: "buy", size: "1", orderType: "stop_market", triggerPrice: "110" },
+  }), dependencies());
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).order.reservedMargin, "22.0099");
 });
 
 Deno.test("every limit-family order requires a limit price", async () => {

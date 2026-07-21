@@ -2,7 +2,7 @@ import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
 import { inputVersion } from "../_shared/paper/market-data.ts";
 import { fetchPaperBook, fetchPaperCatalog, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
-import { makerFraction, selectFeeRate } from "../_shared/paper/fees.ts";
+import { makerFraction, scalePerpFeeRate, selectFeeRate } from "../_shared/paper/fees.ts";
 import { crossRisk, initialMargin, isolatedRisk, maintenanceMargin } from "../_shared/paper/margin.ts";
 import { unrealizedPnl } from "../_shared/paper/accounting.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
@@ -23,6 +23,18 @@ function runtimeDependencies(): ProcessPaperDependencies {
   const service = createServiceClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"));
   let catalogPromise: Promise<Awaited<ReturnType<typeof fetchPaperCatalog>> & { fetched: boolean }> | null = null;
   let feePromise: Promise<Awaited<ReturnType<typeof fetchPaperFeeSchedule>> & { fetched: boolean }> | null = null;
+  const feeVolumeByEpoch = new Map<string, Promise<{ trailing_volume: unknown; maker_volume: unknown }>>();
+  const loadFeeVolume = (epochId: string) => {
+    const existing = feeVolumeByEpoch.get(epochId);
+    if (existing) return existing;
+    const pending = service.rpc("paper_fee_volume", { p_epoch_id: epochId }).single().then(({ data, error }) => {
+      if (error) throw new Error(error.message);
+      if (!data) throw new Error("paper fee volume unavailable");
+      return data;
+    });
+    feeVolumeByEpoch.set(epochId, pending);
+    return pending;
+  };
   const cachedInput = async (kind: "metadata" | "fees") => {
     const { data, error } = await service.from("paper_market_inputs").select("payload,input_version,created_at")
       .eq("asset", "*").eq("input_kind", kind).order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -134,30 +146,6 @@ function runtimeDependencies(): ProcessPaperDependencies {
       };
     },
     async processAccount(epochId, snapshot: ProcessorSnapshot) {
-      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, { data: fills, error: fillsError }, { data: fundingPayments, error: fundingError }, { data: leverageSettings, error: leverageError }, { data: accountCursor, error: cursorError }] = await Promise.all([
-        service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
-        service.from("paper_account_summaries").select("cash_balance,equity,trailing_volume,maker_volume").eq("epoch_id", epochId).maybeSingle(),
-        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
-        service.from("paper_orders").select("id,side,order_type,time_in_force,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,created_at")
-          .eq("epoch_id", epochId).eq("asset", snapshot.asset).in("status", ["resting", "partially_filled", "trigger_waiting"])
-          .order("created_at", { ascending: true }),
-        service.from("paper_fills").select("side,size,price,source_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
-        service.from("paper_funding_payments").select("funding_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
-        service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
-        service.from("paper_account_market_cursors").select("last_trade_id,last_timestamp_ms")
-          .eq("epoch_id", epochId).eq("asset", snapshot.asset).maybeSingle(),
-      ]);
-      if (epochError || summaryError || positionsError || ordersError || fillsError || fundingError || leverageError || cursorError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message ?? fillsError?.message ?? fundingError?.message ?? leverageError?.message ?? cursorError?.message);
-      if (!epoch) return { mutated: false, accepted: true };
-      if (!summary) return { mutated: false, accepted: false, reconciliationFailure: true };
-      const reconciled = reconcileAccount({
-        cashBalance: String(summary.cash_balance), cachedEquity: String(summary.equity),
-        positions: (positions ?? []).map((position) => ({
-          signedSize: String(position.signed_size), entryPrice: String(position.entry_price),
-          markPrice: String(position.mark_price), isolatedMargin: position.isolated_margin === null ? null : String(position.isolated_margin),
-        })),
-      });
-      if (!reconciled.reconciled) return { mutated: false, reconciliationFailure: true };
       const payload = snapshot.payload as {
         markPrice: string; observation: unknown; book: ReplaySnapshot["book"];
         trades: ReplaySnapshot["trades"]; tradeGap: boolean;
@@ -170,6 +158,34 @@ function runtimeDependencies(): ProcessPaperDependencies {
         metadata: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"][number];
         catalog: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"];
       };
+      const fundingTimestamps = payload.fundingPoints.map((point) => new Date(point.timestampMs).toISOString());
+      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, feeVolume, { data: fundingPayments, error: fundingError }, { data: fundingExposure, error: fundingExposureError }, { data: leverageSettings, error: leverageError }, { data: accountCursor, error: cursorError }] = await Promise.all([
+        service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
+        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
+        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
+        service.from("paper_orders").select("id,asset,side,order_type,time_in_force,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,reserved_margin,created_at")
+          .eq("epoch_id", epochId).in("status", ["resting", "partially_filled", "trigger_waiting"])
+          .order("created_at", { ascending: true }),
+        loadFeeVolume(epochId),
+        service.from("paper_funding_payments").select("funding_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
+        service.rpc("paper_funding_exposure", {
+          p_epoch_id: epochId, p_asset: snapshot.asset, p_timestamps: fundingTimestamps,
+        }),
+        service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
+        service.from("paper_account_market_cursors").select("last_trade_id,last_timestamp_ms")
+          .eq("epoch_id", epochId).eq("asset", snapshot.asset).maybeSingle(),
+      ]);
+      if (epochError || summaryError || positionsError || ordersError || fundingError || fundingExposureError || leverageError || cursorError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message ?? fundingError?.message ?? fundingExposureError?.message ?? leverageError?.message ?? cursorError?.message);
+      if (!epoch) return { mutated: false, accepted: true };
+      if (!summary) return { mutated: false, accepted: false, reconciliationFailure: true };
+      const reconciled = reconcileAccount({
+        cashBalance: String(summary.cash_balance), cachedEquity: String(summary.equity),
+        positions: (positions ?? []).map((position) => ({
+          signedSize: String(position.signed_size), entryPrice: String(position.entry_price),
+          markPrice: String(position.mark_price), isolatedMargin: position.isolated_margin === null ? null : String(position.isolated_margin),
+        })),
+      });
+      if (!reconciled.reconciled) return { mutated: false, reconciliationFailure: true };
       let accountTrades = payload.trades;
       let accountTradeGap = payload.tradeGap;
       if (accountCursor?.last_trade_id && accountCursor.last_trade_id !== payload.fetchCursor.lastTradeId) {
@@ -185,13 +201,17 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const replaySnapshot: ReplaySnapshot = {
         markPrice: payload.markPrice, book: payload.book, trades: accountTrades,
         tradeGap: accountTradeGap, inputVersion: snapshot.inputVersion,
+        sizeDecimals: payload.metadata.sizeDecimals,
       };
       const metadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
       const leverageByAsset = new Map((leverageSettings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
-      const accountMakerFraction = makerFraction(String(summary.maker_volume), String(summary.trailing_volume));
+      const rollingFees = {
+        trailingVolume: String(feeVolume.trailing_volume), makerVolume: String(feeVolume.maker_volume),
+      };
+      const accountMakerFraction = makerFraction(rollingFees.makerVolume, rollingFees.trailingVolume);
       const feeRates = {
-        maker: selectFeeRate(payload.feeSchedule, String(summary.trailing_volume), accountMakerFraction, "maker"),
-        taker: selectFeeRate(payload.feeSchedule, String(summary.trailing_volume), accountMakerFraction, "taker"),
+        maker: scalePerpFeeRate(selectFeeRate(payload.feeSchedule, rollingFees.trailingVolume, accountMakerFraction, "maker"), payload.metadata, "maker"),
+        taker: scalePerpFeeRate(selectFeeRate(payload.feeSchedule, rollingFees.trailingVolume, accountMakerFraction, "taker"), payload.metadata, "taker"),
       };
       const marginUsedByOtherAssets = (positions ?? []).filter((item) => item.asset !== snapshot.asset)
         .reduce((used, item) => {
@@ -209,10 +229,13 @@ function runtimeDependencies(): ProcessPaperDependencies {
           .minus(unrealizedPnl(position!, String(storedPosition.mark_price)))
           .plus(unrealizedPnl(position!, payload.markPrice))
         : decimal(summary.equity);
-      const marginAvailableForAsset = markedEquity.minus(marginUsedByOtherAssets);
+      let projectedEquity = markedEquity;
+      let activeReservedMargin = (orders ?? []).reduce((sum, order) => sum.plus(order.reserved_margin ?? 0), decimal(0));
+      const assetOrders = (orders ?? []).filter((order) => order.asset === snapshot.asset);
       const replayEffects: Array<Record<string, unknown>> = [];
       const replayedFundingFills: Array<{ side: "buy" | "sell"; size: string; price: string; timestampMs: number }> = [];
-      for (const order of orders ?? []) {
+      for (const order of assetOrders) {
+        const positionBefore = position;
         const effect = replayOrder({
           id: order.id, side: order.side, orderType: order.order_type, timeInForce: order.time_in_force,
           status: order.status, remainingSize: String(order.remaining_size),
@@ -222,8 +245,10 @@ function runtimeDependencies(): ProcessPaperDependencies {
           reduceOnly: order.reduce_only, createdAtMs: Date.parse(order.created_at),
         }, position, replaySnapshot, feeRates);
         if (!effect) continue;
+        const capacity = projectedEquity.minus(marginUsedByOtherAssets).minus(activeReservedMargin)
+          .plus(order.reserved_margin ?? 0);
         if (!hasMatchMargin(position, effect.position, payload.markPrice, Number(order.leverage), payload.metadata.marginTiers,
-          decimalString(marginAvailableForAsset.isPositive() ? marginAvailableForAsset : 0))) {
+          decimalString(capacity.isPositive() ? capacity : 0), effect.fee)) {
             effect.status = "canceled";
             effect.remainingSize = order.remaining_size;
             effect.queueAhead = order.queue_ahead;
@@ -232,6 +257,13 @@ function runtimeDependencies(): ProcessPaperDependencies {
             effect.realizedPnl = "0";
             effect.fee = "0";
             effect.reason = "insufficient_margin_at_match";
+        }
+        const beforeUnrealized = positionBefore ? decimal(unrealizedPnl(positionBefore, payload.markPrice)) : decimal(0);
+        const afterUnrealized = effect.position ? decimal(unrealizedPnl(effect.position, payload.markPrice)) : decimal(0);
+        projectedEquity = projectedEquity.plus(effect.realizedPnl).minus(effect.fee)
+          .plus(afterUnrealized).minus(beforeUnrealized);
+        if (!["resting", "partially_filled", "trigger_waiting"].includes(effect.status)) {
+          activeReservedMargin = activeReservedMargin.minus(order.reserved_margin ?? 0);
         }
         replayEffects.push({
           ...effect, markPrice: payload.markPrice, inputVersion: snapshot.inputVersion,
@@ -247,13 +279,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       }
       const fundingEffects = missingFundingEffects(
         payload.fundingPoints,
-        [
-          ...(fills ?? []).map((fill) => ({
-            side: fill.side, size: String(fill.size), price: String(fill.price),
-            timestampMs: Date.parse(fill.source_timestamp),
-          })),
-          ...replayedFundingFills,
-        ],
+        replayedFundingFills,
         new Set((fundingPayments ?? []).map((payment) => Date.parse(payment.funding_timestamp))),
         (timestampMs) => {
           const current = payload.observation as { observed_at?: string; oracle_price?: number | null };
@@ -264,6 +290,9 @@ function runtimeDependencies(): ProcessPaperDependencies {
           return candidates[0]?.distance <= 30_000 ? candidates[0].price : null;
         },
         payload.fundingVersion,
+        new Map((fundingExposure ?? []).map((exposure) => [
+          Date.parse(exposure.funding_timestamp), String(exposure.signed_size),
+        ])),
       );
       const { data, error } = await service.rpc("apply_paper_account_snapshot", {
         p_epoch_id: epochId, p_expected_version: expectedVersion, p_asset: snapshot.asset,
@@ -278,9 +307,10 @@ function runtimeDependencies(): ProcessPaperDependencies {
         .select("cooldown_until").eq("epoch_id", epochId).eq("asset", snapshot.asset)
         .not("cooldown_until", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (cooldownError) throw new Error(cooldownError.message);
-      if (!position || (cooldown?.cooldown_until && Date.parse(cooldown.cooldown_until) > Date.now())) {
+      if (!position) {
         return { mutated: replayEffects.length > 0 || fundingEffects.length > 0 || position !== null, accepted: true };
       }
+      const partialCooldownActive = Boolean(cooldown?.cooldown_until && Date.parse(cooldown.cooldown_until) > Date.now());
       const [{ data: currentSummary, error: currentSummaryError }, { data: currentPositions, error: currentPositionsError }] = await Promise.all([
         service.from("paper_account_summaries").select("cash_balance").eq("epoch_id", epochId).single(),
         service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
@@ -333,7 +363,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         equity: risk.equity, maintenanceMargin: risk.maintenanceMargin,
         positionMaintenanceMargin: requiredMaintenance, marginTiers: payload.metadata.marginTiers,
         book: payload.book, feeRate: feeRates.taker,
-        inputVersion: snapshot.inputVersion, nowMs: Date.now(),
+        inputVersion: snapshot.inputVersion, nowMs: Date.now(), partialCooldownActive,
       });
       if (!liquidation) return { mutated: true, accepted: true };
       const { data: liquidationApplied, error: liquidationError } = await service.rpc("apply_paper_liquidation_effect", {

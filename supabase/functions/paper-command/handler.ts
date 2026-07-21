@@ -1,8 +1,8 @@
 import { applyFill } from "../_shared/paper/accounting.ts";
 import { validateOrderConstraints } from "../_shared/paper/constraints.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
-import { executeOrder, validTriggerSide } from "../_shared/paper/execution.ts";
-import { selectFeeRate } from "../_shared/paper/fees.ts";
+import { executeOrder, marketOrderLimit, validTriggerSide } from "../_shared/paper/execution.ts";
+import { scalePerpFeeRate, selectFeeRate } from "../_shared/paper/fees.ts";
 import { initialMargin } from "../_shared/paper/margin.ts";
 import type { NormalizedBook } from "../_shared/paper/market-data.ts";
 import type { FeeSchedule, PaperAssetMetadata, PaperPosition } from "../_shared/paper/types.ts";
@@ -127,11 +127,18 @@ export async function handlePaperCommand(
     if (!validTriggerSide(command.order.side, triggerKind, command.order.triggerPrice, mark.markPrice)) {
       return jsonError("invalid_trigger_side", 422);
     }
+    const reservationNotional = decimal(command.order.size).times(command.order.limitPrice ?? command.order.triggerPrice);
+    const feeInput = await dependencies.loadFeeSchedule();
+    const feeRate = scalePerpFeeRate(
+      selectFeeRate(feeInput.schedule, account.trailingVolume, account.makerFraction, "taker"),
+      asset,
+      "taker",
+    );
     const reservation = command.order.reduceOnly ? decimal(0) : decimal(initialMargin(
-      decimalString(decimal(command.order.size).times(command.order.limitPrice ?? command.order.triggerPrice)),
+      decimalString(reservationNotional),
       command.order.leverage,
       asset.marginTiers,
-    ));
+    )).plus(reservationNotional.times(decimal(feeRate).isPositive() ? feeRate : 0));
     if (reservation.gt(account.availableMargin)) return jsonError("insufficient_margin", 422);
     const effects: Record<string, unknown> = {
       response: {
@@ -154,7 +161,7 @@ export async function handlePaperCommand(
       position: account.position,
       positionProjection: account.position,
       ledger: [],
-      inputVersions: { mark: mark.inputVersion },
+      inputVersions: { mark: mark.inputVersion, fees: feeInput.inputVersion },
     };
     const canonical = await dependencies.applyEffects(effects, {
       accountId: command.accountId,
@@ -167,7 +174,10 @@ export async function handlePaperCommand(
 
   const { book, inputVersion: bookVersion } = await dependencies.loadBook(command.order.asset);
   if (dependencies.now() - book.timestampMs > MAX_BOOK_AGE_MS) return jsonError("stale_book", 503);
-  const referencePrice = command.order.limitPrice ??
+  const executionLimit = command.order.orderType === "market"
+    ? marketOrderLimit(book, command.order.side, asset.sizeDecimals)
+    : command.order.limitPrice;
+  const referencePrice = executionLimit ??
     (command.order.side === "buy" ? book.asks[0]?.price : book.bids[0]?.price);
   if (!referencePrice) return jsonError("empty_book", 503);
   const constraintErrors = validateOrderConstraints(asset, {
@@ -184,10 +194,22 @@ export async function handlePaperCommand(
     size: command.order.size,
     type: command.order.orderType as "market" | "limit",
     timeInForce: command.order.timeInForce,
-    limitPrice: command.order.limitPrice,
+    limitPrice: executionLimit,
     reduceOnly: command.order.reduceOnly,
   }, book, account.position?.signedSize ?? "0");
   if (execution.status === "rejected") return jsonError(execution.reason ?? "order_rejected", 422);
+
+  const feeInput = await dependencies.loadFeeSchedule();
+  const takerFeeRate = scalePerpFeeRate(
+    selectFeeRate(feeInput.schedule, account.trailingVolume, account.makerFraction, "taker"),
+    asset,
+    "taker",
+  );
+  const makerFeeRate = scalePerpFeeRate(
+    selectFeeRate(feeInput.schedule, account.trailingVolume, account.makerFraction, "maker"),
+    asset,
+    "maker",
+  );
 
   const riskFills = [...execution.fills];
   if (["resting", "partially_filled"].includes(execution.status) && decimal(execution.remainingSize).isPositive()) {
@@ -212,7 +234,13 @@ export async function handlePaperCommand(
     !currentSigned.isZero() && currentSigned.isPositive() === finalSigned.isPositive() &&
     finalSigned.abs().lte(currentSigned.abs())
   );
-  if (!pureReduction && finalInitialMargin.gt(marginCapacity)) {
+  const immediateFeeReserve = execution.fills.reduce((sum, fill) =>
+    sum.plus(decimal(fill.size).times(fill.price).times(decimal(takerFeeRate).isPositive() ? takerFeeRate : 0)), decimal(0));
+  const restingFeeReserve = decimal(execution.remainingSize).isPositive()
+    ? decimal(execution.remainingSize).times(command.order.limitPrice ?? referencePrice)
+      .times(decimal(makerFeeRate).isPositive() ? makerFeeRate : 0)
+    : decimal(0);
+  if (!pureReduction && finalInitialMargin.plus(immediateFeeReserve).plus(restingFeeReserve).gt(marginCapacity)) {
     return jsonError("insufficient_margin", 422);
   }
   let executedRiskPosition = account.position;
@@ -228,11 +256,9 @@ export async function handlePaperCommand(
     asset.marginTiers,
   ));
   const reservedMargin = ["resting", "partially_filled"].includes(execution.status)
-    ? finalInitialMargin.minus(executedInitialMargin)
+    ? finalInitialMargin.minus(executedInitialMargin).plus(restingFeeReserve)
     : decimal(0);
 
-  const feeInput = await dependencies.loadFeeSchedule();
-  const feeRate = selectFeeRate(feeInput.schedule, account.trailingVolume, account.makerFraction, "taker");
   let position = account.position;
   let totalFee = decimal(0);
   let totalRealized = decimal(0);
@@ -241,7 +267,7 @@ export async function handlePaperCommand(
       side: command.order.side,
       size: fill.size,
       price: fill.price,
-      feeRate,
+      feeRate: takerFeeRate,
     });
     position = transition.position;
     totalFee = totalFee.plus(transition.fee);
