@@ -2,5 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 export function createWatchlistClient(config) {
   if (!config.supabaseUrl || !config.supabasePublishableKey) return null;
-  return createClient(config.supabaseUrl, config.supabasePublishableKey);
+  const key = "__hyperdataSupabaseClient";
+  if (!globalThis[key]) globalThis[key] = createClient(config.supabaseUrl, config.supabasePublishableKey);
+  return globalThis[key];
 }

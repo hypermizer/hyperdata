@@ -10,7 +10,7 @@ function dependencies(overrides: Partial<ProcessPaperDependencies> = {}) {
     process: async () => {
       calls.push("process");
       return { state: "succeeded", assetsProcessed: 1, accountsProcessed: 2, apiWeight: 42,
-        reconciliationFailures: 0, degradedAssets: [] };
+        reconciliationFailures: 0, degradedAssets: [], strategyEvaluations: 0, strategyActions: 0 };
     },
     finish: async (bucket, state) => { calls.push(`finish:${bucket}:${state}`); },
     now: () => Date.parse("2026-07-19T20:00:09.999Z"),

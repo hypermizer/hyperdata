@@ -28,8 +28,33 @@ Deno.test("one asset fetch advances every account in deterministic order", async
   assertEquals(persisted, ["v1"]);
   assertEquals(result, {
     state: "succeeded", assetsProcessed: 1, accountsProcessed: 2, apiWeight: 42,
-    reconciliationFailures: 0, degradedAssets: [],
+    reconciliationFailures: 0, degradedAssets: [], strategyEvaluations: 0, strategyActions: 0,
   });
+});
+
+Deno.test("strategy-only work shares the existing asset snapshot and processor invocation", async () => {
+  assertEquals(buildProcessorWork([], [], [], [{ epoch_id: "epoch-1", asset: "DRAM" }]), [
+    { asset: "DRAM", hasPosition: false, accountIds: ["epoch-1"] },
+  ]);
+  const result = await processPaperBatch({
+    loadWork: async () => buildProcessorWork([], [], [], [{ epoch_id: "epoch-1", asset: "DRAM" }]),
+    fetchSnapshot: async () => ({ asset: "DRAM", inputVersion: "v1", apiWeight: 1, degraded: false, payload: {} }),
+    processAccount: async () => ({ mutated: false, accepted: true }),
+    processStrategies: async () => ({ evaluations: 1, actions: 0 }),
+  }, 10);
+  assertEquals(result.strategyEvaluations, 1);
+  assertEquals(result.strategyActions, 0);
+});
+
+Deno.test("a strategy failure degrades its asset without aborting paper processing", async () => {
+  const result = await processPaperBatch({
+    loadWork: async () => [{ asset: "BTC", hasPosition: true, accountIds: ["epoch-1"] }],
+    fetchSnapshot: async () => ({ asset: "BTC", inputVersion: "v1", apiWeight: 1, degraded: false, payload: {} }),
+    processAccount: async () => ({ mutated: true, accepted: true }),
+    processStrategies: async () => { throw new Error("candle_gap"); },
+  }, 10);
+  assertEquals(result.state, "partial");
+  assertEquals(result.degradedAssets, [{ asset: "BTC", reason: "strategy:candle_gap" }]);
 });
 
 Deno.test("diagnostic snapshot persists while rejected accounts keep their own cursor", async () => {

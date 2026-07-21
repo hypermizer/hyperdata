@@ -42,3 +42,6 @@ verify_jwt = false
 
 [functions.process-paper]
 verify_jwt = false
+
+[functions.strategy-command]
+verify_jwt = false

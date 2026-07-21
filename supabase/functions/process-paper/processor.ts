@@ -25,6 +25,7 @@ export interface PaperProcessorDependencies {
   estimateSnapshotWeight?(asset: string): number;
   fetchSnapshot(work: ProcessorAssetWork): Promise<ProcessorSnapshot>;
   processAccount(accountId: string, snapshot: ProcessorSnapshot): Promise<ProcessorAccountResult>;
+  processStrategies?(accountId: string, snapshot: ProcessorSnapshot): Promise<{ evaluations: number; actions: number; degradedReason?: string }>;
   persistSnapshot?(snapshot: ProcessorSnapshot): Promise<void>;
 }
 
@@ -35,12 +36,15 @@ export interface PaperProcessorResult {
   apiWeight: number;
   reconciliationFailures: number;
   degradedAssets: Array<{ asset: string; reason: string }>;
+  strategyEvaluations: number;
+  strategyActions: number;
 }
 
 export function buildProcessorWork(
   positions: Array<{ epoch_id: string; asset: string }>,
   orders: Array<{ epoch_id: string; asset: string }>,
   recentFills: Array<{ epoch_id: string; asset: string }>,
+  strategyAssignments: Array<{ epoch_id: string; asset: string }> = [],
 ): ProcessorAssetWork[] {
   const byAsset = new Map<string, { hasPosition: boolean; accountIds: Set<string> }>();
   for (const row of positions) {
@@ -48,6 +52,10 @@ export function buildProcessorWork(
     entry.hasPosition = true; entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
   }
   for (const row of [...orders, ...recentFills]) {
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
+    entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
+  }
+  for (const row of strategyAssignments) {
     const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
     entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
   }
@@ -79,6 +87,8 @@ export async function processPaperBatch(
   let assetsProcessed = 0;
   let accountsProcessed = 0;
   let reconciliationFailures = 0;
+  let strategyEvaluations = 0;
+  let strategyActions = 0;
   const degradedAssets: Array<{ asset: string; reason: string }> = [];
 
   for (const item of work) {
@@ -109,6 +119,18 @@ export async function processPaperBatch(
       accountsProcessed += 1;
       if (result.reconciliationFailure) reconciliationFailures += 1;
       if (result.accepted === false || result.reconciliationFailure) acceptedByEveryAccount = false;
+      if (dependencies.processStrategies) {
+        try {
+          const strategy = await dependencies.processStrategies(accountId, snapshot);
+          strategyEvaluations += strategy.evaluations;
+          strategyActions += strategy.actions;
+          if (strategy.degradedReason) {
+            degradedAssets.push({ asset: item.asset, reason: `strategy:${strategy.degradedReason}` });
+          }
+        } catch (error) {
+          degradedAssets.push({ asset: item.asset, reason: `strategy:${error instanceof Error ? error.message : String(error)}` });
+        }
+      }
     }
     await dependencies.persistSnapshot?.(snapshot);
     if (!acceptedByEveryAccount) degradedAssets.push({ asset: item.asset, reason: "account_snapshot_rejected" });
@@ -120,6 +142,8 @@ export async function processPaperBatch(
     accountsProcessed,
     apiWeight: budget.used,
     reconciliationFailures,
+    strategyEvaluations,
+    strategyActions,
     degradedAssets,
   };
 }
