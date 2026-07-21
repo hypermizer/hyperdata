@@ -247,6 +247,12 @@
           <button type="submit">CREATE</button>
         </form>
 
+        <form id="strats-revision-form" class="strats-form">
+          <label>STRATEGY <select id="strats-revision-definition" name="definitionId" required></select></label>
+          <label>REVISION BACKTEST ALLOCATION % <input name="marginAllocationPct" type="number" min="1" max="100" step="1" value="10" required /></label>
+          <button type="submit">CREATE REVISION</button>
+        </form>
+
         <form id="strats-assignment-form" class="strats-form">
           <label>STRATEGY <select id="strats-definition" name="definitionId" required></select></label>
           <label>ACCOUNT <select id="strats-account" name="accountId" required></select></label>
@@ -345,6 +351,6 @@
     <script type="module" src="./app.js?v=20260721-strats"></script>
     <script type="module" src="./audio.js?v=20260721-strats"></script>
     <script type="module" src="./paper.js?v=20260721-strats"></script>
-    <script type="module" src="./strats.js?v=20260721-strats"></script>
+    <script type="module" src="./strats.js?v=20260722-strats2"></script>
   </body>
 </html>

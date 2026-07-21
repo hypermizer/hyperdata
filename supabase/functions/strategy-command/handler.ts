@@ -4,6 +4,7 @@ const MAX_BODY_BYTES = 16_384;
 export interface StrategyCommandUser { id: string; email: string | null }
 export type StrategyCommand =
   | { type: "create_definition"; name: string; marginAllocationPct: number }
+  | { type: "create_revision"; definitionId: string; marginAllocationPct: number }
   | { type: "create_assignment"; definitionId: string; accountId: string; asset: string; marginAllocationPct: number }
   | { type: "set_assignment_state"; assignmentId: string; state: "paused" | "warming"; pauseMode?: "keep_exit_management" | "close_and_pause" }
   | { type: "queue_backtest"; revisionId: string; assets: string[]; start: string; end: string; initialCapital: number };
@@ -32,6 +33,11 @@ export function parseStrategyCommand(value: unknown): StrategyCommand | null {
       command.marginAllocationPct < 1 || command.marginAllocationPct > 100) return null;
     return command as unknown as StrategyCommand;
   }
+  if (command.type === "create_revision") {
+    if (!validUuid(command.definitionId) || typeof command.marginAllocationPct !== "number" ||
+      command.marginAllocationPct < 1 || command.marginAllocationPct > 100) return null;
+    return command as unknown as StrategyCommand;
+  }
   if (command.type === "set_assignment_state") {
     if (!validUuid(command.assignmentId) || !["paused", "warming"].includes(String(command.state)) ||
       (command.pauseMode !== undefined && !["keep_exit_management", "close_and_pause"].includes(String(command.pauseMode)))) return null;
@@ -40,6 +46,7 @@ export function parseStrategyCommand(value: unknown): StrategyCommand | null {
   if (command.type === "queue_backtest") {
     if (!validUuid(command.revisionId) || !Array.isArray(command.assets) || command.assets.length < 1 || command.assets.length > 20 ||
       !command.assets.every((asset) => typeof asset === "string" && /^[a-zA-Z0-9_.:-]+$/.test(asset)) ||
+      new Set(command.assets).size !== command.assets.length ||
       typeof command.start !== "string" || !Number.isFinite(Date.parse(command.start)) || typeof command.end !== "string" ||
       !Number.isFinite(Date.parse(command.end)) || Date.parse(command.end) <= Date.parse(command.start) ||
       typeof command.initialCapital !== "number" || command.initialCapital <= 0 || command.initialCapital > 1_000_000_000) return null;

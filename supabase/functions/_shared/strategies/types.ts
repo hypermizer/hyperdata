@@ -19,6 +19,7 @@ export interface RelativeRsiPoint {
   baseline: string;
   ratio: string;
   candleCloseTime: number;
+  sourceVersion?: string;
 }
 
 export type DualRsiDecision = "warming" | "armed" | "enter_long" | "enter_short" | "hold";

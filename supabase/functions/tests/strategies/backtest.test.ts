@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import { runDualRsiBacktest } from "../../_shared/strategies/backtest.ts";
+import { buildSharedCapitalPortfolio, runDualRsiBacktest } from "../../_shared/strategies/backtest.ts";
 import type { StrategyCandle } from "../../_shared/strategies/types.ts";
 
 function series(count: number, interval: "5m" | "1h", closes: (index: number) => number): StrategyCandle[] {
@@ -38,4 +38,36 @@ Deno.test("fees can prevent a gross threshold touch from becoming a take", () =>
   five[118] = { ...five[118], open: "100", high: "101", low: "100", close: "100.5" };
   const result = runDualRsiBacktest({ asset: "BTC", fiveMinuteCandles: five, oneHourCandles: series(120, "1h", () => 100), initialCapital: "5000", marginAllocationPct: "10", maxLeverage: 20, takerFeeRate: "0.01", slippageBps: "0", forcedEntry: { side: "long", signalIndex: 116 } });
   assertEquals(result.trades.some((trade) => trade.exitReason === "take"), false);
+});
+
+Deno.test("portfolio shares capital across overlapping asset trades", () => {
+  const trade = (asset: string, entryTime: number, exitTime: number, netPnl: string) => ({
+    asset, side: "long" as const, entryTime, entryPrice: "100", exitTime, exitPrice: "110",
+    initialMargin: "500", grossPnl: netPnl, fees: "0", funding: "0", netPnl,
+    returnOnMargin: String(Number(netPnl) / 500), exitReason: "take" as const,
+  });
+  const result = buildSharedCapitalPortfolio("5000", "10", [
+    trade("BTC", 1, 4, "100"), trade("ETH", 2, 3, "100"),
+  ]);
+  assertEquals(result.trades.map((item) => item.initialMargin), ["450", "500"]);
+  assertEquals(result.metrics.netPnl, "190");
+  assertEquals(result.metrics.endingCapital, "5190");
+});
+
+Deno.test("an intrabar stop precedes a later liquidation crossing", () => {
+  const five = series(120, "5m", () => 100);
+  five[118] = { ...five[118], open: "100", high: "100", low: "90", close: "95" };
+  const result = runDualRsiBacktest({ asset: "BTC", fiveMinuteCandles: five, oneHourCandles: series(120, "1h", () => 100),
+    initialCapital: "5000", marginAllocationPct: "10", maxLeverage: 20, takerFeeRate: "0", slippageBps: "0",
+    forcedEntry: { side: "long", signalIndex: 116 } });
+  assertEquals(result.trades[0].exitReason, "stop");
+});
+
+Deno.test("a gap beyond liquidation liquidates before a stop can execute", () => {
+  const five = series(120, "5m", () => 100);
+  five[118] = { ...five[118], open: "90", high: "95", low: "85", close: "90" };
+  const result = runDualRsiBacktest({ asset: "BTC", fiveMinuteCandles: five, oneHourCandles: series(120, "1h", () => 100),
+    initialCapital: "5000", marginAllocationPct: "10", maxLeverage: 20, takerFeeRate: "0", slippageBps: "0",
+    forcedEntry: { side: "long", signalIndex: 116 } });
+  assertEquals(result.trades[0].exitReason, "liquidation");
 });

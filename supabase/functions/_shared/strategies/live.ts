@@ -8,6 +8,15 @@ export function completedCandleBucket(nowMs: number, interval: StrategyInterval)
   return Math.floor(nowMs / WIDTH[interval]) * WIDTH[interval];
 }
 
+export function assignmentStateAfterEvaluation(status: "warming" | "ready", wasRearmReady: boolean, rearmed: boolean) {
+  if (status === "warming") return "warming";
+  return !wasRearmReady && !rearmed ? "await_rearm" : "armed";
+}
+
+export function assignmentStateAfterExit(currentState: string, reason: string) {
+  return reason === "pause" || currentState === "exit_managed_paused" ? "paused" : "await_rearm";
+}
+
 function tierLeverage(notional: string, maximum: number, tiers: readonly MarginTier[]) {
   let leverage = maximum;
   for (const tier of [...tiers].sort((left, right) => decimal(left.lowerBound).comparedTo(right.lowerBound))) {

@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { completedCandleBucket, entrySizing, executableStrategyReturn } from "../../_shared/strategies/live.ts";
+import { assignmentStateAfterEvaluation, assignmentStateAfterExit, completedCandleBucket, entrySizing, executableStrategyReturn } from "../../_shared/strategies/live.ts";
 
 const tiers = [
   { lowerBound: "0", maxLeverage: 20, maintenanceRate: "0.025", maintenanceDeduction: "0" },
@@ -20,4 +20,11 @@ Deno.test("entry sizing iterates the notional tier and rounds down to asset prec
 Deno.test("executable return includes fees and funding for symmetric long and short positions", () => {
   assertEquals(executableStrategyReturn({ side: "long", size: "10", entryPrice: "100", entryInitialMargin: "50", entryFees: "1", fundingCashflows: "-0.5" }, "101", "10", "0.001"), "0.1498");
   assertEquals(executableStrategyReturn({ side: "short", size: "10", entryPrice: "100", entryInitialMargin: "50", entryFees: "1", fundingCashflows: "0.5" }, "99", "10", "0.001"), "0.1702");
+});
+
+Deno.test("rearm and exit-managed pause states cannot silently enable entries", () => {
+  assertEquals(assignmentStateAfterEvaluation("ready", false, false), "await_rearm");
+  assertEquals(assignmentStateAfterEvaluation("ready", false, true), "armed");
+  assertEquals(assignmentStateAfterExit("exit_managed_paused", "take"), "paused");
+  assertEquals(assignmentStateAfterExit("position_open", "take"), "await_rearm");
 });

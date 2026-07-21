@@ -8,9 +8,9 @@ const client = createWatchlistClient(APP_CONFIG);
 const state = { user: null, definitions: [], revisions: [], assignments: [], accounts: [], evaluations: [], positions: [], runs: [], pending: false, pauseAssignmentId: null };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
-  status: $("#strats-status"), rule: $("#strats-rule"), definitionForm: $("#strats-definition-form"),
+  status: $("#strats-status"), rule: $("#strats-rule"), definitionForm: $("#strats-definition-form"), revisionForm: $("#strats-revision-form"),
   assignmentForm: $("#strats-assignment-form"), backtestForm: $("#strats-backtest-form"),
-  definition: $("#strats-definition"), account: $("#strats-account"), revision: $("#strats-revision"),
+  definition: $("#strats-definition"), revisionDefinition: $("#strats-revision-definition"), account: $("#strats-account"), revision: $("#strats-revision"),
   assignments: $("#strats-assignments"), backtests: $("#strats-backtests"), message: $("#strats-message"),
   pauseDialog: $("#strats-pause-dialog"), start: $("#strats-start"), end: $("#strats-end"), view: $("#strats-view"),
 };
@@ -21,6 +21,7 @@ initialize();
 
 function wire() {
   elements.definitionForm.addEventListener("submit", createDefinition);
+  elements.revisionForm.addEventListener("submit", createRevision);
   elements.assignmentForm.addEventListener("submit", createAssignment);
   elements.backtestForm.addEventListener("submit", queueBacktest);
   elements.assignments.addEventListener("click", assignmentAction);
@@ -66,6 +67,11 @@ async function load() {
   const failed = responses.find((response) => response.error);
   if (failed) { elements.status.textContent = `SYNC ERROR · ${String(failed.error.message).toUpperCase()}`; return; }
   [state.definitions,state.revisions,state.assignments,state.accounts,state.evaluations,state.positions,state.runs] = responses.map((response) => response.data ?? []);
+  state.definitions = state.definitions.filter((definition) => !definition.name.startsWith("__SHADOW__"));
+  const visibleDefinitionIds = new Set(state.definitions.map((definition) => definition.id));
+  state.revisions = state.revisions.filter((revision) => visibleDefinitionIds.has(revision.definition_id));
+  const visibleRevisionIds = new Set(state.revisions.map((revision) => revision.id));
+  state.assignments = state.assignments.filter((assignment) => visibleRevisionIds.has(assignment.revision_id));
   render();
 }
 
@@ -81,6 +87,12 @@ async function createDefinition(event) {
   event.preventDefault();
   const form = new FormData(elements.definitionForm);
   await runCommand({ type: "create_definition", name: form.get("name"), marginAllocationPct: Number(form.get("marginAllocationPct")) }, "STRATEGY CREATED");
+}
+
+async function createRevision(event) {
+  event.preventDefault();
+  const form = new FormData(elements.revisionForm);
+  await runCommand({ type: "create_revision", definitionId: form.get("definitionId"), marginAllocationPct: Number(form.get("marginAllocationPct")) }, "REVISION CREATED");
 }
 
 async function createAssignment(event) {
@@ -131,10 +143,11 @@ async function runCommand(command, success) {
 
 function render() {
   const enabled = Boolean(state.user && !state.pending && APP_CONFIG.strategyCommandsEnabled);
-  [...elements.definitionForm.elements, ...elements.assignmentForm.elements, ...elements.backtestForm.elements].forEach((control) => { control.disabled = !enabled; });
+  [...elements.definitionForm.elements, ...elements.revisionForm.elements, ...elements.assignmentForm.elements, ...elements.backtestForm.elements].forEach((control) => { control.disabled = !enabled; });
   assetPicker.setDisabled(!enabled);
   elements.status.textContent = !state.user ? "SIGN IN TO LOAD" : APP_CONFIG.strategyExecutionEnabled ? "LIVE PAPER ENTRIES" : "SHADOW · ENTRIES OFF";
   elements.definition.innerHTML = state.definitions.length ? state.definitions.map((definition) => `<option value="${escapeStrategyHtml(definition.id)}">${escapeStrategyHtml(definition.name)}</option>`).join("") : '<option value="">NO STRATEGY</option>';
+  elements.revisionDefinition.innerHTML = elements.definition.innerHTML;
   elements.account.innerHTML = state.accounts.length ? state.accounts.map((account) => `<option value="${escapeStrategyHtml(account.id)}">${escapeStrategyHtml(account.name)}</option>`).join("") : '<option value="">NO ACCOUNT</option>';
   const definitionById = new Map(state.definitions.map((definition) => [definition.id, definition]));
   elements.revision.innerHTML = state.revisions.length ? state.revisions.map((revision) => `<option value="${escapeStrategyHtml(revision.id)}">${escapeStrategyHtml(definitionById.get(revision.definition_id)?.name ?? "STRATEGY")} · R${revision.revision_number}</option>`).join("") : '<option value="">NO REVISION</option>';

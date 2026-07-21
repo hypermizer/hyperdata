@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(8);
+select plan(10);
 select public.configure_paper_mutation_access(true);
 select public.configure_strategy_mutation_access(true);
 
@@ -38,10 +38,23 @@ select lives_ok(
   'manual unrelated asset command is admitted'
 );
 
+insert into public.strategy_assignments(user_id,revision_id,account_id,epoch_id,asset)
+select user_id,revision_id,account_id,epoch_id,'ETH' from public.strategy_assignments where asset='BTC';
+insert into public.paper_positions(epoch_id,asset,margin_mode,signed_size,entry_price,mark_price,input_version)
+select epoch_id,'ETH','cross',1,100,100,'manual-test' from public.strategy_assignments where asset='ETH';
+
 set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"00000000-0000-0000-0000-000000000221","email":"jasonblick@zohomail.com","role":"authenticated"}',true);
+select throws_ok(
+  $$select public.set_strategy_assignment_state((select id from public.strategy_assignments where asset='ETH'),'warming')$$,
+  'P0001','asset has manual paper exposure; close or cancel it before enabling the strategy','manual exposure blocks strategy enable'
+);
 select is(public.reset_paper_account((select id from public.paper_accounts)),2,'account reset succeeds');
-select is((select state from public.strategy_assignments),'paused','reset disables old epoch assignment');
-select is((select degraded_reason from public.strategy_assignments),'account_epoch_reset','reset reason is visible');
+select ok((select bool_and(state='paused') from public.strategy_assignments),'reset disables old epoch assignments');
+select ok((select bool_and(degraded_reason='account_epoch_reset') from public.strategy_assignments),'reset reason is visible');
+select throws_ok(
+  $$select public.set_strategy_assignment_state((select id from public.strategy_assignments where asset='BTC'),'warming')$$,
+  'P0001','assignment epoch is no longer active','old epoch assignment cannot be re-enabled'
+);
 select * from finish();
 rollback;

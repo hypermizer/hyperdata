@@ -29,6 +29,7 @@ export function relativeRsiPoint(
     baseline: decimalString(baseline),
     ratio: decimalString(ratio),
     candleCloseTime: candles.at(-1)!.closeTime,
+    sourceVersion: candles.at(-1)!.sourceVersion,
   };
 }
 
@@ -48,7 +49,7 @@ export function relativeRsiSeries(
       if (baseline.isZero() && !decimal(current).isZero()) throw new Error("RSI baseline is zero while current RSI is nonzero");
       output.push({ rsi: decimalString(current), baseline: decimalString(baseline),
         ratio: decimalString(baseline.isZero() ? decimal(1) : decimal(current).div(baseline)),
-        candleCloseTime: candles[index].closeTime });
+        candleCloseTime: candles[index].closeTime, sourceVersion: candles[index].sourceVersion });
     }
     if (current != null) {
       prior.push(current);

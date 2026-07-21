@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/database.ts";
+import { fetchPaperCatalog } from "../_shared/paper/market-data.ts";
 import { handleStrategyCommand, type StrategyCommand, type StrategyCommandDependencies } from "./handler.ts";
 
 const corsHeaders = {
@@ -17,6 +18,7 @@ function required(name: string) {
 function rpcFor(command: StrategyCommand) {
   switch (command.type) {
     case "create_definition": return ["create_dual_rsi_strategy", { p_name: command.name, p_margin_allocation_pct: command.marginAllocationPct }] as const;
+    case "create_revision": return ["create_dual_rsi_revision", { p_definition_id: command.definitionId, p_margin_allocation_pct: command.marginAllocationPct }] as const;
     case "create_assignment": return ["create_strategy_assignment", { p_definition_id: command.definitionId, p_account_id: command.accountId, p_asset: command.asset, p_margin_allocation_pct: command.marginAllocationPct }] as const;
     case "set_assignment_state": return ["set_strategy_assignment_state", { p_assignment_id: command.assignmentId, p_state: command.state, p_pause_mode: command.pauseMode ?? null }] as const;
     case "queue_backtest": return ["queue_strategy_backtest", { p_revision_id: command.revisionId, p_assets: command.assets, p_start: command.start, p_end: command.end, p_initial_capital: command.initialCapital }] as const;
@@ -36,6 +38,13 @@ function dependencies(): StrategyCommandDependencies {
       return { id: data.user.id, email: data.user.email ?? null };
     },
     async execute(_user, command, token) {
+      if (command.type === "create_assignment" || command.type === "queue_backtest") {
+        const requestedAssets = command.type === "create_assignment" ? [command.asset] : command.assets;
+        const catalog = await fetchPaperCatalog();
+        const eligible = new Set(catalog.assets.map((asset) => asset.asset));
+        const unsupported = requestedAssets.find((asset) => !eligible.has(asset));
+        if (unsupported) throw new Error(`unsupported asset: ${unsupported}`);
+      }
       const client = createClient(url, anonKey, {
         global: { headers: { Authorization: `Bearer ${token}` } },
         auth: { autoRefreshToken: false, persistSession: false },
