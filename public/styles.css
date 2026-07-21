@@ -199,6 +199,8 @@ input, select { min-width: 0; }
 .alert-card-actions button { min-height: 28px; padding: 3px 6px; font-size: 11px; text-transform: uppercase; }
 .alert-meta { color: #a8afb7; font-size: 12px; }
 .message { min-height: 18px; margin-top: 8px; font-size: 13px; }
+.message[data-tone="success"] { color: #7fe89a; }
+.message[data-tone="warning"] { color: #f1c56d; }
 
 .paper-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
 .paper-toolbar h2 { margin-right: 8px; }

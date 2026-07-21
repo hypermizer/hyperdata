@@ -11,9 +11,11 @@ import {
   normalizeStartingCapital,
   paperFeeRates,
   paperInitialMargin,
+  paperOrderReceipt,
   paperOrderSize, paperPriceValid,
   paperOrderPreview,
   paperSignClass,
+  resolvePaperCommand,
   scalePerpFeeRate,
 } from "../public/lib/paper.js";
 
@@ -45,6 +47,82 @@ test("paper order amounts convert from USDC to exchange-valid share precision", 
   assert.equal(paperOrderSize("1.234", "shares", "100", 3), "1.234");
   assert.equal(paperOrderSize("", "usdc", "53.32", 1), null);
   assert.equal(paperOrderSize("100", "usdc", "0", 1), null);
+});
+
+test("paper order receipts make successful fills unmistakable", () => {
+  assert.deepEqual(paperOrderReceipt({
+    fills: [
+      { size: "34.6", price: "54.64", fee: "0.17014896" },
+      { size: "1.8", price: "54.639", fee: "0.008851518" },
+      { size: "8.8", price: "54.638", fee: "0.043273296" },
+      { size: "5.3", price: "54.633", fee: "0.026059941" },
+      { size: "132.4", price: "54.631", fee: "0.650982996" },
+    ],
+    order: { asset: "xyz:DRAM", side: "sell", requestedSize: "182.9" },
+    response: { status: "filled" },
+  }), {
+    tone: "success",
+    text: "ORDER FILLED — SHORT 182.9 DRAM @ $54.633176 · FEE $0.899317",
+  });
+  assert.deepEqual(paperOrderReceipt({
+    fills: [],
+    order: { asset: "xyz:ORCL", side: "buy", requestedSize: "2" },
+    response: { status: "resting" },
+  }), { tone: "success", text: "ORDER RESTING — LONG 2 ORCL" });
+  assert.deepEqual(paperOrderReceipt({
+    fills: [{ size: "4", price: "50", fee: "0.09" }],
+    order: { asset: "xyz:DRAM", side: "sell", requestedSize: "10" },
+    response: { status: "canceled", reason: "visible_depth_exhausted" },
+  }), {
+    tone: "warning",
+    text: "ORDER PARTIALLY FILLED — SHORT 4 DRAM @ $50 · FEE $0.09 · VISIBLE_DEPTH_EXHAUSTED",
+  });
+});
+
+test("ambiguous paper command responses reconcile against the idempotent result", async () => {
+  const stored = { response: { status: "filled" } };
+  let lookups = 0;
+  assert.deepEqual(await resolvePaperCommand(
+    async () => ({ data: null, error: new Error("network response lost") }),
+    async () => { lookups += 1; return lookups === 2 ? stored : null; },
+    { attempts: 3, wait: async () => {} },
+  ), { data: stored, reconciled: true });
+  assert.equal(lookups, 2);
+
+  let successLookups = 0;
+  assert.deepEqual(await resolvePaperCommand(
+    async () => ({ data: stored, error: null }),
+    async () => { successLookups += 1; return null; },
+  ), { data: stored, reconciled: false });
+  assert.equal(successLookups, 0);
+});
+
+test("unresolved ambiguous paper command responses remain explicitly unknown", async () => {
+  const failure = new Error("request rejected");
+  await assert.rejects(resolvePaperCommand(
+    async () => ({ data: null, error: failure }),
+    async () => null,
+    { attempts: 2, wait: async () => {} },
+  ), (error) => error.name === "PaperCommandOutcomeUnknownError" && error.outcomeUnknown === true && error.cause === failure);
+});
+
+test("thrown transport failures also reconcile against the idempotent result", async () => {
+  const stored = { response: { status: "filled" } };
+  assert.deepEqual(await resolvePaperCommand(
+    async () => { throw new Error("connection reset"); },
+    async () => stored,
+    { wait: async () => {} },
+  ), { data: stored, reconciled: true });
+});
+
+test("definitive paper command rejections do not poll for a committed result", async () => {
+  const failure = Object.assign(new Error("invalid order"), { context: { status: 422 } });
+  let lookups = 0;
+  await assert.rejects(resolvePaperCommand(
+    async () => ({ data: null, error: failure }),
+    async () => { lookups += 1; return null; },
+  ), failure);
+  assert.equal(lookups, 0);
 });
 
 test("paper limit prices follow Hyperliquid tick precision", () => {
