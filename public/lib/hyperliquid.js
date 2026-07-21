@@ -37,7 +37,7 @@ export async function fetchDexNames(fetchImpl = fetch) {
   ];
 }
 
-export async function fetchMarketsForDex(dex, fetchImpl = fetch) {
+export async function fetchMarketsForDex(dex, fetchImpl = fetch, dexMetadata = null) {
   const [meta, contexts] = await postInfo(
     { type: "metaAndAssetCtxs", dex },
     fetchImpl,
@@ -64,6 +64,7 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch) {
       dex: dex || "Hyperliquid",
       dexId: dex,
       markPrice,
+      markPriceRaw: context.markPx ?? null,
       previousPrice,
       changePercent:
         markPrice !== null && previousPrice
@@ -74,6 +75,10 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch) {
       funding: toNumber(context.funding),
       maxLeverage: asset.maxLeverage ?? null,
       sizeDecimals: asset.szDecimals ?? null,
+      onlyIsolated: asset.onlyIsolated === true,
+      marginMode: asset.marginMode ?? null,
+      growthMode: asset.growthMode ?? null,
+      deployerFeeScale: dexMetadata?.deployerFeeScale ?? null,
       marginTiers,
       isDelisted: Boolean(asset.isDelisted),
     };
@@ -81,9 +86,13 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch) {
 }
 
 export async function fetchAllMarkets(fetchImpl = fetch) {
-  const dexNames = await fetchDexNames(fetchImpl);
+  const dexes = await postInfo({ type: "perpDexs" }, fetchImpl);
+  const dexConfigs = [
+    { name: "", deployerFeeScale: null },
+    ...dexes.filter(Boolean).filter(({ name }) => name),
+  ];
   const results = await Promise.allSettled(
-    dexNames.map((dex) => fetchMarketsForDex(dex, fetchImpl)),
+    dexConfigs.map((dex) => fetchMarketsForDex(dex.name, fetchImpl, dex)),
   );
 
   const markets = results.flatMap((result) =>
@@ -105,6 +114,7 @@ export function applyLiveMarketContext(market, context) {
   return {
     ...market,
     markPrice,
+    markPriceRaw: context.markPx ?? market.markPriceRaw,
     previousPrice,
     changePercent:
       markPrice !== null && previousPrice

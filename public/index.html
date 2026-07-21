@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260722-order-ticket" />
+    <link rel="stylesheet" href="./styles.css?v=20260723-sizing-audit" />
   </head>
   <body>
     <main>
@@ -176,6 +176,13 @@
                   <small id="paper-live-status">SELECT AN ASSET</small>
                 </div>
 
+                <fieldset class="paper-ticket-fieldset paper-size-mode-fieldset">
+                  <legend>AMOUNT UNIT</legend>
+                  <div class="paper-segmented paper-size-mode">
+                    <label><input name="sizeMode" type="radio" value="shares" checked /><span>SHARES</span></label>
+                    <label><input name="sizeMode" type="radio" value="usdc" /><span>USDC</span></label>
+                  </div>
+                </fieldset>
                 <label class="paper-ticket-field" for="paper-size">AMOUNT <span id="paper-size-unit">SHARES</span>
                   <input id="paper-size" name="size" type="number" min="0" step="any" inputmode="decimal" placeholder="0" aria-describedby="paper-size-help" required />
                 </label>
@@ -290,6 +297,6 @@
     </dialog>
     <script type="module" src="./app.js?v=20260721-audio"></script>
     <script type="module" src="./audio.js?v=20260721-audio"></script>
-    <script type="module" src="./paper.js?v=20260722-order-ticket"></script>
+    <script type="module" src="./paper.js?v=20260723-sizing-audit"></script>
   </body>
 </html>

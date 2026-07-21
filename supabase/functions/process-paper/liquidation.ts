@@ -20,6 +20,7 @@ interface LiquidationEffectInput {
   feeRate: string;
   inputVersion: string;
   nowMs: number;
+  partialCooldownActive?: boolean;
 }
 
 export interface LiquidationEffect {
@@ -47,6 +48,7 @@ export function buildLiquidationEffect(input: LiquidationEffectInput): Liquidati
   const decision = liquidationDecision({
     positionNotional: decimalString(positionNotional), absoluteSize: decimalString(absoluteSize),
     equity: input.equity, maintenanceMargin: input.maintenanceMargin, nowMs: input.nowMs,
+    partialCooldownActive: input.partialCooldownActive,
   });
   if (decision.action === "none") return null;
 

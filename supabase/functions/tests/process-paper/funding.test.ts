@@ -23,3 +23,14 @@ Deno.test("funding fails closed without a boundary oracle", () => {
     new Set(), () => null, "funding-v1",
   ), []);
 });
+
+Deno.test("persisted boundary exposure combines with fills replayed in the current snapshot", () => {
+  const timestamp = 2_000;
+  const effects = missingFundingEffects(
+    [{ asset: "ORCL", timestampMs: timestamp, fundingRate: "0.0001", premium: null }],
+    [{ side: "sell", size: "1", price: "100", timestampMs: 1_500 }],
+    new Set(), "100", "funding-v2", new Map([[timestamp, "3"]]),
+  );
+  assertEquals(effects[0].signedSize, "2");
+  assertEquals(effects[0].payment, "-0.02");
+});

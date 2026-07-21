@@ -16,6 +16,22 @@ Deno.test("large positions liquidate twenty percent then cool down", () => {
   });
 });
 
+Deno.test("liquidatable positions use full book liquidation during partial cooldown", () => {
+  const decision = liquidationDecision({
+    positionNotional: "150000",
+    absoluteSize: "30",
+    equity: "4000",
+    maintenanceMargin: "5000",
+    nowMs: 10_000,
+    partialCooldownActive: true,
+  });
+  assertEquals(decision, {
+    action: "book",
+    liquidationSize: "30",
+    cooldownUntilMs: null,
+  });
+});
+
 Deno.test("two-thirds maintenance boundary selects backstop", () => {
   assertEquals(liquidationDecision({
     positionNotional: "50000",

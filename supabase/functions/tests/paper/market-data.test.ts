@@ -42,6 +42,7 @@ Deno.test("catalog admits only non-delisted collateral-token-zero perps", () => 
     onlyIsolated: true,
     marginMode: null,
     growthMode: null,
+    deployerFeeScale: null,
     marginTiers: [{ lowerBound: "0", maxLeverage: 50, maintenanceRate: "0.01", maintenanceDeduction: "0" }],
   });
 });

@@ -40,6 +40,18 @@ Deno.test("partial liquidation reports maintenance for the remaining position", 
   assertEquals(effect.remainingPositionMaintenanceMargin, "4000");
 });
 
+Deno.test("cooldown breach closes the full large position through the book", () => {
+  const effect = buildLiquidationEffect({
+    asset: "ORCL", position: { signedSize: "1000", entryPrice: "100" }, markPrice: "100", marginMode: "cross", isolatedMargin: null,
+    equity: "4000", maintenanceMargin: "5000", positionMaintenanceMargin: "5000", marginTiers,
+    book: { ...book, bids: [{ price: "99", size: "1000", orders: 5 }] },
+    feeRate: "0", inputVersion: "v-cooldown", nowMs: 20_000, partialCooldownActive: true,
+  })!;
+  assertEquals(effect.classification, "book");
+  assertEquals(effect.position, null);
+  assertEquals(effect.cooldownUntil, null);
+});
+
 Deno.test("healthy position produces no effect", () => {
   assertEquals(buildLiquidationEffect({
     asset: "ORCL", position: { signedSize: "2", entryPrice: "100" }, markPrice: "100", marginMode: "cross", isolatedMargin: null,

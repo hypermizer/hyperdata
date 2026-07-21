@@ -19,6 +19,7 @@ interface RawPerpMeta {
   universe?: RawUniverseAsset[];
   marginTables?: Array<[number, RawMarginTable]>;
 }
+interface RawPerpDex { name?: string | null; deployerFeeScale?: string }
 
 export function deriveMarginTiers(rawTiers: RawMarginTier[]): MarginTier[] {
   const sorted = [...rawTiers].sort((a, b) => decimal(a.lowerBound).comparedTo(b.lowerBound));
@@ -45,7 +46,7 @@ export function deriveMarginTiers(rawTiers: RawMarginTier[]): MarginTier[] {
 }
 
 export function normalizePerpCatalog(
-  dexes: Array<{ name?: string | null }>,
+  dexes: RawPerpDex[],
   metas: RawPerpMeta[],
 ): PaperAssetMetadata[] {
   if (dexes.length !== metas.length) throw new Error("perp DEX metadata mismatch");
@@ -80,6 +81,7 @@ export function normalizePerpCatalog(
         onlyIsolated: rawAsset.onlyIsolated === true,
         marginMode: rawAsset.marginMode ?? null,
         growthMode: rawAsset.growthMode ?? null,
+        deployerFeeScale: dexes[dexIndex]?.deployerFeeScale ?? null,
         marginTiers: deriveMarginTiers(rawTiers),
       });
     }

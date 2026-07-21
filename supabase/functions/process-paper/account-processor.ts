@@ -1,6 +1,6 @@
 import { applyFill } from "../_shared/paper/accounting.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
-import { executeOrder } from "../_shared/paper/execution.ts";
+import { executeOrder, marketOrderLimit } from "../_shared/paper/execution.ts";
 import type { NormalizedBook, NormalizedTrade } from "../_shared/paper/market-data.ts";
 import { advanceMakerQueue, triggerCrossed } from "../_shared/paper/queue.ts";
 import type { PaperPosition, Side } from "../_shared/paper/types.ts";
@@ -27,6 +27,7 @@ export interface ReplaySnapshot {
   trades: NormalizedTrade[];
   tradeGap: boolean;
   inputVersion: string;
+  sizeDecimals?: number;
 }
 
 export interface ReplayEffect {
@@ -48,6 +49,7 @@ export function hasMatchMargin(
   leverage: number,
   tiers: MarginTier[],
   availableMargin: string,
+  executionFee = "0",
 ): boolean {
   const currentAbsolute = decimal(current?.signedSize ?? 0).abs();
   const nextAbsolute = decimal(next?.signedSize ?? 0).abs();
@@ -58,7 +60,10 @@ export function hasMatchMargin(
     nextAbsolute.lte(currentAbsolute)
   );
   if (pureReduction) return true;
-  return decimal(initialMargin(decimalString(nextAbsolute.times(markPrice)), leverage, tiers)).lte(availableMargin);
+  const fee = decimal(executionFee);
+  const required = decimal(initialMargin(decimalString(nextAbsolute.times(markPrice)), leverage, tiers))
+    .plus(fee.isPositive() ? fee : 0);
+  return required.lte(availableMargin);
 }
 
 function reduceOnlySize(order: ReplayOrder, position: PaperPosition | null, requested: string): string {
@@ -111,9 +116,10 @@ export function replayOrder(
 
   const isTriggeredMarket = order.orderType === "stop_market" || order.orderType === "take_market";
   if (isTriggeredMarket) {
+    const protectedLimit = marketOrderLimit(snapshot.book, order.side, snapshot.sizeDecimals ?? 0);
     const execution = executeOrder({
       side: order.side, size: order.remainingSize, type: "market", timeInForce: null,
-      limitPrice: null, reduceOnly: order.reduceOnly,
+      limitPrice: protectedLimit, reduceOnly: order.reduceOnly,
     }, snapshot.book, position?.signedSize ?? "0");
     const transitioned = transitionFills(order, position,
       execution.fills.map((fill) => ({ ...fill, liquidity: "taker" as const })),
