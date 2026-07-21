@@ -24,7 +24,7 @@ function required(name: string): string {
   return value;
 }
 
-function dependencies(): PaperCommandDependencies {
+export function createPaperCommandDependencies(): PaperCommandDependencies {
   const supabaseUrl = required("SUPABASE_URL");
   const serviceRoleKey = required("SUPABASE_SERVICE_ROLE_KEY");
   const service = createServiceClient(supabaseUrl, serviceRoleKey);
@@ -157,7 +157,7 @@ export function paperCommandFailureResponse(error: unknown): Response {
 export async function servePaperCommand(request: Request): Promise<Response> {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const response = await handlePaperCommand(request, dependencies());
+    const response = await handlePaperCommand(request, createPaperCommandDependencies());
     const headers = new Headers(response.headers);
     Object.entries(corsHeaders).forEach(([key, value]) => headers.set(key, value));
     return new Response(response.body, { status: response.status, headers });

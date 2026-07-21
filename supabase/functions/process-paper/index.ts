@@ -12,6 +12,9 @@ import { missingFundingEffects } from "./funding.ts";
 import { buildLiquidationEffect } from "./liquidation.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
 import { buildProcessorWork, processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
+import { createPaperCommandDependencies } from "../paper-command/index.ts";
+import { completedCandleBucket } from "../_shared/strategies/live.ts";
+import { createStrategyRuntime } from "./strategy-runtime.ts";
 
 function required(name: string): string {
   const value = Deno.env.get(name)?.trim();
@@ -24,13 +27,19 @@ function runtimeDependencies(): ProcessPaperDependencies {
   let catalogPromise: Promise<Awaited<ReturnType<typeof fetchPaperCatalog>> & { fetched: boolean }> | null = null;
   let feePromise: Promise<Awaited<ReturnType<typeof fetchPaperFeeSchedule>> & { fetched: boolean }> | null = null;
   const feeVolumeByEpoch = new Map<string, Promise<{ trailing_volume: unknown; maker_volume: unknown }>>();
+  const strategyRuntime = createStrategyRuntime({
+    service,
+    paperCommandDependencies: createPaperCommandDependencies(),
+    executionEnabled: Deno.env.get("STRATEGY_EXECUTION_ENABLED") === "true",
+    now: Date.now,
+  });
   const loadFeeVolume = (epochId: string) => {
     const existing = feeVolumeByEpoch.get(epochId);
     if (existing) return existing;
-    const pending = service.rpc("paper_fee_volume", { p_epoch_id: epochId }).single().then(({ data, error }) => {
+    const pending = Promise.resolve(service.rpc("paper_fee_volume", { p_epoch_id: epochId }).single()).then(({ data, error }) => {
       if (error) throw new Error(error.message);
       if (!data) throw new Error("paper fee volume unavailable");
-      return data;
+      return data as { trailing_volume: unknown; maker_volume: unknown };
     });
     feeVolumeByEpoch.set(epochId, pending);
     return pending;
@@ -78,14 +87,21 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const activeByAccount = new Map(accounts.map((account) => [account.id, account.active_epoch]));
       const epochIds = (epochs ?? []).filter((epoch) => activeByAccount.get(epoch.account_id) === epoch.epoch_number).map((epoch) => epoch.id);
       if (!epochIds.length) return [];
-      const [{ data: positions, error: positionError }, { data: orders, error: orderError }, { data: recentFills, error: fillError }] = await Promise.all([
+      const [{ data: positions, error: positionError }, { data: orders, error: orderError }, { data: recentFills, error: fillError }, { data: assignments, error: assignmentError }] = await Promise.all([
         service.from("paper_positions").select("epoch_id,asset").in("epoch_id", epochIds),
         service.from("paper_orders").select("epoch_id,asset").in("epoch_id", epochIds).in("status", ["resting", "partially_filled", "trigger_waiting"]),
         service.from("paper_fills").select("epoch_id,asset").in("epoch_id", epochIds)
           .gte("source_timestamp", new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString()),
+        service.from("strategy_assignments").select("epoch_id,asset,state,last_five_minute_close")
+          .in("epoch_id", epochIds).neq("state", "paused"),
       ]);
-      if (positionError || orderError || fillError) throw new Error(positionError?.message ?? orderError?.message ?? fillError?.message);
-      return buildProcessorWork(positions ?? [], orders ?? [], recentFills ?? []);
+      if (positionError || orderError || fillError || assignmentError) throw new Error(positionError?.message ?? orderError?.message ?? fillError?.message ?? assignmentError?.message);
+      const latestCompleted = completedCandleBucket(Date.now(), "5m");
+      const dueAssignments = (assignments ?? []).filter((assignment) =>
+        ["position_open", "exit_managed_paused"].includes(assignment.state) ||
+        !assignment.last_five_minute_close || Date.parse(assignment.last_five_minute_close) < latestCompleted
+      );
+      return buildProcessorWork(positions ?? [], orders ?? [], recentFills ?? [], dueAssignments);
     },
     async fetchSnapshot(work) {
       const asset = work.asset;
@@ -290,7 +306,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
           return candidates[0]?.distance <= 30_000 ? candidates[0].price : null;
         },
         payload.fundingVersion,
-        new Map((fundingExposure ?? []).map((exposure) => [
+        new Map((fundingExposure ?? []).map((exposure: { funding_timestamp: string; signed_size: unknown }) => [
           Date.parse(exposure.funding_timestamp), String(exposure.signed_size),
         ])),
       );
@@ -372,6 +388,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       if (liquidationError) throw new Error(liquidationError.message);
       return { mutated: liquidationApplied === true, accepted: liquidationApplied === true };
     },
+    processStrategies: strategyRuntime,
     async persistSnapshot(snapshot) {
       const payload = snapshot.payload as {
         observation: unknown; book: unknown; trades: unknown; tradeGap: boolean;
