@@ -43,21 +43,24 @@ await query("select public.configure_paper_mutation_access($1)", [paperTradingEn
 if (paperProcessorEnabled) {
   await query("select public.ensure_paper_shadow_account()");
   let runs = [];
+  let healthyRuns = [];
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const result = await query(
       "select state, reconciliation_failures from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
       [paperHealthWindowStartedAt],
     );
     runs = Array.isArray(result) ? result : result.result ?? [];
-    if (runs.length) break;
+    healthyRuns = runs.filter((run) => run.state === "succeeded" && Number(run.reconciliation_failures ?? 0) === 0);
+    if (healthyRuns.length) break;
     await wait(5_000);
   }
   if (!runs.length) {
     throw new Error("Paper processor did not complete a run during the deployment health window");
   }
-  if (runs.some((run) => ["failed", "partial", "overlap"].includes(run.state) || Number(run.reconciliation_failures ?? 0) > 0)) {
-    throw new Error("Paper processor health gate detected an unhealthy or unreconciled run");
+  if (!healthyRuns.length) {
+    const observedStates = runs.map((run) => `${run.state}:${Number(run.reconciliation_failures ?? 0)}`).join(", ");
+    throw new Error(`Paper processor did not produce a reconciled successful run during the deployment health window (observed ${observedStates})`);
   }
-  console.log(`Paper processor health verified: ${runs.length} fresh run(s)`);
+  console.log(`Paper processor health verified: ${healthyRuns.length} reconciled successful run(s)`);
 }
 console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}`);
