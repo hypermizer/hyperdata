@@ -3,6 +3,7 @@ import { infoRequest } from "../_shared/hyperliquid.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 import { executeOrder, marketOrderLimit } from "../_shared/paper/execution.ts";
 import { makerFraction, scalePerpFeeRate, selectFeeRate } from "../_shared/paper/fees.ts";
+import type { NormalizedBook } from "../_shared/paper/market-data.ts";
 import type { FeeSchedule, PaperAssetMetadata } from "../_shared/paper/types.ts";
 import { evaluateDualRsi, transitionRearm } from "../_shared/strategies/dual-rsi.ts";
 import { completedCandleBucket, entrySizing, executableStrategyReturn } from "../_shared/strategies/live.ts";
@@ -17,6 +18,12 @@ interface RuntimeOptions {
   paperCommandDependencies: PaperCommandDependencies;
   executionEnabled: boolean;
   now(): number;
+}
+
+interface StrategySnapshotPayload {
+  book: NormalizedBook;
+  metadata: PaperAssetMetadata;
+  feeSchedule: FeeSchedule;
 }
 
 interface RawCandle { t?: unknown; T?: unknown; o?: unknown; h?: unknown; l?: unknown; c?: unknown; v?: unknown }
@@ -70,7 +77,7 @@ export function createStrategyRuntime(options: RuntimeOptions) {
   };
 
   const submit = async (assignment: Record<string, unknown>, snapshot: ProcessorSnapshot, command: Record<string, unknown>) => {
-    const payload = snapshot.payload as { book: PaperCommandDependencies extends never ? never : any; metadata: PaperAssetMetadata; feeSchedule: FeeSchedule };
+    const payload = snapshot.payload as StrategySnapshotPayload;
     const dependencies: PaperCommandDependencies = {
       ...options.paperCommandDependencies,
       enabled: true,
@@ -93,7 +100,7 @@ export function createStrategyRuntime(options: RuntimeOptions) {
       .select("*").eq("epoch_id", epochId).eq("asset", snapshot.asset).neq("state", "paused").maybeSingle();
     if (assignmentError) throw new Error(assignmentError.message);
     if (!assignment) return { evaluations: 0, actions: 0 };
-    const payload = snapshot.payload as { book: { timestampMs: number; bids: Array<{ price: string; size: string }>; asks: Array<{ price: string; size: string }> }; metadata: PaperAssetMetadata; feeSchedule: FeeSchedule };
+    const payload = snapshot.payload as StrategySnapshotPayload;
     if (snapshot.degraded || options.now() - payload.book.timestampMs > 10_000) return await markDegraded(assignment.id, "stale_market_input");
 
     const [{ data: revision, error: revisionError }, { data: strategyPosition, error: positionError }] = await Promise.all([
@@ -106,8 +113,8 @@ export function createStrategyRuntime(options: RuntimeOptions) {
     if (strategyPosition) {
       const side = strategyPosition.side as "long" | "short";
       const exitSide = side === "long" ? "sell" : "buy";
-      const protectedLimit = marketOrderLimit(payload.book as any, exitSide, payload.metadata.sizeDecimals);
-      const execution = executeOrder({ side: exitSide, size: String(strategyPosition.entry_size), type: "market", timeInForce: null, limitPrice: protectedLimit, reduceOnly: true }, payload.book as any, side === "long" ? String(strategyPosition.entry_size) : `-${strategyPosition.entry_size}`);
+      const protectedLimit = marketOrderLimit(payload.book, exitSide, payload.metadata.sizeDecimals);
+      const execution = executeOrder({ side: exitSide, size: String(strategyPosition.entry_size), type: "market", timeInForce: null, limitPrice: protectedLimit, reduceOnly: true }, payload.book, side === "long" ? String(strategyPosition.entry_size) : `-${strategyPosition.entry_size}`);
       const executable = weightedFillPrice(execution.fills);
       const { data: feeVolume, error: feeError } = await service.rpc("paper_fee_volume", { p_epoch_id: epochId }).single();
       if (feeError) throw new Error(feeError.message);
@@ -157,7 +164,10 @@ export function createStrategyRuntime(options: RuntimeOptions) {
       return fromRows((data ?? []).reverse());
     };
     let evaluation;
-    try { evaluation = evaluateDualRsi(await load("5m"), await load("1h"), assignment.rearm_ready, parameters); }
+    try {
+      const [fiveMinute, oneHour] = await Promise.all([load("5m"), load("1h")]);
+      evaluation = evaluateDualRsi(fiveMinute, oneHour, assignment.rearm_ready, parameters);
+    }
     catch (error) { return await markDegraded(assignment.id, error instanceof Error ? error.message : String(error)); }
     const evaluationRow = { assignment_id: assignment.id, five_minute_close: new Date(completedFiveMinute).toISOString(),
       one_hour_close: evaluation.oneHour ? new Date(evaluation.oneHour.candleCloseTime).toISOString() : null,
