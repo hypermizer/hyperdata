@@ -4,7 +4,7 @@ import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { audioStreamUrl, listenerAssetCatalog } from "./lib/audio.js?v=20260721-audio";
 import { fetchMarketsForDex } from "./lib/hyperliquid.js?v=20260720-assets";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
 
 const INTERVAL_MS = 10_000;
 const MARKET_TIMEOUT_MS = 8_000;

@@ -24,7 +24,7 @@ import {
   resolvePaperCommand,
   scalePerpFeeRate,
 } from "./lib/paper.js?v=20260724-history-prices";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
 
 const client = createWatchlistClient(APP_CONFIG);
 const state = {

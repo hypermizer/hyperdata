@@ -8,9 +8,9 @@ import {
 } from "./lib/hyperliquid.js?v=20260720-assets";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260718-listener";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-audio";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-strats";
 
 const state = {
   accountMessage: "",
