@@ -15,6 +15,7 @@ import { buildProcessorWork, processPaperBatch, type PaperProcessorDependencies,
 import { createPaperCommandDependencies } from "../paper-command/index.ts";
 import { completedCandleBucket } from "../_shared/strategies/live.ts";
 import { createStrategyRuntime } from "./strategy-runtime.ts";
+import { createBacktestRuntime } from "./backtest-runtime.ts";
 
 function required(name: string): string {
   const value = Deno.env.get(name)?.trim();
@@ -27,12 +28,14 @@ function runtimeDependencies(): ProcessPaperDependencies {
   let catalogPromise: Promise<Awaited<ReturnType<typeof fetchPaperCatalog>> & { fetched: boolean }> | null = null;
   let feePromise: Promise<Awaited<ReturnType<typeof fetchPaperFeeSchedule>> & { fetched: boolean }> | null = null;
   const feeVolumeByEpoch = new Map<string, Promise<{ trailing_volume: unknown; maker_volume: unknown }>>();
+  const paperCommandDependencies = createPaperCommandDependencies();
   const strategyRuntime = createStrategyRuntime({
     service,
-    paperCommandDependencies: createPaperCommandDependencies(),
+    paperCommandDependencies,
     executionEnabled: Deno.env.get("STRATEGY_EXECUTION_ENABLED") === "true",
     now: Date.now,
   });
+  const backtestRuntime = createBacktestRuntime(service, paperCommandDependencies);
   const loadFeeVolume = (epochId: string) => {
     const existing = feeVolumeByEpoch.get(epochId);
     if (existing) return existing;
@@ -416,7 +419,11 @@ function runtimeDependencies(): ProcessPaperDependencies {
       if (error) throw new Error(error.message);
       return data === true;
     },
-    process: () => processPaperBatch(processor, 500, Math.floor(Date.now() / 10_000)),
+    async process() {
+      const live = await processPaperBatch(processor, 500, Math.floor(Date.now() / 10_000));
+      const backtest = await backtestRuntime();
+      return { ...live, backtest };
+    },
     async finish(bucket, state, metrics) {
       const { error } = await service.rpc("finish_paper_processor_bucket", {
         p_bucket: bucket, p_state: state, p_metrics: metrics,

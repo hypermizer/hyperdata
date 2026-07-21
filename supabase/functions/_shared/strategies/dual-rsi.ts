@@ -32,6 +32,33 @@ export function relativeRsiPoint(
   };
 }
 
+export function relativeRsiSeries(
+  candles: readonly StrategyCandle[],
+  period: number,
+  baselineLength: number,
+): Array<RelativeRsiPoint | null> {
+  const readings = computeWilderRsi(candles, period);
+  const output: Array<RelativeRsiPoint | null> = [];
+  const prior: string[] = [];
+  let rollingSum = decimal(0);
+  readings.forEach((current, index) => {
+    if (current == null || prior.length < baselineLength) output.push(null);
+    else {
+      const baseline = rollingSum.div(baselineLength);
+      if (baseline.isZero() && !decimal(current).isZero()) throw new Error("RSI baseline is zero while current RSI is nonzero");
+      output.push({ rsi: decimalString(current), baseline: decimalString(baseline),
+        ratio: decimalString(baseline.isZero() ? decimal(1) : decimal(current).div(baseline)),
+        candleCloseTime: candles[index].closeTime });
+    }
+    if (current != null) {
+      prior.push(current);
+      rollingSum = rollingSum.plus(current);
+      if (prior.length > baselineLength) rollingSum = rollingSum.minus(prior.shift()!);
+    }
+  });
+  return output;
+}
+
 function evaluatePoints(
   fiveMinute: RelativeRsiPoint | null,
   oneHour: RelativeRsiPoint | null,

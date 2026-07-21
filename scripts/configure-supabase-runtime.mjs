@@ -4,6 +4,8 @@ const monitorSecret = process.env.MONITOR_SECRET;
 const paperSchedulerSecret = process.env.PAPER_SCHEDULER_SECRET;
 const paperProcessorEnabled = process.env.PAPER_PROCESSOR_ENABLED === "true";
 const paperTradingEnabled = process.env.PAPER_TRADING_ENABLED === "true";
+const strategyCommandEnabled = process.env.STRATEGY_COMMAND_ENABLED === "true";
+const strategyExecutionEnabled = process.env.STRATEGY_EXECUTION_ENABLED === "true";
 if (!token || !projectRef || !monitorSecret || (paperProcessorEnabled && !paperSchedulerSecret)) {
   throw new Error("SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_ID, and MONITOR_SECRET are required; PAPER_SCHEDULER_SECRET is required when the paper processor is enabled");
 }
@@ -39,6 +41,7 @@ await query("select public.configure_listener_cron()");
 const paperHealthWindowStartedAt = new Date().toISOString();
 await query("select public.configure_paper_cron($1)", [paperProcessorEnabled]);
 await query("select public.configure_paper_mutation_access($1)", [paperTradingEnabled]);
+await query("select public.configure_strategy_mutation_access($1)", [strategyCommandEnabled]);
 
 if (paperProcessorEnabled) {
   await query("select public.ensure_paper_shadow_account()");
@@ -63,4 +66,4 @@ if (paperProcessorEnabled) {
   }
   console.log(`Paper processor health verified: ${healthyRuns.length} reconciled successful run(s)`);
 }
-console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}`);
+console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}; strategy commands ${strategyCommandEnabled ? "enabled" : "disabled"}; strategy entries ${strategyExecutionEnabled ? "enabled" : "shadow"}`);

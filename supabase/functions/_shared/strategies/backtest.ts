@@ -1,7 +1,7 @@
 import { decimal, decimalString } from "../paper/decimal.ts";
 import { maintenanceMargin } from "../paper/margin.ts";
 import type { MarginTier } from "../paper/types.ts";
-import { evaluateDualRsi } from "./dual-rsi.ts";
+import { evaluateDualRsi, relativeRsiSeries } from "./dual-rsi.ts";
 import { actualCoverage } from "./candles.ts";
 import { calculateBacktestMetrics } from "./metrics.ts";
 import { DEFAULT_DUAL_RSI_PARAMETERS, type StrategyCandle } from "./types.ts";
@@ -18,6 +18,7 @@ export interface BacktestInput {
   marginTiers?: MarginTier[];
   fundingByTimestamp?: Array<{ timestampMs: number; rate: string }>;
   forcedEntry?: { side: "long" | "short"; signalIndex: number };
+  tradableStartMs?: number;
 }
 
 export interface BacktestTrade {
@@ -82,11 +83,17 @@ export function runDualRsiBacktest(input: BacktestInput) {
   const trades: BacktestTrade[] = [];
   const signals: Array<{ decision: "enter_long" | "enter_short"; candleCloseTime: number }> = [];
   const equityPoints = [decimalString(input.initialCapital)];
+  const equityTimeline: Array<{ sampledAt: number; equity: string; reason: "start" | "hourly" | "entry" | "exit" | "end" }> = input.fiveMinuteCandles.length
+    ? [{ sampledAt: input.fiveMinuteCandles[0].openTime, equity: decimalString(input.initialCapital), reason: "start" }]
+    : [];
   let cash = decimal(input.initialCapital);
   let position: OpenTrade | null = null;
   let pendingSide: "long" | "short" | null = null;
   let rearmReady = true;
   let adverseFirstCount = 0;
+  const fiveMinutePoints = relativeRsiSeries(input.fiveMinuteCandles, 14, 100);
+  const oneHourPoints = relativeRsiSeries(input.oneHourCandles, 14, 100);
+  let latestHourIndex = -1;
 
   const closePosition = (bar: StrategyCandle, rawPrice: string, reason: BacktestTrade["exitReason"]) => {
     const open = position!;
@@ -97,12 +104,14 @@ export function runDualRsiBacktest(input: BacktestInput) {
       grossPnl: economics.grossPnl, fees: economics.fees, funding: open.funding,
       netPnl: economics.netPnl, returnOnMargin: economics.returnOnMargin, exitReason: reason });
     equityPoints.push(decimalString(cash));
+    equityTimeline.push({ sampledAt: bar.closeTime, equity: decimalString(cash), reason: "exit" });
     position = null;
     rearmReady = false;
   };
 
   for (let index = 0; index < input.fiveMinuteCandles.length; index += 1) {
     const bar = input.fiveMinuteCandles[index];
+    while (latestHourIndex + 1 < input.oneHourCandles.length && input.oneHourCandles[latestHourIndex + 1].closeTime <= bar.closeTime) latestHourIndex += 1;
     if (pendingSide && !position) {
       const margin = cash.mul(input.marginAllocationPct).div(100);
       let leverage = input.maxLeverage;
@@ -116,6 +125,7 @@ export function runDualRsiBacktest(input: BacktestInput) {
       position = { side: pendingSide, entryTime: bar.openTime, entryPrice, size: decimalString(size),
         initialMargin: decimalString(margin), entryFee: decimalString(notional.mul(input.takerFeeRate).abs()), funding: "0" };
       equityPoints.push(decimalString(cash));
+      equityTimeline.push({ sampledAt: bar.openTime, equity: decimalString(cash.minus(position.entryFee)), reason: "entry" });
       pendingSide = null;
     }
 
@@ -142,14 +152,15 @@ export function runDualRsiBacktest(input: BacktestInput) {
       else if (take) closePosition(bar, favorablePrice, "take");
     }
 
-    if (!position && !pendingSide && index < input.fiveMinuteCandles.length - 1) {
+    if (!position && !pendingSide && index < input.fiveMinuteCandles.length - 1 && bar.closeTime >= (input.tradableStartMs ?? -Infinity)) {
       if (input.forcedEntry?.signalIndex === index) {
         pendingSide = input.forcedEntry.side;
         signals.push({ decision: pendingSide === "long" ? "enter_long" : "enter_short", candleCloseTime: bar.closeTime });
       } else if (index >= 114) {
-        const hours = input.oneHourCandles.filter((candle) => candle.closeTime <= bar.closeTime);
-        if (hours.length >= 115) {
-          const evaluation = evaluateDualRsi(input.fiveMinuteCandles.slice(0, index + 1), hours, rearmReady);
+        const fivePoint = fiveMinutePoints[index];
+        const hourPoint = latestHourIndex >= 0 ? oneHourPoints[latestHourIndex] : null;
+        if (fivePoint && hourPoint) {
+          const evaluation = evaluateDualRsi(fivePoint, hourPoint, rearmReady);
           if (!rearmReady && evaluation.fiveMinute && evaluation.oneHour) {
             const short = decimal(evaluation.fiveMinute.ratio).gte("1.9") && decimal(evaluation.oneHour.ratio).gte("1.9");
             const long = decimal(evaluation.fiveMinute.ratio).lte("0.1") && decimal(evaluation.oneHour.ratio).lte("0.1");
@@ -162,9 +173,17 @@ export function runDualRsiBacktest(input: BacktestInput) {
         }
       }
     }
+    if (bar.closeTime % 3_600_000 === 0) {
+      const equity = position
+        ? cash.plus(closeEconomics(position, bar.close, input.takerFeeRate, input.slippageBps).netPnl)
+        : cash;
+      equityTimeline.push({ sampledAt: bar.closeTime, equity: decimalString(equity), reason: "hourly" });
+      equityPoints.push(decimalString(equity));
+    }
   }
 
   if (position) closePosition(input.fiveMinuteCandles.at(-1)!, input.fiveMinuteCandles.at(-1)!.close, "end_of_data");
+  if (input.fiveMinuteCandles.length) equityTimeline.push({ sampledAt: input.fiveMinuteCandles.at(-1)!.closeTime, equity: decimalString(cash), reason: "end" });
   const metrics = { ...calculateBacktestMetrics(input.initialCapital, trades, equityPoints), adverseFirstCount };
   return {
     asset: input.asset,
@@ -172,6 +191,7 @@ export function runDualRsiBacktest(input: BacktestInput) {
     signals,
     trades,
     equityPoints,
+    equityTimeline,
     metrics,
     fidelity: { signal: "exact", execution: "bar_conservative", constraints: input.marginTiers ? "supplied_constraints" : "current_constraints", funding: input.fundingByTimestamp ? "supplied" : "unavailable" },
   };
