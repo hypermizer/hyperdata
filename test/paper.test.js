@@ -4,6 +4,7 @@ import {
   activePaperEpoch,
   estimateIsolatedLiquidationPrice,
   estimateMarketFill,
+  formatPaperPrice,
   formatPaperNumber,
   normalizeAccountName,
   normalizePaperFeeSchedule,
@@ -77,6 +78,13 @@ test("paper order receipts make successful fills unmistakable", () => {
     tone: "warning",
     text: "ORDER PARTIALLY FILLED — SHORT 4 DRAM @ $50 · FEE $0.09 · VISIBLE_DEPTH_EXHAUSTED",
   });
+});
+
+test("paper history prices retain useful precision without fixed-width noise", () => {
+  assert.equal(formatPaperPrice("95000.000000000000"), "$95,000.00");
+  assert.equal(formatPaperPrice("54.633176052488"), "$54.63317605");
+  assert.equal(formatPaperPrice("0.00001234"), "$0.00001234");
+  assert.equal(formatPaperPrice(null), "—");
 });
 
 test("ambiguous paper command responses reconcile against the idempotent result", async () => {
