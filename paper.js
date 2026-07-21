@@ -6,12 +6,15 @@ import {
   activePaperEpoch,
   estimateIsolatedLiquidationPrice,
   estimateMarketFill,
+  formatPaperPrice,
   formatPaperNumber,
   normalizeAccountName,
+  normalizeLegacyPaperHistory,
   normalizePaperFeeSchedule,
   normalizePaperOrder,
   normalizeStartingCapital,
   paperFeeRates,
+  paperHistoryViewUnavailable,
   paperInitialMargin,
   paperOrderReceipt,
   paperOrderSize,
@@ -20,7 +23,7 @@ import {
   paperSignClass,
   resolvePaperCommand,
   scalePerpFeeRate,
-} from "./lib/paper.js?v=20260724-order-outcome";
+} from "./lib/paper.js?v=20260724-history-prices";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -141,7 +144,7 @@ async function loadAccountState(options = {}) {
     client.from("paper_account_summaries").select("*").eq("epoch_id", epochId).single(),
     client.from("paper_positions").select("*").eq("epoch_id", epochId).order("asset"),
     client.from("paper_orders").select("*").eq("epoch_id", epochId).in("status", ["resting", "partially_filled", "trigger_waiting"]).order("created_at", { ascending: false }),
-    client.from("paper_ledger_entries").select("*").eq("epoch_id", epochId).order("created_at", { ascending: false }).limit(100),
+    loadPaperHistory(epochId),
     client.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
     client.rpc("paper_fee_volume", { p_epoch_id: epochId }).single(),
   ]);
@@ -158,6 +161,15 @@ async function loadAccountState(options = {}) {
   };
   render();
   return true;
+}
+
+async function loadPaperHistory(epochId) {
+  const history = await client.from("paper_ledger_history").select("*").eq("epoch_id", epochId)
+    .order("created_at", { ascending: false }).limit(100);
+  if (!history.error || !paperHistoryViewUnavailable(history.error)) return history;
+  const legacy = await client.from("paper_ledger_entries").select("*").eq("epoch_id", epochId)
+    .order("created_at", { ascending: false }).limit(100);
+  return legacy.error ? history : { data: normalizeLegacyPaperHistory(legacy.data), error: null };
 }
 
 function openAccountDialog() {
@@ -596,7 +608,7 @@ function render() {
   elements.metrics.innerHTML = summary ? metricStrip(summary) : "";
   elements.positions.innerHTML = table(["ASSET", "SIDE / SIZE", "ENTRY", "MARK", "UPNL", "MODE"], (state.epoch?.positions ?? []).map((position) => [displayAsset(position.asset), signed(position.signed_size), money(position.entry_price), money(position.mark_price), signedMoney(Number(position.signed_size) * (Number(position.mark_price) - Number(position.entry_price))), position.margin_mode.toUpperCase()]));
   elements.orders.innerHTML = table(["ASSET", "SIDE", "TYPE", "REMAINING", "PRICE", "STATUS", ""], (state.epoch?.orders ?? []).map((order) => [displayAsset(order.asset), order.side.toUpperCase(), order.order_type.toUpperCase(), formatPaperNumber(order.remaining_size, 6), money(order.limit_price ?? order.trigger_price), order.status.toUpperCase(), `<button type="button" data-order-id="${escapeHtml(order.id)}"${APP_CONFIG.paperTradingEnabled ? "" : " disabled"}>×</button>`]));
-  elements.history.innerHTML = table(["TIME", "TYPE", "ASSET", "AMOUNT"], (state.epoch?.ledger ?? []).map((entry) => [new Date(entry.created_at).toLocaleString(), entry.entry_type.toUpperCase(), displayAsset(entry.asset ?? "—"), signedMoney(entry.amount)]));
+  elements.history.innerHTML = table(["TIME", "TYPE", "ASSET", "PRICE", "AMOUNT"], (state.epoch?.ledger ?? []).map((entry) => [new Date(entry.event_at).toLocaleString(), entry.entry_type.toUpperCase(), displayAsset(entry.asset ?? "—"), formatPaperPrice(entry.asset_price), signedMoney(entry.amount)]));
   updateOrderFields();
 }
 
