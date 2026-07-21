@@ -13,12 +13,14 @@ import {
   normalizeStartingCapital,
   paperFeeRates,
   paperInitialMargin,
+  paperOrderReceipt,
   paperOrderSize,
   paperOrderPreview,
   paperPriceValid,
   paperSignClass,
+  resolvePaperCommand,
   scalePerpFeeRate,
-} from "./lib/paper.js?v=20260723-sizing-audit";
+} from "./lib/paper.js?v=20260724-order-outcome";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260720-paper";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -105,19 +107,24 @@ async function setSession(session) {
   await loadAccounts();
 }
 
-async function loadAccounts(preferredId = state.account?.id) {
+async function loadAccounts(preferredId = state.account?.id, options = {}) {
   const [accountsResponse, epochsResponse] = await Promise.all([
     client.from("paper_accounts").select("*").is("archived_at", null).not("name", "like", "__SHADOW__%").order("created_at"),
     client.from("paper_account_epochs").select("*").eq("state", "active"),
   ]);
-  if (accountsResponse.error || epochsResponse.error) return fail(accountsResponse.error ?? epochsResponse.error);
+  if (accountsResponse.error || epochsResponse.error) {
+    const error = accountsResponse.error ?? epochsResponse.error;
+    if (options.throwOnError) throw error;
+    reportPaperSyncError(error); return false;
+  }
   state.accounts = accountsResponse.data ?? [];
   state.epochs = epochsResponse.data ?? [];
   const selected = state.accounts.find((account) => account.id === preferredId) ?? state.accounts[0] ?? null;
   state.account = selected;
   state.epoch = activePaperEpoch(selected, state.epochs);
   renderAccountOptions();
-  if (selected) await loadAccountState(); else render();
+  if (selected) return loadAccountState(options);
+  render(); return true;
 }
 
 async function selectAccount(id) {
@@ -126,8 +133,8 @@ async function selectAccount(id) {
   await loadAccountState();
 }
 
-async function loadAccountState() {
-  if (!state.epoch) return render();
+async function loadAccountState(options = {}) {
+  if (!state.epoch) { render(); return true; }
   const epochId = state.epoch.id;
   const [epoch, summary, positions, orders, ledger, leverageSettings, feeVolume] = await Promise.all([
     client.from("paper_account_epochs").select("version,epoch_number,state").eq("id", epochId).single(),
@@ -139,7 +146,10 @@ async function loadAccountState() {
     client.rpc("paper_fee_volume", { p_epoch_id: epochId }).single(),
   ]);
   const error = epoch.error ?? summary.error ?? positions.error ?? orders.error ?? ledger.error ?? leverageSettings.error ?? feeVolume.error;
-  if (error) return fail(error);
+  if (error) {
+    if (options.throwOnError) throw error;
+    reportPaperSyncError(error); return false;
+  }
   state.epoch = {
     ...state.epoch, ...epoch.data,
     summary: { ...summary.data, trailing_volume: feeVolume.data.trailing_volume, maker_volume: feeVolume.data.maker_volume },
@@ -147,6 +157,7 @@ async function loadAccountState() {
     leverageSettings: leverageSettings.data ?? [],
   };
   render();
+  return true;
 }
 
 function openAccountDialog() {
@@ -191,7 +202,8 @@ async function runAccountRpc(name, args, preferredId) {
 }
 
 async function placeOrder(event) {
-  event.preventDefault(); elements.message.textContent = "";
+  event.preventDefault(); setPaperMessage();
+  let idempotencyKey = "";
   try {
     if (!APP_CONFIG.paperTradingEnabled) throw new Error("PAPER TRADING IS IN SHADOW MODE.");
     if (!state.account || !state.epoch) throw new Error("Create an account first.");
@@ -202,19 +214,38 @@ async function placeOrder(event) {
     const market = selectedMarket();
     form.size = previewOrder().shareSize ?? "";
     const order = normalizePaperOrder(form, market?.maxLeverage ?? Infinity);
+    idempotencyKey = crypto.randomUUID();
+    const epochId = state.epoch.id;
     setPending(true);
-    const { data, error } = await client.functions.invoke("paper-command", { body: {
-      type: "place_order", accountId: state.account.id, epochNumber: state.epoch.epoch_number,
-      expectedVersion: Number(state.epoch.version), idempotencyKey: crypto.randomUUID(), order,
-    } });
-    if (error) throw error;
-    elements.message.textContent = String(data?.response?.status ?? "ORDER ACCEPTED").toUpperCase();
+    const { data, reconciled } = await resolvePaperCommand(
+      () => client.functions.invoke("paper-command", { body: {
+        type: "place_order", accountId: state.account.id, epochNumber: state.epoch.epoch_number,
+        expectedVersion: Number(state.epoch.version), idempotencyKey, order,
+      } }),
+      async () => {
+        const result = await client.from("paper_commands").select("canonical_result")
+          .eq("epoch_id", epochId).eq("idempotency_key", idempotencyKey).maybeSingle();
+        if (result.error) throw result.error;
+        return result.data?.canonical_result ?? null;
+      },
+    );
+    const receipt = paperOrderReceipt(data);
+    const receiptText = `${receipt.text} · ID ${idempotencyKey.slice(0, 8).toUpperCase()}${reconciled ? " · VERIFIED" : ""}`;
+    setPaperMessage(receiptText, receipt.tone);
     elements.size.value = "";
     elements.sizeSlider.value = "0";
     updateLeverageLimit(true);
-    await loadAccounts(state.account.id);
+    try {
+      await loadAccounts(state.account.id, { throwOnError: true });
+    } catch {
+      setPaperMessage(`${receiptText} · ACCOUNT REFRESH DELAYED`, "warning");
+    }
   } catch (error) {
-    fail(error);
+    if (error?.outcomeUnknown) {
+      setPaperMessage(`ORDER OUTCOME UNKNOWN — DO NOT RESUBMIT · ID ${idempotencyKey.slice(0, 8).toUpperCase()}`, "warning");
+    } else {
+      setPaperMessage(`ORDER FAILED — ${String(error?.message ?? error).toUpperCase()}`, "error");
+    }
     if (state.account) await loadAccounts(state.account.id);
   } finally { setPending(false); }
 }
@@ -587,7 +618,15 @@ function table(headers, rows) {
 
 function setPending(value) { state.pending = value; render(); }
 function renderStatus(value) { elements.status.textContent = value; }
-function fail(error) { elements.message.textContent = String(error?.message ?? error).toUpperCase(); }
+function setPaperMessage(text = "", tone = "") {
+  elements.message.textContent = text;
+  if (tone) elements.message.dataset.tone = tone;
+  else delete elements.message.dataset.tone;
+}
+function reportPaperSyncError(error) {
+  renderStatus(`SYNC ERROR · ${String(error?.message ?? error).toUpperCase()}`);
+}
+function fail(error) { setPaperMessage(String(error?.message ?? error).toUpperCase(), "error"); }
 function displayAsset(value) { return escapeHtml(String(value).replace(/^xyz:/, "")); }
 function money(value, digits = 2) { return value === null || value === undefined ? "—" : `$${formatPaperNumber(value, digits)}`; }
 function percentRate(value) { return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(4)}%` : "—"; }
