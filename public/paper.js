@@ -9,10 +9,12 @@ import {
   formatPaperPrice,
   formatPaperNumber,
   normalizeAccountName,
+  normalizeLegacyPaperHistory,
   normalizePaperFeeSchedule,
   normalizePaperOrder,
   normalizeStartingCapital,
   paperFeeRates,
+  paperHistoryViewUnavailable,
   paperInitialMargin,
   paperOrderReceipt,
   paperOrderSize,
@@ -142,7 +144,7 @@ async function loadAccountState(options = {}) {
     client.from("paper_account_summaries").select("*").eq("epoch_id", epochId).single(),
     client.from("paper_positions").select("*").eq("epoch_id", epochId).order("asset"),
     client.from("paper_orders").select("*").eq("epoch_id", epochId).in("status", ["resting", "partially_filled", "trigger_waiting"]).order("created_at", { ascending: false }),
-    client.from("paper_ledger_history").select("*").eq("epoch_id", epochId).order("event_at", { ascending: false }).limit(100),
+    loadPaperHistory(epochId),
     client.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
     client.rpc("paper_fee_volume", { p_epoch_id: epochId }).single(),
   ]);
@@ -159,6 +161,15 @@ async function loadAccountState(options = {}) {
   };
   render();
   return true;
+}
+
+async function loadPaperHistory(epochId) {
+  const history = await client.from("paper_ledger_history").select("*").eq("epoch_id", epochId)
+    .order("created_at", { ascending: false }).limit(100);
+  if (!history.error || !paperHistoryViewUnavailable(history.error)) return history;
+  const legacy = await client.from("paper_ledger_entries").select("*").eq("epoch_id", epochId)
+    .order("created_at", { ascending: false }).limit(100);
+  return legacy.error ? history : { data: normalizeLegacyPaperHistory(legacy.data), error: null };
 }
 
 function openAccountDialog() {
