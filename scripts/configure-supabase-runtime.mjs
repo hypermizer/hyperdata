@@ -51,7 +51,7 @@ if (paperProcessorEnabled) {
   let healthyRuns = [];
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const result = await query(
-      "select state, reconciliation_failures from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
+      "select state, reconciliation_failures, details from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
       [paperHealthWindowStartedAt],
     );
     runs = Array.isArray(result) ? result : result.result ?? [];
@@ -63,7 +63,15 @@ if (paperProcessorEnabled) {
     throw new Error("Paper processor did not complete a run during the deployment health window");
   }
   if (!healthyRuns.length) {
-    const observedStates = runs.map((run) => `${run.state}:${Number(run.reconciliation_failures ?? 0)}`).join(", ");
+    const observedStates = runs.map((run) => {
+      const degradedAssets = Array.isArray(run.details?.degradedAssets) ? run.details.degradedAssets : [];
+      const degraded = degradedAssets.map((item) => {
+        const asset = String(item?.asset ?? "unknown");
+        const reason = String(item?.reason ?? "unknown").replace(/\s+/g, " ").slice(0, 160);
+        return `${asset}=${reason}`;
+      }).join("|");
+      return `${run.state}:${Number(run.reconciliation_failures ?? 0)}${degraded ? `[${degraded}]` : ""}`;
+    }).join(", ");
     throw new Error(`Paper processor did not produce a reconciled successful run during the deployment health window (observed ${observedStates})`);
   }
   console.log(`Paper processor health verified: ${healthyRuns.length} reconciled successful run(s)`);
