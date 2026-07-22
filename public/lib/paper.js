@@ -255,6 +255,83 @@ export function estimateIsolatedLiquidationPrice(entryPrice, side, leverage, max
   return estimate > 0 ? estimate : null;
 }
 
+export function paperPositionValue(position, markPrice = position?.mark_price) {
+  const size = Math.abs(Number(position?.signed_size));
+  const mark = Number(markPrice);
+  return Number.isFinite(size) && Number.isFinite(mark) ? size * mark : null;
+}
+
+export function paperMaintenanceMargin(notional, marginTiers) {
+  const value = Math.max(0, Number(notional) || 0);
+  const tiers = normalizedMarginTiers(marginTiers);
+  let active = tiers[0];
+  for (const tier of tiers) {
+    if (value >= tier.lowerBound) active = tier;
+  }
+  return Math.max(0, value * active.maintenanceRate - active.maintenanceDeduction);
+}
+
+export function paperPositionLiquidationPrice({ position, positions = [], cashBalance = 0, marginTiersByAsset = {} }) {
+  const signedSize = Number(position?.signed_size);
+  const entryPrice = Number(position?.entry_price);
+  const currentMark = Number(position?.mark_price);
+  if (!Number.isFinite(signedSize) || signedSize === 0 || !(entryPrice > 0) || !(currentMark > 0)) return null;
+
+  const absoluteSize = Math.abs(signedSize);
+  const tiers = normalizedMarginTiers(marginTiersByAsset[position.asset]);
+  let constantEquity;
+  let otherMaintenance = 0;
+  if (position.margin_mode === "isolated") {
+    constantEquity = Number(position.isolated_margin || 0) - signedSize * entryPrice;
+  } else {
+    const crossPositions = positions.filter((candidate) => candidate.margin_mode === "cross");
+    const isolatedReservations = positions.filter((candidate) => candidate.margin_mode === "isolated")
+      .reduce((total, candidate) => total + Number(candidate.isolated_margin || 0), 0);
+    constantEquity = Number(cashBalance || 0) - isolatedReservations - signedSize * entryPrice;
+    for (const other of crossPositions) {
+      if (other.asset === position.asset) continue;
+      const otherSize = Number(other.signed_size) || 0;
+      const otherMark = Number(other.mark_price) || 0;
+      constantEquity += otherSize * (otherMark - Number(other.entry_price || 0));
+      otherMaintenance += paperMaintenanceMargin(
+        Math.abs(otherSize) * otherMark,
+        marginTiersByAsset[other.asset],
+      );
+    }
+  }
+
+  const candidates = [];
+  tiers.forEach((tier, index) => {
+    const denominator = signedSize - absoluteSize * tier.maintenanceRate;
+    if (Math.abs(denominator) <= Number.EPSILON) return;
+    const price = (otherMaintenance - tier.maintenanceDeduction - constantEquity) / denominator;
+    const notional = absoluteSize * price;
+    const upperBound = tiers[index + 1]?.lowerBound ?? Infinity;
+    const rawMaintenance = notional * tier.maintenanceRate - tier.maintenanceDeduction;
+    if (price > 0 && notional >= tier.lowerBound && notional < upperBound && rawMaintenance >= -1e-8) {
+      candidates.push(price);
+    }
+  });
+  const adverse = candidates.filter((price) => signedSize > 0 ? price < currentMark : price > currentMark);
+  if (!adverse.length) return null;
+  return signedSize > 0 ? Math.max(...adverse) : Math.min(...adverse);
+}
+
+export function paperOrderHistoryCost(order) {
+  const notional = Number(order?.notional);
+  const leverage = Number(order?.leverage);
+  const fees = Number(order?.fees) || 0;
+  if (order?.reduce_only) return fees;
+  return Number.isFinite(notional) && leverage > 0 ? notional / leverage + fees : null;
+}
+
+export function combinePaperHistory(ledgerEntries, orderEntries, limit = 100) {
+  return [
+    ...(ledgerEntries ?? []).map((entry) => ({ ...entry, history_kind: "ledger" })),
+    ...(orderEntries ?? []).map((entry) => ({ ...entry, history_kind: "order" })),
+  ].sort((left, right) => new Date(right.event_at).getTime() - new Date(left.event_at).getTime()).slice(0, limit);
+}
+
 export function formatPaperNumber(value, digits = 2) {
   if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
@@ -288,6 +365,16 @@ export function activePaperEpoch(account, epochs) {
 function positiveNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function normalizedMarginTiers(marginTiers) {
+  return [...(marginTiers?.length ? marginTiers : [{
+    lowerBound: 0, maintenanceRate: 0, maintenanceDeduction: 0,
+  }])].map((tier) => ({
+    lowerBound: Math.max(0, Number(tier.lowerBound) || 0),
+    maintenanceRate: Math.max(0, Number(tier.maintenanceRate) || 0),
+    maintenanceDeduction: Math.max(0, Number(tier.maintenanceDeduction) || 0),
+  })).sort((left, right) => left.lowerBound - right.lowerBound);
 }
 
 function compactPaperNumber(value, digits) {

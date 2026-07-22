@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260721-tools" />
+    <link rel="stylesheet" href="./styles.css?v=20260722-position-controls" />
   </head>
   <body>
     <main>
@@ -360,6 +360,45 @@
       </form>
     </dialog>
 
+    <dialog id="paper-close-dialog" class="settings-dialog paper-close-dialog" aria-labelledby="paper-close-title">
+      <div class="settings-header">
+        <h2 id="paper-close-title">MARKET CLOSE</h2>
+        <button class="icon-button" type="button" data-close-paper-position aria-label="Close">×</button>
+      </div>
+      <form id="paper-close-form" class="settings-form">
+        <div class="paper-close-summary" aria-live="polite">
+          <span><small>POSITION</small><strong id="paper-close-position">—</strong></span>
+          <span><small>LIVE MARK</small><strong id="paper-close-mark">—</strong></span>
+          <span><small>POSITION VALUE</small><strong id="paper-close-value">—</strong></span>
+        </div>
+        <fieldset class="paper-ticket-fieldset paper-close-unit">
+          <legend>AMOUNT UNIT</legend>
+          <div class="paper-segmented">
+            <label><input name="closeSizeMode" type="radio" value="shares" checked /><span>SHARES</span></label>
+            <label><input name="closeSizeMode" type="radio" value="usdc" /><span>USDC</span></label>
+          </div>
+        </fieldset>
+        <label for="paper-close-size">AMOUNT <span id="paper-close-size-unit">SHARES</span></label>
+        <input id="paper-close-size" type="number" min="0" step="any" inputmode="decimal" placeholder="0" required />
+        <div class="paper-close-range-row">
+          <input id="paper-close-slider" type="range" min="0" max="100" step="1" value="100" aria-label="Percentage of position to close" />
+          <output id="paper-close-percent">100%</output>
+        </div>
+        <div class="paper-close-preview">
+          <span><small>SHARES</small><strong id="paper-close-shares">—</strong></span>
+          <span><small>EST. FILL</small><strong id="paper-close-fill">—</strong></span>
+          <span><small>EST. VALUE</small><strong id="paper-close-notional">—</strong></span>
+          <span><small>EST. FEE</small><strong id="paper-close-fee">—</strong></span>
+        </div>
+        <p id="paper-close-validation" class="paper-field-help" role="status"></p>
+        <div class="dialog-actions">
+          <button type="button" data-close-paper-position>CANCEL</button>
+          <button id="paper-close-submit" type="submit">MARKET CLOSE</button>
+        </div>
+        <p id="paper-close-message" class="message" role="alert"></p>
+      </form>
+    </dialog>
+
     <dialog id="watchlist-settings" class="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-header">
         <h2 id="settings-title">Watchlist settings</h2>
@@ -402,7 +441,7 @@
     </dialog>
     <script type="module" src="./app.js?v=20260721-tools"></script>
     <script type="module" src="./audio.js?v=20260721-strats"></script>
-    <script type="module" src="./paper.js?v=20260721-strats"></script>
+    <script type="module" src="./paper.js?v=20260722-position-controls"></script>
     <script type="module" src="./strats.js?v=20260722-strats2"></script>
     <script type="module" src="./tools.js?v=20260721-tools"></script>
   </body>
