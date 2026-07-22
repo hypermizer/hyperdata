@@ -71,7 +71,10 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
     marginMode: null,
     growthMode: null,
     deployerFeeScale: "1",
-    marginTiers: [{ lowerBound: 0, maxLeverage: 10 }, { lowerBound: 100000, maxLeverage: 5 }],
+    marginTiers: [
+      { lowerBound: 0, maxLeverage: 10, maintenanceRate: 0.05, maintenanceDeduction: 0 },
+      { lowerBound: 100000, maxLeverage: 5, maintenanceRate: 0.1, maintenanceDeduction: 5000 },
+    ],
     isDelisted: false,
   });
 });

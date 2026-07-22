@@ -49,12 +49,19 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch, dexMetadata = n
     const markPrice = toNumber(context.markPx);
     const previousPrice = toNumber(context.prevDayPx);
     const marginTableId = asset.marginTableId ?? asset.maxLeverage;
-    const marginTiers = (marginTables.get(marginTableId)?.marginTiers ?? [
+    let priorMaintenanceRate = 0;
+    let priorMaintenanceDeduction = 0;
+    const marginTiers = [...(marginTables.get(marginTableId)?.marginTiers ?? [
       { lowerBound: "0", maxLeverage: asset.maxLeverage },
-    ]).map((tier) => ({
-      lowerBound: Number(tier.lowerBound),
-      maxLeverage: tier.maxLeverage,
-    }));
+    ])].sort((left, right) => Number(left.lowerBound) - Number(right.lowerBound)).map((tier, tierIndex) => {
+      const lowerBound = Number(tier.lowerBound);
+      const maintenanceRate = 1 / (tier.maxLeverage * 2);
+      const maintenanceDeduction = tierIndex === 0 ? 0
+        : priorMaintenanceDeduction + lowerBound * (maintenanceRate - priorMaintenanceRate);
+      priorMaintenanceRate = maintenanceRate;
+      priorMaintenanceDeduction = maintenanceDeduction;
+      return { lowerBound, maxLeverage: tier.maxLeverage, maintenanceRate, maintenanceDeduction };
+    });
 
     return {
       id: asset.name,

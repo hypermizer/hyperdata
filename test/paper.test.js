@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   activePaperEpoch,
+  combinePaperHistory,
   estimateIsolatedLiquidationPrice,
   estimateMarketFill,
   formatPaperPrice,
@@ -13,9 +14,13 @@ import {
   normalizeStartingCapital,
   paperFeeRates,
   paperInitialMargin,
+  paperMaintenanceMargin,
+  paperOrderHistoryCost,
   paperOrderReceipt,
   paperOrderSize, paperPriceValid,
   paperOrderPreview,
+  paperPositionLiquidationPrice,
+  paperPositionValue,
   paperSignClass,
   paperHistoryViewUnavailable,
   resolvePaperCommand,
@@ -202,6 +207,47 @@ test("market fill preview walks visible book depth and reports slippage", () => 
 test("isolated liquidation estimate reflects side and maximum leverage maintenance", () => {
   assert.ok(Math.abs(estimateIsolatedLiquidationPrice(100, "buy", 10, 20) - 92.3076923076923) < 1e-10);
   assert.ok(Math.abs(estimateIsolatedLiquidationPrice(100, "sell", 10, 20) - 107.3170731707317) < 1e-10);
+});
+
+test("paper position valuation and liquidation use the engine maintenance tiers", () => {
+  const tiers = [{ lowerBound: 0, maintenanceRate: 0.05, maintenanceDeduction: 0 }];
+  const isolatedLong = { asset: "BTC", margin_mode: "isolated", signed_size: "10", entry_price: "100", mark_price: "100", isolated_margin: "100" };
+  assert.equal(paperPositionValue(isolatedLong), 1000);
+  assert.equal(paperMaintenanceMargin(1000, tiers), 50);
+  assert.ok(Math.abs(paperPositionLiquidationPrice({
+    position: isolatedLong, positions: [isolatedLong], marginTiersByAsset: { BTC: tiers },
+  }) - 94.73684210526316) < 1e-10);
+  const isolatedShort = { ...isolatedLong, signed_size: "-10" };
+  assert.ok(Math.abs(paperPositionLiquidationPrice({
+    position: isolatedShort, positions: [isolatedShort], marginTiersByAsset: { BTC: tiers },
+  }) - 104.76190476190476) < 1e-10);
+
+  const tieredLong = { asset: "BTC", margin_mode: "isolated", signed_size: "1000", entry_price: "200", mark_price: "200", isolated_margin: "10000" };
+  const tiered = [
+    { lowerBound: 0, maintenanceRate: 0.025, maintenanceDeduction: 0 },
+    { lowerBound: 100000, maintenanceRate: 0.05, maintenanceDeduction: 2500 },
+  ];
+  assert.ok(Math.abs(paperPositionLiquidationPrice({
+    position: tieredLong, positions: [tieredLong], marginTiersByAsset: { BTC: tiered },
+  }) - 197.3684210526316) < 1e-10);
+
+  const crossLong = { asset: "BTC", margin_mode: "cross", signed_size: "10", entry_price: "100", mark_price: "100" };
+  const crossShort = { asset: "ETH", margin_mode: "cross", signed_size: "-2", entry_price: "200", mark_price: "190" };
+  const isolated = { asset: "SOL", margin_mode: "isolated", signed_size: "1", entry_price: "50", mark_price: "50", isolated_margin: "10" };
+  assert.ok(Math.abs(paperPositionLiquidationPrice({
+    position: crossLong, positions: [crossLong, crossShort, isolated], cashBalance: 100,
+    marginTiersByAsset: { BTC: tiers, ETH: tiers, SOL: tiers },
+  }) - 95.6842105263158) < 1e-10);
+});
+
+test("paper history combines orders with ledger events and derives order cost", () => {
+  const order = { id: "o", event_at: "2026-07-22T11:00:00Z", notional: "1000", leverage: 10, fees: "0.45" };
+  const ledger = { id: "l", event_at: "2026-07-22T10:00:00Z" };
+  assert.equal(paperOrderHistoryCost(order), 100.45);
+  assert.equal(paperOrderHistoryCost({ ...order, reduce_only: true }), 0.45);
+  assert.deepEqual(combinePaperHistory([ledger], [order]).map(({ id, history_kind }) => ({ id, history_kind })), [
+    { id: "o", history_kind: "order" }, { id: "l", history_kind: "ledger" },
+  ]);
 });
 
 test("paper fee preview selects the earned tier and maker discount", () => {
