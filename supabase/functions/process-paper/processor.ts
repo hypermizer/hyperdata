@@ -1,5 +1,7 @@
 import { RequestBudget } from "../_shared/paper/market-data.ts";
 
+export const RECURRING_SNAPSHOT_WEIGHT = 62;
+
 export interface ProcessorAssetWork {
   asset: string;
   hasPosition: boolean;

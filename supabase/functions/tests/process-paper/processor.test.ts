@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { buildProcessorWork, processPaperBatch, type ProcessorSnapshot } from "../../process-paper/processor.ts";
+import { buildProcessorWork, processPaperBatch, RECURRING_SNAPSHOT_WEIGHT, type ProcessorSnapshot } from "../../process-paper/processor.ts";
 
 Deno.test("recent fills keep closed positions eligible for funding settlement", () => {
   assertEquals(buildProcessorWork([], [], [{ epoch_id: "closed-account", asset: "OIL" }]), [
@@ -89,6 +89,24 @@ Deno.test("risk-bearing assets consume budget before resting-only assets", async
   assertEquals(result.state, "partial");
   assertEquals(result.apiWeight, 25);
   assertEquals(result.degradedAssets, [{ asset: "XYZ100", reason: "api_budget_exhausted" }]);
+});
+
+Deno.test("shared refresh weight is charged once while four recurring assets fit the production budget", async () => {
+  let fetched = 0;
+  const result = await processPaperBatch({
+    loadWork: async () => ["A", "B", "C", "D"].map((asset) => ({ asset, hasPosition: true, accountIds: [asset] })),
+    estimateSnapshotWeight: () => RECURRING_SNAPSHOT_WEIGHT,
+    fetchSnapshot: async (work) => ({
+      asset: work.asset, inputVersion: work.asset,
+      apiWeight: fetched++ === 0 ? 142 : RECURRING_SNAPSHOT_WEIGHT,
+      degraded: false, payload: {},
+    }),
+    processAccount: async () => ({ mutated: true, accepted: true }),
+  }, 500);
+  assertEquals(result.state, "succeeded");
+  assertEquals(result.assetsProcessed, 4);
+  assertEquals(result.apiWeight, 328);
+  assertEquals(result.degradedAssets, []);
 });
 
 Deno.test("an asset failure is isolated and reconciliation failure makes run partial", async () => {
