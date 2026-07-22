@@ -5,6 +5,7 @@ import {
   combinePaperHistory,
   estimateIsolatedLiquidationPrice,
   estimateMarketFill,
+  filterPaperHistory,
   formatPaperPrice,
   formatPaperNumber,
   normalizeLegacyPaperHistory,
@@ -43,6 +44,7 @@ test("paper account and order inputs normalize without binary calculations", () 
 
 test("paper projection helpers are deterministic", () => {
   assert.equal(formatPaperNumber("1234.567", 2), "1,234.57");
+  assert.equal(formatPaperNumber("1234.56789", 8), "1,234.57");
   assert.equal(paperSignClass("-1"), "negative");
   assert.equal(activePaperEpoch({ id: "a", active_epoch: 2 }, [{ id: "old", account_id: "a", epoch_number: 1, state: "closed" }, { id: "new", account_id: "a", epoch_number: 2, state: "active" }]).id, "new");
 });
@@ -57,7 +59,7 @@ test("paper order amounts convert from USDC to exchange-valid share precision", 
   assert.equal(paperOrderSize("100", "usdc", "0", 1), null);
 });
 
-test("paper order receipts make successful fills unmistakable", () => {
+test("paper order receipts use two-decimal display precision", () => {
   assert.deepEqual(paperOrderReceipt({
     fills: [
       { size: "34.6", price: "54.64", fee: "0.17014896" },
@@ -70,27 +72,27 @@ test("paper order receipts make successful fills unmistakable", () => {
     response: { status: "filled" },
   }), {
     tone: "success",
-    text: "ORDER FILLED — SHORT 182.9 DRAM @ $54.633176 · FEE $0.899317",
+    text: "ORDER FILLED — SHORT 182.90 DRAM @ $54.63 · FEE $0.90",
   });
   assert.deepEqual(paperOrderReceipt({
     fills: [],
     order: { asset: "xyz:ORCL", side: "buy", requestedSize: "2" },
     response: { status: "resting" },
-  }), { tone: "success", text: "ORDER RESTING — LONG 2 ORCL" });
+  }), { tone: "success", text: "ORDER RESTING — LONG 2.00 ORCL" });
   assert.deepEqual(paperOrderReceipt({
     fills: [{ size: "4", price: "50", fee: "0.09" }],
     order: { asset: "xyz:DRAM", side: "sell", requestedSize: "10" },
     response: { status: "canceled", reason: "visible_depth_exhausted" },
   }), {
     tone: "warning",
-    text: "ORDER PARTIALLY FILLED — SHORT 4 DRAM @ $50 · FEE $0.09 · VISIBLE_DEPTH_EXHAUSTED",
+    text: "ORDER PARTIALLY FILLED — SHORT 4.00 DRAM @ $50.00 · FEE $0.09 · VISIBLE_DEPTH_EXHAUSTED",
   });
 });
 
-test("paper history prices retain useful precision without fixed-width noise", () => {
+test("paper prices use two-decimal display precision", () => {
   assert.equal(formatPaperPrice("95000.000000000000"), "$95,000.00");
-  assert.equal(formatPaperPrice("54.633176052488"), "$54.63317605");
-  assert.equal(formatPaperPrice("0.00001234"), "$0.00001234");
+  assert.equal(formatPaperPrice("54.633176052488"), "$54.63");
+  assert.equal(formatPaperPrice("0.00001234"), "$0.00");
   assert.equal(formatPaperPrice(null), "—");
   assert.equal(paperHistoryViewUnavailable({ code: "PGRST205" }), true);
   assert.equal(paperHistoryViewUnavailable({ code: "42P01" }), true);
@@ -98,6 +100,18 @@ test("paper history prices retain useful precision without fixed-width noise", (
   assert.deepEqual(normalizeLegacyPaperHistory([{ id: "1", created_at: "2026-07-21T10:00:00Z" }]), [{
     id: "1", created_at: "2026-07-21T10:00:00Z", event_at: "2026-07-21T10:00:00Z", asset_price: null,
   }]);
+});
+
+test("paper history filters orders and individual ledger types", () => {
+  const entries = [
+    { id: "order", history_kind: "order", order_type: "market" },
+    { id: "fee", history_kind: "ledger", entry_type: "fee" },
+    { id: "funding", history_kind: "ledger", entry_type: "funding" },
+  ];
+  assert.deepEqual(filterPaperHistory(entries, "all"), entries);
+  assert.deepEqual(filterPaperHistory(entries, "order").map(({ id }) => id), ["order"]);
+  assert.deepEqual(filterPaperHistory(entries, "fee").map(({ id }) => id), ["fee"]);
+  assert.deepEqual(filterPaperHistory(entries, "funding").map(({ id }) => id), ["funding"]);
 });
 
 test("ambiguous paper command responses reconcile against the idempotent result", async () => {
@@ -144,6 +158,34 @@ test("definitive paper command rejections do not poll for a committed result", a
     async () => { lookups += 1; return null; },
   ), failure);
   assert.equal(lookups, 0);
+});
+
+test("stale paper commands refresh and retry the same idempotent invocation", async () => {
+  const stale = Object.assign(new Error("Edge Function returned a non-2xx status code"), {
+    context: Response.json({ error: "stale_account" }, { status: 409 }),
+  });
+  let invocations = 0;
+  let refreshes = 0;
+  const result = await resolvePaperCommand(
+    async () => ++invocations === 1
+      ? { data: null, error: stale }
+      : { data: { response: { status: "filled" } }, error: null },
+    async () => null,
+    { refresh: async () => { refreshes += 1; }, staleRetries: 1 },
+  );
+  assert.deepEqual(result, { data: { response: { status: "filled" } }, reconciled: false });
+  assert.equal(invocations, 2);
+  assert.equal(refreshes, 1);
+});
+
+test("definitive edge rejections expose the server reason", async () => {
+  const failure = Object.assign(new Error("Edge Function returned a non-2xx status code"), {
+    context: Response.json({ error: "invalid_order", details: ["minimum_notional"] }, { status: 422 }),
+  });
+  await assert.rejects(resolvePaperCommand(
+    async () => ({ data: null, error: failure }),
+    async () => null,
+  ), (error) => error.code === "invalid_order" && error.status === 422 && /minimum notional/i.test(error.message));
 });
 
 test("paper limit prices follow Hyperliquid tick precision", () => {
