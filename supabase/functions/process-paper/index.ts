@@ -1,7 +1,14 @@
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
-import { inputVersion } from "../_shared/paper/market-data.ts";
-import { fetchPaperBook, fetchPaperCatalog, fetchPaperFeeSchedule, fetchPaperFunding, fetchPaperTrades } from "../_shared/paper/market-data.ts";
+import {
+  fetchPaperBook,
+  fetchPaperCatalog,
+  fetchPaperFeeSchedule,
+  fetchPaperFunding,
+  fetchPaperTrades,
+  fundingCacheIsFresh,
+  inputVersion,
+} from "../_shared/paper/market-data.ts";
 import { makerFraction, scalePerpFeeRate, selectFeeRate } from "../_shared/paper/fees.ts";
 import { crossRisk, initialMargin, isolatedRisk, maintenanceMargin } from "../_shared/paper/margin.ts";
 import { unrealizedPnl } from "../_shared/paper/accounting.ts";
@@ -11,7 +18,7 @@ import { hasMatchMargin, replayOrder, type ReplaySnapshot } from "./account-proc
 import { missingFundingEffects } from "./funding.ts";
 import { buildLiquidationEffect } from "./liquidation.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
-import { buildProcessorWork, processPaperBatch, RECURRING_SNAPSHOT_WEIGHT, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
+import { buildProcessorWork, estimateSnapshotWeight, processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 import { createPaperCommandDependencies } from "../paper-command/index.ts";
 import { completedCandleBucket } from "../_shared/strategies/live.ts";
 import { createStrategyRuntime } from "./strategy-runtime.ts";
@@ -78,7 +85,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
     return { ...fresh, fetched: true };
   })();
   const processor: PaperProcessorDependencies = {
-    estimateSnapshotWeight: () => RECURRING_SNAPSHOT_WEIGHT,
+    estimateSnapshotWeight,
     async loadWork() {
       const { data: accounts, error: accountError } = await service.from("paper_accounts")
         .select("id,active_epoch").is("archived_at", null);
@@ -109,9 +116,12 @@ function runtimeDependencies(): ProcessPaperDependencies {
     async fetchSnapshot(work) {
       const asset = work.asset;
       const dex = asset.includes(":") ? asset.split(":", 1)[0] : "";
+      const cursorPromise = work.requiresTradeReplay
+        ? service.from("paper_account_market_cursors").select("epoch_id,last_trade_id,last_timestamp_ms")
+          .eq("asset", asset).in("epoch_id", work.accountIds)
+        : Promise.resolve({ data: [], error: null });
       const [{ data: accountCursors, error: cursorError }, { data: oracleInputs, error: oracleError }] = await Promise.all([
-        service.from("paper_account_market_cursors").select("epoch_id,last_trade_id,last_timestamp_ms")
-          .eq("asset", asset).in("epoch_id", work.accountIds),
+        cursorPromise,
         service.from("paper_market_inputs").select("payload").eq("asset", asset).eq("input_kind", "context")
           .order("source_timestamp", { ascending: false }).limit(1000),
       ]);
@@ -127,16 +137,19 @@ function runtimeDependencies(): ProcessPaperDependencies {
         lastTimestampMs: oldestCursor.last_timestamp_ms === null ? null : Number(oldestCursor.last_timestamp_ms),
       } : { lastTradeId: null, lastTimestampMs: null };
       const { data: cachedFunding, error: fundingCacheError } = await service.from("paper_market_inputs")
-        .select("payload,input_version,created_at").eq("asset", asset).eq("input_kind", "funding")
-        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        .select("payload,input_version,source_timestamp").eq("asset", asset).eq("input_kind", "funding")
+        .order("source_timestamp", { ascending: false }).limit(1).maybeSingle();
       if (fundingCacheError) throw new Error(fundingCacheError.message);
-      const fundingIsFresh = cachedFunding && Date.now() - Date.parse(cachedFunding.created_at) < 55_000;
+      const fundingIsFresh = cachedFunding && fundingCacheIsFresh(cachedFunding.source_timestamp);
       const fundingPromise = fundingIsFresh
         ? Promise.resolve({ points: (cachedFunding.payload as { points?: never[] }).points ?? [], inputVersion: cachedFunding.input_version, fetched: false })
         : fetchPaperFunding(asset, Date.now() - 24 * 60 * 60 * 1_000, Date.now()).then((value) => ({ ...value, fetched: true }));
+      const tradePromise = work.requiresTradeReplay
+        ? fetchPaperTrades(asset, cursor).then((value) => ({ ...value, fetched: true }))
+        : Promise.resolve({ trades: [], cursor, gap: false, inputVersion: "not-required", fetched: false });
       const [results, bookInput, tradeInput, feeInput, fundingInput, catalogInput] = await Promise.all([
         fetchMarketBatches([{ asset, dex }], new Date()),
-        fetchPaperBook(asset), fetchPaperTrades(asset, cursor), loadFees(), fundingPromise, loadCatalog(),
+        fetchPaperBook(asset), tradePromise, loadFees(), fundingPromise, loadCatalog(),
       ]);
       const result = results.get(dex);
       if (!result?.ok || result.observations.length !== 1) {
@@ -151,13 +164,15 @@ function runtimeDependencies(): ProcessPaperDependencies {
       });
       return {
         asset, inputVersion: version,
-        apiWeight: 42 + (fundingInput.fetched ? 20 : 0) + (feeInput.fetched ? 20 : 0) + (catalogInput.fetched ? 40 : 0),
+        apiWeight: 22 + (tradeInput.fetched ? 20 : 0) + (fundingInput.fetched ? 20 : 0) +
+          (feeInput.fetched ? 20 : 0) + (catalogInput.fetched ? 40 : 0),
         degraded: tradeInput.gap, payload: {
           markPrice: String(observation.mark_price), observation,
           book: bookInput.book, trades: tradeInput.trades, tradeGap: tradeInput.gap,
           cursor: tradeInput.cursor, fetchCursor: cursor, bookVersion: bookInput.inputVersion,
           tradeVersion: tradeInput.inputVersion,
           fundingPoints: fundingInput.points, fundingVersion: fundingInput.inputVersion,
+          fundingFetched: fundingInput.fetched, tradesFetched: tradeInput.fetched,
           oracleHistory: (oracleInputs ?? []).map((input) => input.payload),
           metadata, catalog: catalogInput.assets,
           feeSchedule: feeInput.schedule,
@@ -172,6 +187,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         fetchCursor: { lastTradeId: string | null; lastTimestampMs: number | null };
         bookVersion: string; tradeVersion: string;
         fundingPoints: Parameters<typeof missingFundingEffects>[0]; fundingVersion: string;
+        fundingFetched: boolean; tradesFetched: boolean;
         oracleHistory: Array<{ observed_at?: string; oracle_price?: number | null }>;
         feeSchedule: Parameters<typeof selectFeeRate>[0];
         metadata: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"][number];
@@ -316,7 +332,13 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const { data, error } = await service.rpc("apply_paper_account_snapshot", {
         p_epoch_id: epochId, p_expected_version: expectedVersion, p_asset: snapshot.asset,
         p_replay_effects: replayEffects, p_funding_effects: fundingEffects,
-        p_mark_price: payload.markPrice, p_input_version: snapshot.inputVersion, p_cursor: payload.cursor,
+        p_mark_price: payload.markPrice, p_input_version: snapshot.inputVersion,
+        p_cursor: payload.tradesFetched ? payload.cursor : {
+          lastTradeId: accountCursor?.last_trade_id ?? null,
+          lastTimestampMs: accountCursor?.last_timestamp_ms === null || accountCursor?.last_timestamp_ms === undefined
+            ? null
+            : Number(accountCursor.last_timestamp_ms),
+        },
       });
       if (error) throw new Error(error.message);
       if (!data) return { mutated: false, accepted: false };
@@ -396,17 +418,21 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const payload = snapshot.payload as {
         observation: unknown; book: unknown; trades: unknown; tradeGap: boolean;
         cursor: unknown; fetchCursor: unknown; bookVersion: string; tradeVersion: string;
-        fundingPoints: unknown; fundingVersion: string;
+        fundingPoints: unknown; fundingVersion: string; fundingFetched: boolean; tradesFetched: boolean;
       };
       const sourceTimestamp = new Date().toISOString();
       const inputRows = [
         { input_kind: "context", input_version: snapshot.inputVersion, payload: payload.observation, gap_state: null },
         { input_kind: "book", input_version: payload.bookVersion, payload: payload.book, gap_state: null },
-        { input_kind: "trades", input_version: payload.tradeVersion, payload: { cursor: payload.cursor, trades: payload.trades }, gap_state: payload.tradeGap ? "gap" : null },
-        { input_kind: "funding", input_version: payload.fundingVersion, payload: { points: payload.fundingPoints }, gap_state: null },
+        ...(payload.tradesFetched
+          ? [{ input_kind: "trades", input_version: payload.tradeVersion, payload: { cursor: payload.cursor, trades: payload.trades }, gap_state: payload.tradeGap ? "gap" : null }]
+          : []),
+        ...(payload.fundingFetched
+          ? [{ input_kind: "funding", input_version: payload.fundingVersion, payload: { points: payload.fundingPoints }, gap_state: null }]
+          : []),
       ].map((row) => ({ asset: snapshot.asset, source_timestamp: sourceTimestamp, fidelity: row.gap_state ? "degraded" : "live", ...row }));
       const { error } = await service.from("paper_market_inputs").upsert(inputRows, {
-        onConflict: "asset,input_kind,input_version", ignoreDuplicates: true,
+        onConflict: "asset,input_kind,input_version",
       });
       if (error) throw new Error(error.message);
     },

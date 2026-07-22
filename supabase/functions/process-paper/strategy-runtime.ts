@@ -149,7 +149,7 @@ export function createStrategyRuntime(options: RuntimeOptions) {
     if (assignmentError) throw new Error(assignmentError.message);
     if (!assignment) return { evaluations: 0, actions: 0 };
     const payload = snapshot.payload as StrategySnapshotPayload;
-    if (snapshot.degraded || options.now() - payload.book.timestampMs > 10_000) return await markDegraded(assignment.id, "stale_market_input");
+    if (options.now() - payload.book.timestampMs > 10_000) return await markDegraded(assignment.id, "stale_market_input");
 
     const [{ data: revision, error: revisionError }, strategyPositionResult, { data: currentPaperPosition, error: paperPositionError }] = await Promise.all([
       service.from("strategy_revisions").select("parameters").eq("id", assignment.revision_id).single(),

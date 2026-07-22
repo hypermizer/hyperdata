@@ -194,6 +194,14 @@ export interface FundingRatePoint {
   premium: string | null;
 }
 
+export const PAPER_FUNDING_CACHE_MAX_AGE_MS = 5 * 60 * 1_000;
+
+export function fundingCacheIsFresh(sourceTimestamp: string, nowMs = Date.now()): boolean {
+  const sourceTimestampMs = Date.parse(sourceTimestamp);
+  const ageMs = nowMs - sourceTimestampMs;
+  return Number.isFinite(sourceTimestampMs) && ageMs >= 0 && ageMs < PAPER_FUNDING_CACHE_MAX_AGE_MS;
+}
+
 export function normalizeFundingHistory(payload: unknown): FundingRatePoint[] {
   if (!Array.isArray(payload)) throw new Error("malformed funding history");
   const unique = new Map<string, FundingRatePoint>();
