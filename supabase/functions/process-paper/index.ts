@@ -11,7 +11,7 @@ import { hasMatchMargin, replayOrder, type ReplaySnapshot } from "./account-proc
 import { missingFundingEffects } from "./funding.ts";
 import { buildLiquidationEffect } from "./liquidation.ts";
 import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
-import { buildProcessorWork, processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
+import { buildProcessorWork, processPaperBatch, RECURRING_SNAPSHOT_WEIGHT, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 import { createPaperCommandDependencies } from "../paper-command/index.ts";
 import { completedCandleBucket } from "../_shared/strategies/live.ts";
 import { createStrategyRuntime } from "./strategy-runtime.ts";
@@ -78,7 +78,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
     return { ...fresh, fetched: true };
   })();
   const processor: PaperProcessorDependencies = {
-    estimateSnapshotWeight: () => 142,
+    estimateSnapshotWeight: () => RECURRING_SNAPSHOT_WEIGHT,
     async loadWork() {
       const { data: accounts, error: accountError } = await service.from("paper_accounts")
         .select("id,active_epoch").is("archived_at", null);
