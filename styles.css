@@ -214,6 +214,9 @@ input, select { min-width: 0; }
 .paper-metrics > span:last-child { border-right: 0; }
 .paper-metrics small { color: #a8afb7; font-size: 10px; }
 .paper-metrics strong { overflow: hidden; font-size: 13px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.paper-section-heading { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+.paper-section-heading .paper-heading { margin: 0; }
+.paper-section-heading select { min-height: 28px; width: auto; padding: 3px 24px 3px 7px; font-size: 10px; }
 .paper-order-form { width: min(100%, 720px); margin: 14px auto 0; }
 .paper-order-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .paper-order-column { display: flex; min-width: 0; flex-direction: column; gap: 10px; }

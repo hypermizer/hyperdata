@@ -7,6 +7,7 @@ import {
   combinePaperHistory,
   estimateIsolatedLiquidationPrice,
   estimateMarketFill,
+  filterPaperHistory,
   formatPaperPrice,
   formatPaperNumber,
   normalizeAccountName,
@@ -27,7 +28,7 @@ import {
   paperSignClass,
   resolvePaperCommand,
   scalePerpFeeRate,
-} from "./lib/paper.js?v=20260722-position-controls";
+} from "./lib/paper.js?v=20260722-close-retry";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -35,14 +36,14 @@ const state = {
   user: null, accounts: [], epochs: [], account: null, epoch: null, pending: false,
   feeSchedule: null, feeRates: { maker: 0.00015, taker: 0.00045 },
   quoteStream: null, quotedAsset: "", quoteUpdatedAt: 0, bookUpdatedAt: 0, book: null,
-  sizeMode: "shares", closeSizeMode: "shares", closePosition: null, markets: new Map(),
+  sizeMode: "shares", closeSizeMode: "shares", closePosition: null, historyType: "all", markets: new Map(),
 };
 const $ = (selector) => document.querySelector(selector);
 const elements = {
   account: $("#paper-account"), newAccount: $("#paper-new-account"), reset: $("#paper-reset-account"),
   archive: $("#paper-archive-account"), status: $("#paper-status"), metrics: $("#paper-metrics"),
   form: $("#paper-order-form"), message: $("#paper-message"), positions: $("#paper-positions"),
-  orders: $("#paper-orders"), history: $("#paper-history"),
+  orders: $("#paper-orders"), history: $("#paper-history"), historyFilter: $("#paper-history-filter"),
   accountDialog: $("#paper-account-dialog"), accountForm: $("#paper-account-form"),
   accountMessage: $("#paper-account-message"), accountName: $("#paper-account-name"),
   startingCapital: $("#paper-starting-capital"),
@@ -83,6 +84,10 @@ function wire() {
   elements.archive.addEventListener("click", archiveAccount);
   elements.form.addEventListener("submit", placeOrder);
   elements.orders.addEventListener("click", cancelOrder);
+  elements.historyFilter.addEventListener("change", () => {
+    state.historyType = elements.historyFilter.value;
+    renderHistory();
+  });
   elements.positions.addEventListener("click", openCloseDialog);
   elements.closeForm.addEventListener("submit", closePaperPosition);
   elements.closeForm.addEventListener("input", handleCloseInput);
@@ -286,6 +291,10 @@ async function submitPaperOrder(order) {
         if (result.error) throw result.error;
         return result.data?.canonical_result ?? null;
       },
+      {
+        staleRetries: 2,
+        refresh: async () => { await loadAccountState({ throwOnError: true }); },
+      },
     );
     const receipt = paperOrderReceipt(data);
     const receiptText = `${receipt.text} · ID ${idempotencyKey.slice(0, 8).toUpperCase()}${reconciled ? " · VERIFIED" : ""}`;
@@ -409,7 +418,7 @@ function updateClosePreview() {
   elements.closeShares.textContent = Number.isFinite(size) ? `${formatPaperNumber(size, market.sizeDecimals)} ${market.symbol}` : "—";
   elements.closeFill.textContent = fill ? formatPaperPrice(fill.averagePrice) : "AWAITING BOOK";
   elements.closeNotional.textContent = money(notional);
-  elements.closeFee.textContent = money(fee, 4);
+  elements.closeFee.textContent = money(fee);
   elements.closePercent.textContent = `${Math.round(percent)}%`;
   if (document.activeElement !== elements.closeSlider) elements.closeSlider.value = String(Math.round(percent));
   elements.closeSubmit.disabled = !valid;
@@ -658,12 +667,12 @@ function updateOrderPreview() {
   elements.orderPrice.textContent = money(preview.price);
   elements.orderValue.textContent = money(preview.orderValue);
   elements.marginRequired.textContent = money(preview.marginRequired);
-  elements.estimatedFee.textContent = money(preview.estimatedFee, 4);
-  elements.estimatedCost.textContent = money(preview.estimatedCost, 4);
+  elements.estimatedFee.textContent = money(preview.estimatedFee);
+  elements.estimatedCost.textContent = money(preview.estimatedCost);
   elements.feeRates.textContent = `${percentRate(preview.feeRates.maker)} / ${percentRate(preview.feeRates.taker)}`;
   elements.maxSize.textContent = market && preview.maxSize !== null ? `${formatPaperNumber(preview.maxSize, market.sizeDecimals ?? 4)} ${market.symbol}` : "—";
   elements.slippage.textContent = orderType === "limit" ? "N/A"
-    : preview.marketFill ? `${preview.marketFill.slippagePercent >= 0 ? "+" : ""}${preview.marketFill.slippagePercent.toFixed(4)}%${preview.marketFill.complete ? "" : " PARTIAL"}` : "AWAITING BOOK";
+    : preview.marketFill ? `${preview.marketFill.slippagePercent >= 0 ? "+" : ""}${preview.marketFill.slippagePercent.toFixed(2)}%${preview.marketFill.complete ? "" : " PARTIAL"}` : "AWAITING BOOK";
   elements.liquidationPrice.textContent = elements.form.elements.marginMode.value === "cross"
     ? "PORTFOLIO"
     : preview.liquidationPrice === null ? "POSITION / TIER" : money(preview.liquidationPrice);
@@ -813,9 +822,27 @@ function render() {
     ];
   }));
   elements.orders.innerHTML = table(["ASSET", "SIDE", "TYPE", "REMAINING", "PRICE", "STATUS", ""], (state.epoch?.orders ?? []).map((order) => [displayAsset(order.asset), order.side.toUpperCase(), order.order_type.toUpperCase(), formatPaperNumber(order.remaining_size, 6), money(order.limit_price ?? order.trigger_price), order.status.toUpperCase(), `<button type="button" data-order-id="${escapeHtml(order.id)}"${APP_CONFIG.paperTradingEnabled ? "" : " disabled"}>×</button>`]));
-  elements.history.innerHTML = table(["TIME", "TYPE", "ASSET", "SIDE", "ENTRY PRICE", "AMOUNT", "NOTIONAL", "COST / CASH", "FEES", "STATUS"], (state.epoch?.history ?? []).map(historyRow));
+  renderHistory();
   updateOrderFields();
   if (state.closePosition) updateClosePreview();
+}
+
+function renderHistory() {
+  const history = state.epoch?.history ?? [];
+  const types = [...new Set(history.map((entry) => entry.history_kind === "order" ? "order" : entry.entry_type).filter(Boolean))].sort();
+  if (state.historyType !== "all" && !types.includes(state.historyType)) state.historyType = "all";
+  const optionTypes = ["all", ...types];
+  const renderedTypes = [...elements.historyFilter.options].map(({ value }) => value);
+  if (optionTypes.join("\n") !== renderedTypes.join("\n")) {
+    elements.historyFilter.innerHTML = optionTypes.map((type) =>
+      `<option value="${escapeHtml(type)}">${escapeHtml(type === "all" ? "ALL TYPES" : type.replaceAll("_", " ").toUpperCase())}</option>`
+    ).join("");
+  }
+  elements.historyFilter.value = state.historyType;
+  elements.history.innerHTML = table(
+    ["TIME", "TYPE", "ASSET", "SIDE", "ENTRY PRICE", "AMOUNT", "NOTIONAL", "COST / CASH", "FEES", "STATUS"],
+    filterPaperHistory(history, state.historyType).map(historyRow),
+  );
 }
 
 function historyRow(entry) {
@@ -834,7 +861,7 @@ function historyRow(entry) {
   return [
     new Date(entry.event_at).toLocaleString(), `${escapeHtml(entry.order_type.toUpperCase())} ORDER`, displayAsset(entry.asset), side,
     formatPaperPrice(entry.entry_price ?? entry.limit_price ?? entry.trigger_price), amount, money(entry.notional),
-    money(paperOrderHistoryCost(entry), 4), money(entry.fees, 4), escapeHtml(entry.status.toUpperCase()),
+    money(paperOrderHistoryCost(entry)), money(entry.fees), escapeHtml(entry.status.toUpperCase()),
   ];
 }
 
@@ -866,9 +893,9 @@ function reportPaperSyncError(error) {
 }
 function fail(error) { setPaperMessage(String(error?.message ?? error).toUpperCase(), "error"); }
 function displayAsset(value) { return escapeHtml(String(value).replace(/^xyz:/, "")); }
-function money(value, digits = 2) { return value === null || value === undefined ? "—" : `$${formatPaperNumber(value, digits)}`; }
+function money(value) { return value === null || value === undefined ? "—" : `$${formatPaperNumber(value, 2)}`; }
 function compactSize(value, digits = 8) { return Number(value).toFixed(Math.max(0, Math.min(8, Number(digits) || 0))).replace(/\.?0+$/, ""); }
-function percentRate(value) { return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(4)}%` : "—"; }
+function percentRate(value) { return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(2)}%` : "—"; }
 function signed(value) { return `<span class="${paperSignClass(value)}">${Number(value) > 0 ? "+" : ""}${formatPaperNumber(value, 6)}</span>`; }
 function signedMoney(value) { return `<span class="${paperSignClass(value)}">${Number(value) > 0 ? "+" : ""}$${formatPaperNumber(value, 2)}</span>`; }
 function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
