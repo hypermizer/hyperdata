@@ -1,11 +1,17 @@
 import { RequestBudget } from "../_shared/paper/market-data.ts";
 
-export const RECURRING_SNAPSHOT_WEIGHT = 62;
+export const BASE_SNAPSHOT_WEIGHT = 22;
+export const TRADE_REPLAY_WEIGHT = 20;
 
 export interface ProcessorAssetWork {
   asset: string;
   hasPosition: boolean;
+  requiresTradeReplay: boolean;
   accountIds: string[];
+}
+
+export function estimateSnapshotWeight(work: ProcessorAssetWork): number {
+  return BASE_SNAPSHOT_WEIGHT + (work.requiresTradeReplay ? TRADE_REPLAY_WEIGHT : 0);
 }
 
 export interface ProcessorSnapshot {
@@ -24,7 +30,7 @@ export interface ProcessorAccountResult {
 
 export interface PaperProcessorDependencies {
   loadWork(): Promise<ProcessorAssetWork[]>;
-  estimateSnapshotWeight?(asset: string): number;
+  estimateSnapshotWeight?(work: ProcessorAssetWork): number;
   fetchSnapshot(work: ProcessorAssetWork): Promise<ProcessorSnapshot>;
   processAccount(accountId: string, snapshot: ProcessorSnapshot): Promise<ProcessorAccountResult>;
   processStrategies?(accountId: string, snapshot: ProcessorSnapshot): Promise<{ evaluations: number; actions: number; degradedReason?: string }>;
@@ -48,20 +54,29 @@ export function buildProcessorWork(
   recentFills: Array<{ epoch_id: string; asset: string }>,
   strategyAssignments: Array<{ epoch_id: string; asset: string }> = [],
 ): ProcessorAssetWork[] {
-  const byAsset = new Map<string, { hasPosition: boolean; accountIds: Set<string> }>();
+  const byAsset = new Map<string, { hasPosition: boolean; requiresTradeReplay: boolean; accountIds: Set<string> }>();
   for (const row of positions) {
-    const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, requiresTradeReplay: false, accountIds: new Set<string>() };
     entry.hasPosition = true; entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
   }
-  for (const row of [...orders, ...recentFills]) {
-    const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
+  for (const row of orders) {
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, requiresTradeReplay: false, accountIds: new Set<string>() };
+    entry.requiresTradeReplay = true; entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
+  }
+  for (const row of recentFills) {
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, requiresTradeReplay: false, accountIds: new Set<string>() };
     entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
   }
   for (const row of strategyAssignments) {
-    const entry = byAsset.get(row.asset) ?? { hasPosition: false, accountIds: new Set<string>() };
+    const entry = byAsset.get(row.asset) ?? { hasPosition: false, requiresTradeReplay: false, accountIds: new Set<string>() };
     entry.accountIds.add(row.epoch_id); byAsset.set(row.asset, entry);
   }
-  return [...byAsset].map(([asset, entry]) => ({ asset, hasPosition: entry.hasPosition, accountIds: [...entry.accountIds] }));
+  return [...byAsset].map(([asset, entry]) => ({
+    asset,
+    hasPosition: entry.hasPosition,
+    requiresTradeReplay: entry.requiresTradeReplay,
+    accountIds: [...entry.accountIds],
+  }));
 }
 
 /**
@@ -94,7 +109,7 @@ export async function processPaperBatch(
   const degradedAssets: Array<{ asset: string; reason: string }> = [];
 
   for (const item of work) {
-    const estimatedWeight = dependencies.estimateSnapshotWeight?.(item.asset) ?? 0;
+    const estimatedWeight = dependencies.estimateSnapshotWeight?.(item) ?? 0;
     if (!budget.tryConsume(estimatedWeight)) {
       degradedAssets.push({ asset: item.asset, reason: "api_budget_exhausted" });
       continue;

@@ -1,6 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import {
   deriveMarginTiers,
+  fundingCacheIsFresh,
   fetchPaperCatalog,
   normalizeBook,
   normalizeFeeSchedule,
@@ -124,6 +125,13 @@ Deno.test("funding history is chronological and idempotently deduplicated", () =
     { coin: "xyz:ORCL", fundingRate: "0.00001", premium: "0.0", time: 1000 },
     { coin: "xyz:ORCL", fundingRate: "0.00001", premium: "0.0", time: 1000 },
   ]).map((point) => point.timestampMs), [1000, 2000]);
+});
+
+Deno.test("funding cache is reused for five minutes and then refreshed", () => {
+  const now = Date.parse("2026-07-22T16:30:00.000Z");
+  assertEquals(fundingCacheIsFresh("2026-07-22T16:25:00.001Z", now), true);
+  assertEquals(fundingCacheIsFresh("2026-07-22T16:25:00.000Z", now), false);
+  assertEquals(fundingCacheIsFresh("not-a-timestamp", now), false);
 });
 
 Deno.test("public fee schedule retains base, VIP, and maker rebate tiers", () => {
