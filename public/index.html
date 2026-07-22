@@ -132,7 +132,10 @@
           <div id="paper-positions" class="paper-table-wrap"></div>
           <h3 class="paper-heading">OPEN ORDERS</h3>
           <div id="paper-orders" class="paper-table-wrap"></div>
-          <h3 class="paper-heading">HISTORY</h3>
+          <div class="paper-section-heading">
+            <h3 class="paper-heading">HISTORY</h3>
+            <select id="paper-history-filter" aria-label="Filter history by type"><option value="all">ALL TYPES</option></select>
+          </div>
           <div id="paper-history" class="paper-table-wrap"></div>
         </div>
 
@@ -441,7 +444,7 @@
     </dialog>
     <script type="module" src="./app.js?v=20260721-tools"></script>
     <script type="module" src="./audio.js?v=20260721-strats"></script>
-    <script type="module" src="./paper.js?v=20260722-position-controls"></script>
+    <script type="module" src="./paper.js?v=20260722-close-retry"></script>
     <script type="module" src="./strats.js?v=20260722-strats2"></script>
     <script type="module" src="./tools.js?v=20260721-tools"></script>
   </body>
