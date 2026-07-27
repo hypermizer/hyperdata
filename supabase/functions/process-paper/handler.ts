@@ -10,8 +10,11 @@ export interface ProcessPaperDependencies {
   now(): number;
 }
 
-export function tenSecondBucket(nowMs: number): string {
-  return new Date(Math.floor(nowMs / 10_000) * 10_000).toISOString();
+export const PAPER_PROCESSOR_INTERVAL_MS = 10_000;
+export const PAPER_PROCESSOR_PROJECTED_MONTHLY_INVOCATIONS = 259_200;
+
+export function paperProcessorBucket(nowMs: number): string {
+  return new Date(Math.floor(nowMs / PAPER_PROCESSOR_INTERVAL_MS) * PAPER_PROCESSOR_INTERVAL_MS).toISOString();
 }
 
 export async function handleProcessPaper(request: Request, dependencies: ProcessPaperDependencies): Promise<Response> {
@@ -20,14 +23,14 @@ export async function handleProcessPaper(request: Request, dependencies: Process
   if (request.method !== "POST") return Response.json({ error: "method_not_allowed" }, { status: 405 });
   if (!dependencies.enabled) return Response.json({ status: "disabled" });
 
-  const bucket = tenSecondBucket(dependencies.now());
+  const bucket = paperProcessorBucket(dependencies.now());
   const claimed = await dependencies.claim(bucket);
   if (!claimed) return Response.json({ status: "already_claimed_or_overlapping", bucket });
   try {
     const result = await dependencies.process();
     await dependencies.finish(bucket, result.state, {
       ...result,
-      projectedInvocations: 259_200,
+      projectedInvocations: PAPER_PROCESSOR_PROJECTED_MONTHLY_INVOCATIONS,
       details: { degradedAssets: result.degradedAssets },
     });
     return Response.json({ bucket, ...result });

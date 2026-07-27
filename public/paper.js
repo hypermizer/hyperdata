@@ -29,13 +29,24 @@ import {
   resolvePaperCommand,
   scalePerpFeeRate,
 } from "./lib/paper.js?v=20260722-close-retry";
+import {
+  PAPER_STREAM_RECONNECT_MS,
+  paperEngineHealth,
+  paperQuoteAssets,
+  projectLivePaperAccount,
+  quoteIsFresh,
+} from "./lib/paper-live.js?v=20260728-paper-live";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
 
 const client = createWatchlistClient(APP_CONFIG);
 const state = {
   user: null, accounts: [], epochs: [], account: null, epoch: null, pending: false,
   feeSchedule: null, feeRates: { maker: 0.00015, taker: 0.00045 },
-  quoteStream: null, quotedAsset: "", quoteUpdatedAt: 0, bookUpdatedAt: 0, book: null,
+  quoteStream: null, quoteStreamStartedAt: 0, quoteStreamOpenedAt: 0, quoteStreamMessageAt: 0,
+  quoteReconnectTimer: null, quoteSubscriptions: new Set(), quotes: new Map(),
+  bookAsset: "", quoteUpdatedAt: 0, bookUpdatedAt: 0, book: null,
+  processorHealth: null, accountChannel: null, accountChannelEpochId: "", accountLoadToken: 0,
+  refreshInFlight: false, refreshQueued: false, liveRenderFrame: 0, staleQuoteKey: "",
   sizeMode: "shares", closeSizeMode: "shares", closePosition: null, historyType: "all", markets: new Map(),
 };
 const $ = (selector) => document.querySelector(selector);
@@ -101,7 +112,12 @@ function wire() {
   elements.form.addEventListener("change", handleOrderInput);
   elements.form.addEventListener("click", handleSizeShortcut);
   paperAssetPicker.root.addEventListener("assetchange", handleAssetChange);
-  setInterval(() => { if (!document.hidden && state.user && state.account) loadAccountState(); }, 5_000);
+  setInterval(() => { if (!document.hidden && state.user && state.account) queueAccountRefresh(); }, 5_000);
+  setInterval(() => { if (!document.hidden && state.user) loadProcessorHealth(); }, 15_000);
+  setInterval(checkPaperStreamHealth, 1_000);
+  setInterval(sendPaperStreamHeartbeat, 30_000);
+  window.addEventListener("online", ensureQuoteStream);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { ensureQuoteStream(); queueAccountRefresh(); } });
 }
 
 async function initialize() {
@@ -131,10 +147,11 @@ async function initialize() {
 async function setSession(session) {
   state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null;
   if (!state.user) {
+    disconnectAccountChanges();
     state.accounts = []; state.account = null; state.epoch = null;
     render(); return;
   }
-  await loadAccounts();
+  await Promise.all([loadAccounts(), loadProcessorHealth()]);
 }
 
 async function loadAccounts(preferredId = state.account?.id, options = {}) {
@@ -163,9 +180,26 @@ async function selectAccount(id) {
   await loadAccountState();
 }
 
+async function queueAccountRefresh() {
+  if (!state.user || !state.account) return;
+  if (state.pending) { state.refreshQueued = true; return; }
+  if (state.refreshInFlight) { state.refreshQueued = true; return; }
+  state.refreshInFlight = true;
+  try { await loadAccountState(); }
+  finally {
+    state.refreshInFlight = false;
+    if (state.refreshQueued) {
+      state.refreshQueued = false;
+      queueMicrotask(queueAccountRefresh);
+    }
+  }
+}
+
 async function loadAccountState(options = {}) {
   if (!state.epoch) { render(); return true; }
   const epochId = state.epoch.id;
+  const accountId = state.account?.id;
+  const loadToken = ++state.accountLoadToken;
   const [epoch, summary, positions, orders, ledger, orderHistory, leverageSettings, feeVolume] = await Promise.all([
     client.from("paper_account_epochs").select("version,epoch_number,state").eq("id", epochId).single(),
     client.from("paper_account_summaries").select("*").eq("epoch_id", epochId).single(),
@@ -181,6 +215,7 @@ async function loadAccountState(options = {}) {
     if (options.throwOnError) throw error;
     reportPaperSyncError(error); return false;
   }
+  if (loadToken !== state.accountLoadToken || state.account?.id !== accountId || state.epoch?.id !== epochId) return false;
   state.epoch = {
     ...state.epoch, ...epoch.data,
     summary: { ...summary.data, trailing_volume: feeVolume.data.trailing_volume, maker_volume: feeVolume.data.maker_volume },
@@ -192,8 +227,32 @@ async function loadAccountState(options = {}) {
     state.closePosition = state.epoch.positions.find(({ asset }) => asset === state.closePosition.asset) ?? null;
     if (!state.closePosition && elements.closeDialog.open) elements.closeDialog.close();
   }
+  connectAccountChanges(epochId);
+  syncQuoteSubscriptions();
   render();
   return true;
+}
+
+async function loadProcessorHealth() {
+  if (!state.user) return;
+  const { data, error } = await client.from("paper_processor_health").select("*").single();
+  if (!error) state.processorHealth = data;
+  renderPaperStatus();
+}
+
+function connectAccountChanges(epochId) {
+  if (state.accountChannelEpochId === epochId) return;
+  disconnectAccountChanges();
+  state.accountChannelEpochId = epochId;
+  state.accountChannel = client.channel(`paper-epoch-${epochId}`)
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "paper_account_epochs", filter: `id=eq.${epochId}` }, queueAccountRefresh)
+    .subscribe();
+}
+
+function disconnectAccountChanges() {
+  if (state.accountChannel) client.removeChannel(state.accountChannel);
+  state.accountChannel = null;
+  state.accountChannelEpochId = "";
 }
 
 async function loadPaperOrderHistory(epochId) {
@@ -587,13 +646,13 @@ function updateSizeLabels() {
 
 function previewOrder() {
   const market = selectedMarket();
-  const summary = state.epoch?.summary;
+  const summary = state.epoch?.summary ? liveAccountProjection().summary : null;
   const positionRecord = state.epoch?.positions?.find(({ asset }) => asset === market?.id);
   const currentPosition = Number(positionRecord?.signed_size) || 0;
   const persistedLeverage = Number(state.epoch?.leverageSettings?.find(({ asset }) => asset === market?.id)?.leverage) || 1;
   const currentMargin = positionRecord?.margin_mode === "isolated"
     ? Number(positionRecord.isolated_margin || 0)
-    : paperInitialMargin(Math.abs(currentPosition) * Number(positionRecord?.mark_price || market?.markPrice || 0), persistedLeverage, market?.marginTiers);
+    : paperInitialMargin(Math.abs(currentPosition) * Number(livePositionMark(positionRecord) || market?.markPrice || 0), persistedLeverage, market?.marginTiers);
   const reservedMargin = (state.epoch?.orders ?? []).reduce((total, order) => total + Number(order.reserved_margin || 0), 0);
   const availableMargin = Math.max(0, Number(summary?.equity || 0) - Number(summary?.margin_used || 0) - reservedMargin);
   const orderType = selectedOrderType();
@@ -730,29 +789,41 @@ function quoteStatus(market, quoteAge) {
 }
 
 function connectQuoteStream() {
+  window.clearTimeout(state.quoteReconnectTimer);
   state.quoteStream?.close();
+  state.quoteStreamStartedAt = Date.now();
+  state.quoteStreamOpenedAt = 0;
+  state.quoteStreamMessageAt = 0;
+  state.quoteSubscriptions = new Set();
+  state.bookAsset = "";
   const stream = new WebSocket(APP_CONFIG.websocketUrl);
   state.quoteStream = stream;
   stream.addEventListener("open", () => {
     if (state.quoteStream !== stream) return;
-    state.quotedAsset = "";
-    subscribeQuote(activeQuoteAsset());
+    state.quoteStreamOpenedAt = Date.now();
+    state.quoteStreamMessageAt = Date.now();
+    syncQuoteSubscriptions();
   });
   stream.addEventListener("message", ({ data }) => {
     if (state.quoteStream !== stream) return;
+    state.quoteStreamMessageAt = Date.now();
     let message;
     try { message = JSON.parse(data); } catch { return; }
-    const activeAsset = activeQuoteAsset();
-    if (message.data?.coin !== activeAsset) return;
     if (message.channel === "activeAssetCtx") {
-      const market = marketForAsset(activeAsset);
+      const asset = message.data?.coin;
+      const market = marketForAsset(asset);
       if (!market) return;
       Object.assign(market, applyLiveMarketContext(market, message.data.ctx));
-      state.quoteUpdatedAt = Date.now();
-      if (state.closePosition) updateClosePreview();
-      else updateOrderPreview();
+      const updatedAt = Date.now();
+      state.quotes.set(asset, { markPrice: market.markPrice, updatedAt });
+      if (asset === activeQuoteAsset()) {
+        state.quoteUpdatedAt = updatedAt;
+        if (state.closePosition) updateClosePreview();
+        else updateOrderPreview();
+      }
+      scheduleLiveAccountRender();
     }
-    if (message.channel === "l2Book") {
+    if (message.channel === "l2Book" && message.data?.coin === state.bookAsset) {
       state.book = message.data;
       state.bookUpdatedAt = Date.now();
       if (state.closePosition) updateClosePreview();
@@ -764,9 +835,12 @@ function connectQuoteStream() {
     state.quoteUpdatedAt = 0;
     state.bookUpdatedAt = 0;
     state.book = null;
+    state.quoteSubscriptions = new Set();
+    state.bookAsset = "";
     if (state.closePosition) updateClosePreview();
     else updateOrderPreview();
-    window.setTimeout(connectQuoteStream, 3_000);
+    renderPaperStatus();
+    state.quoteReconnectTimer = window.setTimeout(connectQuoteStream, 3_000);
   });
   stream.addEventListener("error", () => stream.close());
 }
@@ -774,25 +848,73 @@ function connectQuoteStream() {
 function activeQuoteAsset() { return state.closePosition?.asset ?? selectedMarket()?.id ?? ""; }
 function marketForAsset(asset) { return state.markets.get(asset) ?? null; }
 function livePositionMark(position) {
-  const live = Number(marketForAsset(position?.asset)?.markPrice);
-  const hasFreshLiveMark = state.quotedAsset === position?.asset
-    && state.quoteUpdatedAt > 0 && Date.now() - state.quoteUpdatedAt <= 5_000;
-  return hasFreshLiveMark && live > 0 ? live : Number(position?.mark_price) || null;
+  const quote = state.quotes.get(position?.asset);
+  return quoteIsFresh(quote) ? Number(quote.markPrice) : Number(position?.mark_price) || null;
 }
 
 function subscribeQuote(asset) {
+  syncQuoteSubscriptions(asset);
+}
+
+function syncQuoteSubscriptions(activeAsset = activeQuoteAsset()) {
   const stream = state.quoteStream;
-  if (!asset || stream?.readyState !== WebSocket.OPEN || asset === state.quotedAsset) return;
-  if (state.quotedAsset) ["activeAssetCtx", "l2Book"].forEach((type) => stream.send(JSON.stringify({
-    method: "unsubscribe", subscription: { type, coin: state.quotedAsset },
-  })));
-  state.quotedAsset = asset;
-  state.quoteUpdatedAt = 0;
-  state.bookUpdatedAt = 0;
-  state.book = null;
-  ["activeAssetCtx", "l2Book"].forEach((type) => stream.send(JSON.stringify({
-    method: "subscribe", subscription: { type, coin: asset },
-  })));
+  if (stream?.readyState !== WebSocket.OPEN) return;
+  const desired = new Set(paperQuoteAssets(state.epoch?.positions, activeAsset));
+  for (const asset of state.quoteSubscriptions) {
+    if (desired.has(asset)) continue;
+    stream.send(JSON.stringify({ method: "unsubscribe", subscription: { type: "activeAssetCtx", coin: asset } }));
+    state.quoteSubscriptions.delete(asset);
+  }
+  for (const asset of desired) {
+    if (state.quoteSubscriptions.has(asset)) continue;
+    stream.send(JSON.stringify({ method: "subscribe", subscription: { type: "activeAssetCtx", coin: asset } }));
+    state.quoteSubscriptions.add(asset);
+  }
+  if (state.bookAsset !== activeAsset) {
+    if (state.bookAsset) stream.send(JSON.stringify({ method: "unsubscribe", subscription: { type: "l2Book", coin: state.bookAsset } }));
+    state.bookAsset = activeAsset;
+    state.bookUpdatedAt = 0;
+    state.book = null;
+    if (activeAsset) stream.send(JSON.stringify({ method: "subscribe", subscription: { type: "l2Book", coin: activeAsset } }));
+  }
+  const activeQuote = state.quotes.get(activeAsset);
+  state.quoteUpdatedAt = quoteIsFresh(activeQuote) ? activeQuote.updatedAt : 0;
+}
+
+function ensureQuoteStream() {
+  const stream = state.quoteStream;
+  if (!stream || stream.readyState === WebSocket.CLOSED) connectQuoteStream();
+}
+
+function checkPaperStreamHealth() {
+  const stream = state.quoteStream;
+  const now = Date.now();
+  const connectionStarted = state.quoteStreamOpenedAt || state.quoteStreamStartedAt;
+  const lastActivity = Math.max(connectionStarted, state.quoteStreamMessageAt);
+  if (stream && stream.readyState !== WebSocket.CLOSING && lastActivity && now - lastActivity > PAPER_STREAM_RECONNECT_MS) {
+    stream.close();
+  }
+  renderPaperStatus();
+  const staleQuoteKey = paperQuoteAssets(state.epoch?.positions, activeQuoteAsset())
+    .filter((asset) => !quoteIsFresh(state.quotes.get(asset))).join("\n");
+  if (staleQuoteKey !== state.staleQuoteKey) {
+    state.staleQuoteKey = staleQuoteKey;
+    scheduleLiveAccountRender();
+  }
+}
+
+function sendPaperStreamHeartbeat() {
+  if (state.quoteStream?.readyState === WebSocket.OPEN) {
+    state.quoteStream.send(JSON.stringify({ method: "ping" }));
+  }
+}
+
+function scheduleLiveAccountRender() {
+  if (state.liveRenderFrame) return;
+  state.liveRenderFrame = window.requestAnimationFrame(() => {
+    state.liveRenderFrame = 0;
+    renderLiveAccount();
+  });
 }
 
 function render() {
@@ -804,11 +926,37 @@ function render() {
   elements.newAccount.disabled = !state.user || !APP_CONFIG.paperTradingEnabled || state.pending;
   elements.reset.disabled = !state.account || !APP_CONFIG.paperTradingEnabled || state.pending;
   elements.archive.disabled = !state.account || !APP_CONFIG.paperTradingEnabled || state.pending;
-  renderStatus(!state.user ? "SIGN IN TO LOAD" : !APP_CONFIG.paperTradingEnabled ? "SHADOW MODE · TRADING DISABLED" : "LIVE PAPER ENGINE");
+  renderPaperStatus();
   const summary = state.epoch?.summary;
   state.feeRates = paperFeeRates(state.feeSchedule, summary?.trailing_volume, summary?.maker_volume);
-  elements.metrics.innerHTML = summary ? metricStrip(summary) : "";
-  const positions = (state.epoch?.positions ?? []).map((position) => ({ ...position, mark_price: livePositionMark(position) }));
+  renderLiveAccount();
+  elements.orders.innerHTML = table(["ASSET", "SIDE", "TYPE", "REMAINING", "PRICE", "STATUS", ""], (state.epoch?.orders ?? []).map((order) => [displayAsset(order.asset), order.side.toUpperCase(), order.order_type.toUpperCase(), formatPaperNumber(order.remaining_size, 6), money(order.limit_price ?? order.trigger_price), order.status.toUpperCase(), `<button type="button" data-order-id="${escapeHtml(order.id)}"${APP_CONFIG.paperTradingEnabled ? "" : " disabled"}>×</button>`]));
+  renderHistory();
+  updateOrderFields();
+  syncQuoteSubscriptions();
+  if (state.closePosition) updateClosePreview();
+}
+
+function liveAccountProjection() {
+  return projectLivePaperAccount({
+    summary: state.epoch?.summary,
+    positions: state.epoch?.positions,
+    leverageSettings: state.epoch?.leverageSettings,
+    markets: state.markets,
+    quotes: state.quotes,
+  });
+}
+
+function renderLiveAccount() {
+  const persistedSummary = state.epoch?.summary;
+  if (!persistedSummary) {
+    elements.metrics.innerHTML = "";
+    elements.positions.innerHTML = '<p class="hint">NONE</p>';
+    return;
+  }
+  const { summary, positions, staleAssets } = liveAccountProjection();
+  const enabled = Boolean(state.user && state.account && APP_CONFIG.paperTradingEnabled && !state.pending);
+  elements.metrics.innerHTML = metricStrip(summary);
   const marginTiersByAsset = Object.fromEntries([...state.markets].map(([asset, market]) => [asset, market.marginTiers]));
   elements.positions.innerHTML = table(["ASSET", "SIDE / SIZE", "ENTRY", "MARK", "VALUE", "UPNL", "LIQ. PRICE", "MODE", ""], positions.map((position) => {
     const liquidationPrice = paperPositionLiquidationPrice({
@@ -821,10 +969,7 @@ function render() {
       `<button class="paper-close-button" type="button" data-close-asset="${escapeHtml(position.asset)}"${enabled ? "" : " disabled"}>CLOSE</button>`,
     ];
   }));
-  elements.orders.innerHTML = table(["ASSET", "SIDE", "TYPE", "REMAINING", "PRICE", "STATUS", ""], (state.epoch?.orders ?? []).map((order) => [displayAsset(order.asset), order.side.toUpperCase(), order.order_type.toUpperCase(), formatPaperNumber(order.remaining_size, 6), money(order.limit_price ?? order.trigger_price), order.status.toUpperCase(), `<button type="button" data-order-id="${escapeHtml(order.id)}"${APP_CONFIG.paperTradingEnabled ? "" : " disabled"}>×</button>`]));
-  renderHistory();
-  updateOrderFields();
-  if (state.closePosition) updateClosePreview();
+  elements.positions.dataset.staleAssets = staleAssets.join(",");
 }
 
 function renderHistory() {
@@ -881,8 +1026,23 @@ function table(headers, rows) {
   return `<table class="paper-table"><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
-function setPending(value) { state.pending = value; render(); }
-function renderStatus(value) { elements.status.textContent = value; }
+function setPending(value) {
+  state.pending = value;
+  render();
+  if (!value && state.refreshQueued) queueMicrotask(queueAccountRefresh);
+}
+function renderStatus(value) { if (elements.status.textContent !== value) elements.status.textContent = value; }
+function renderPaperStatus() {
+  elements.status.classList.remove("positive", "warning", "negative");
+  if (!state.user) return renderStatus("SIGN IN TO LOAD");
+  if (!APP_CONFIG.paperTradingEnabled) { elements.status.classList.add("warning"); return renderStatus("SHADOW MODE · TRADING DISABLED"); }
+  const engine = paperEngineHealth(state.processorHealth);
+  const desiredAssets = paperQuoteAssets(state.epoch?.positions, activeQuoteAsset());
+  const staleCount = desiredAssets.filter((asset) => !quoteIsFresh(state.quotes.get(asset))).length;
+  const quoteState = staleCount ? ` · ${staleCount} STALE QUOTE${staleCount === 1 ? "" : "S"}` : " · LIVE MARKS";
+  renderStatus(`${engine.label}${quoteState}`);
+  if (engine.tone) elements.status.classList.add(engine.tone);
+}
 function setPaperMessage(text = "", tone = "") {
   elements.message.textContent = text;
   if (tone) elements.message.dataset.tone = tone;

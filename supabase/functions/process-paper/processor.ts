@@ -30,6 +30,7 @@ export interface ProcessorAccountResult {
 
 export interface PaperProcessorDependencies {
   loadWork(): Promise<ProcessorAssetWork[]>;
+  prepareWork?(work: ProcessorAssetWork[]): Promise<void>;
   estimateSnapshotWeight?(work: ProcessorAssetWork): number;
   fetchSnapshot(work: ProcessorAssetWork): Promise<ProcessorSnapshot>;
   processAccount(accountId: string, snapshot: ProcessorSnapshot): Promise<ProcessorAccountResult>;
@@ -88,9 +89,14 @@ export async function processPaperBatch(
   dependencies: PaperProcessorDependencies,
   apiWeightLimit: number,
   rotationKey = 0,
+  limits: { now?: () => number; deadlineMs?: number } = {},
 ): Promise<PaperProcessorResult> {
+  const now = limits.now ?? Date.now;
+  const startedAt = now();
+  const deadlineMs = Math.max(1, Number(limits.deadlineMs) || 20_000);
   const budget = new RequestBudget(apiWeightLimit);
   const loaded = await dependencies.loadWork();
+  await dependencies.prepareWork?.(loaded);
   const rotate = (items: ProcessorAssetWork[]) => {
     const sorted = items.sort((left, right) => left.asset.localeCompare(right.asset));
     if (!sorted.length) return sorted;
@@ -108,7 +114,11 @@ export async function processPaperBatch(
   let strategyActions = 0;
   const degradedAssets: Array<{ asset: string; reason: string }> = [];
 
-  for (const item of work) {
+  for (const [index, item] of work.entries()) {
+    if (now() - startedAt >= deadlineMs) {
+      degradedAssets.push(...work.slice(index).map(({ asset }) => ({ asset, reason: "processor_deadline_exhausted" })));
+      break;
+    }
     const estimatedWeight = dependencies.estimateSnapshotWeight?.(item) ?? 0;
     if (!budget.tryConsume(estimatedWeight)) {
       degradedAssets.push({ asset: item.asset, reason: "api_budget_exhausted" });
@@ -132,7 +142,16 @@ export async function processPaperBatch(
     if (snapshot.degraded) degradedAssets.push({ asset: item.asset, reason: "market_input_degraded" });
     let acceptedByEveryAccount = true;
     for (const accountId of [...new Set(item.accountIds)].sort()) {
-      const result = await dependencies.processAccount(accountId, snapshot);
+      let result: ProcessorAccountResult;
+      try {
+        result = await dependencies.processAccount(accountId, snapshot);
+      } catch (error) {
+        degradedAssets.push({
+          asset: item.asset,
+          reason: `account_processor:${error instanceof Error ? error.message : String(error)}`,
+        });
+        continue;
+      }
       accountsProcessed += 1;
       if (result.reconciliationFailure) reconciliationFailures += 1;
       if (result.accepted === false || result.reconciliationFailure) acceptedByEveryAccount = false;
@@ -149,7 +168,14 @@ export async function processPaperBatch(
         }
       }
     }
-    await dependencies.persistSnapshot?.(snapshot);
+    try {
+      await dependencies.persistSnapshot?.(snapshot);
+    } catch (error) {
+      degradedAssets.push({
+        asset: item.asset,
+        reason: `market_input_persistence:${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
     if (!acceptedByEveryAccount) degradedAssets.push({ asset: item.asset, reason: "account_snapshot_rejected" });
   }
 

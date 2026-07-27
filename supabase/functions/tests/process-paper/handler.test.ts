@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { handleProcessPaper, type ProcessPaperDependencies, tenSecondBucket } from "../../process-paper/handler.ts";
+import { handleProcessPaper, paperProcessorBucket, type ProcessPaperDependencies } from "../../process-paper/handler.ts";
 
 function dependencies(overrides: Partial<ProcessPaperDependencies> = {}) {
   const calls: string[] = [];
@@ -61,7 +61,7 @@ Deno.test("processor failure releases lease with failed health", async () => {
   assertEquals(calls.at(-1), "finish:2026-07-19T20:00:00.000Z:failed");
 });
 
-Deno.test("ten-second buckets are stable at boundaries", () => {
-  assertEquals(tenSecondBucket(Date.parse("2026-07-19T20:00:19.999Z")), "2026-07-19T20:00:10.000Z");
-  assertEquals(tenSecondBucket(Date.parse("2026-07-19T20:00:20.000Z")), "2026-07-19T20:00:20.000Z");
+Deno.test("processor buckets are stable at ten-second boundaries", () => {
+  assertEquals(paperProcessorBucket(Date.parse("2026-07-19T20:00:19.999Z")), "2026-07-19T20:00:10.000Z");
+  assertEquals(paperProcessorBucket(Date.parse("2026-07-19T20:00:20.000Z")), "2026-07-19T20:00:20.000Z");
 });

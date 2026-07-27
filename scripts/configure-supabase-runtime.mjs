@@ -48,21 +48,29 @@ if (paperProcessorEnabled) {
   await query("select public.ensure_strategy_shadow()");
   await query("select public.ensure_initial_strategy_backtest()");
   let runs = [];
-  let healthyRuns = [];
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  let recentCompletedRuns = [];
+  for (let attempt = 0; attempt < 18; attempt += 1) {
     const result = await query(
       "select state, reconciliation_failures, details from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
       [paperHealthWindowStartedAt],
     );
     runs = Array.isArray(result) ? result : result.result ?? [];
-    healthyRuns = runs.filter((run) => run.state === "succeeded" && Number(run.reconciliation_failures ?? 0) === 0);
-    if (healthyRuns.length) break;
+    recentCompletedRuns = runs.filter((run) => run.state !== "claimed").slice(0, 3);
+    const stable = recentCompletedRuns.length === 3 && recentCompletedRuns.every(
+      (run) => run.state === "succeeded" && Number(run.reconciliation_failures ?? 0) === 0,
+    );
+    if (stable) break;
     await wait(5_000);
   }
   if (!runs.length) {
+    await query("select public.configure_paper_cron(false)");
     throw new Error("Paper processor did not complete a run during the deployment health window");
   }
-  if (!healthyRuns.length) {
+  const stable = recentCompletedRuns.length === 3 && recentCompletedRuns.every(
+    (run) => run.state === "succeeded" && Number(run.reconciliation_failures ?? 0) === 0,
+  );
+  if (!stable) {
+    await query("select public.configure_paper_cron(false)");
     const observedStates = runs.map((run) => {
       const degradedAssets = Array.isArray(run.details?.degradedAssets) ? run.details.degradedAssets : [];
       const degraded = degradedAssets.map((item) => {
@@ -72,9 +80,9 @@ if (paperProcessorEnabled) {
       }).join("|");
       return `${run.state}:${Number(run.reconciliation_failures ?? 0)}${degraded ? `[${degraded}]` : ""}`;
     }).join(", ");
-    throw new Error(`Paper processor did not produce a reconciled successful run during the deployment health window (observed ${observedStates})`);
+    throw new Error(`Paper processor did not produce three consecutive reconciled successful runs during the deployment health window (observed ${observedStates})`);
   }
-  console.log(`Paper processor health verified: ${healthyRuns.length} reconciled successful run(s)`);
+  console.log("Paper processor health verified: 3 consecutive reconciled successful runs");
 
   let strategyHealth = [];
   for (let attempt = 0; attempt < 24; attempt += 1) {
