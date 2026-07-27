@@ -1,5 +1,6 @@
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
+import type { MarketObservation } from "../_shared/types.ts";
 import {
   fetchPaperBook,
   fetchPaperCatalog,
@@ -14,13 +15,41 @@ import { crossRisk, initialMargin, isolatedRisk, maintenanceMargin } from "../_s
 import { unrealizedPnl } from "../_shared/paper/accounting.ts";
 import { reconcileAccount } from "../_shared/paper/reconciliation.ts";
 import { decimal, decimalString } from "../_shared/paper/decimal.ts";
-import { hasMatchMargin, replayOrder, type ReplaySnapshot } from "./account-processor.ts";
+import { hasMatchMargin, replayOrder, type ReplayOrder, type ReplaySnapshot } from "./account-processor.ts";
 import { missingFundingEffects } from "./funding.ts";
 import { buildLiquidationEffect } from "./liquidation.ts";
-import { handleProcessPaper, type ProcessPaperDependencies } from "./handler.ts";
+import { handleProcessPaper, PAPER_PROCESSOR_INTERVAL_MS, type ProcessPaperDependencies } from "./handler.ts";
 import { buildProcessorWork, estimateSnapshotWeight, processPaperBatch, type PaperProcessorDependencies, type ProcessorSnapshot } from "./processor.ts";
 import { createPaperCommandDependencies } from "../paper-command/index.ts";
 import { completedCandleBucket } from "../_shared/strategies/live.ts";
+
+type ProcessorPosition = {
+  asset: string;
+  margin_mode: "cross" | "isolated";
+  signed_size: string | number;
+  entry_price: string | number;
+  mark_price: string | number;
+  isolated_margin: string | number | null;
+};
+
+export function accountRiskProjection(
+  positions: ProcessorPosition[],
+  metadataByAsset: Map<string, Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"][number]>,
+  leverageByAsset: Map<string, number>,
+) {
+  return positions.reduce((totals, position) => {
+    const metadata = metadataByAsset.get(position.asset);
+    if (!metadata) throw new Error(`asset_metadata_unavailable:${position.asset}`);
+    const notional = decimalString(decimal(position.signed_size).abs().times(position.mark_price));
+    const positionMargin = position.margin_mode === "isolated"
+      ? String(position.isolated_margin ?? 0)
+      : initialMargin(notional, leverageByAsset.get(position.asset) ?? 1, metadata.marginTiers);
+    return {
+      margin: totals.margin.plus(positionMargin),
+      maintenance: totals.maintenance.plus(maintenanceMargin(notional, metadata.marginTiers)),
+    };
+  }, { margin: decimal(0), maintenance: decimal(0) });
+}
 import { createStrategyRuntime } from "./strategy-runtime.ts";
 import { createBacktestRuntime } from "./backtest-runtime.ts";
 
@@ -34,6 +63,8 @@ function runtimeDependencies(): ProcessPaperDependencies {
   const service = createServiceClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"));
   let catalogPromise: Promise<Awaited<ReturnType<typeof fetchPaperCatalog>> & { fetched: boolean }> | null = null;
   let feePromise: Promise<Awaited<ReturnType<typeof fetchPaperFeeSchedule>> & { fetched: boolean }> | null = null;
+  const observationByAsset = new Map<string, MarketObservation>();
+  const marketFailureByDex = new Map<string, string>();
   const feeVolumeByEpoch = new Map<string, Promise<{ trailing_volume: unknown; maker_volume: unknown }>>();
   const paperCommandDependencies = createPaperCommandDependencies();
   const strategyRuntime = createStrategyRuntime({
@@ -113,6 +144,15 @@ function runtimeDependencies(): ProcessPaperDependencies {
       );
       return buildProcessorWork(positions ?? [], orders ?? [], recentFills ?? [], dueAssignments);
     },
+    async prepareWork(work) {
+      const requests = work.map(({ asset }) => ({ asset, dex: asset.includes(":") ? asset.split(":", 1)[0] : "" }));
+      if (!requests.length) return;
+      const results = await fetchMarketBatches(requests, new Date());
+      for (const [dex, result] of results) {
+        if (!result.ok) { marketFailureByDex.set(dex, result.error); continue; }
+        result.observations.forEach((observation) => observationByAsset.set(observation.asset, observation));
+      }
+    },
     async fetchSnapshot(work) {
       const asset = work.asset;
       const dex = asset.includes(":") ? asset.split(":", 1)[0] : "";
@@ -147,15 +187,11 @@ function runtimeDependencies(): ProcessPaperDependencies {
       const tradePromise = work.requiresTradeReplay
         ? fetchPaperTrades(asset, cursor).then((value) => ({ ...value, fetched: true }))
         : Promise.resolve({ trades: [], cursor, gap: false, inputVersion: "not-required", fetched: false });
-      const [results, bookInput, tradeInput, feeInput, fundingInput, catalogInput] = await Promise.all([
-        fetchMarketBatches([{ asset, dex }], new Date()),
+      const [bookInput, tradeInput, feeInput, fundingInput, catalogInput] = await Promise.all([
         fetchPaperBook(asset), tradePromise, loadFees(), fundingPromise, loadCatalog(),
       ]);
-      const result = results.get(dex);
-      if (!result?.ok || result.observations.length !== 1) {
-        throw new Error(result && !result.ok ? result.error : "mark_unavailable");
-      }
-      const observation = result.observations[0];
+      const observation = observationByAsset.get(asset);
+      if (!observation) throw new Error(marketFailureByDex.get(dex) ?? "mark_unavailable");
       const metadata = catalogInput.assets.find((item) => item.asset === asset);
       if (!metadata) throw new Error("asset_metadata_unavailable");
       const version = await inputVersion({
@@ -194,24 +230,24 @@ function runtimeDependencies(): ProcessPaperDependencies {
         catalog: Awaited<ReturnType<typeof fetchPaperCatalog>>["assets"];
       };
       const fundingTimestamps = payload.fundingPoints.map((point) => new Date(point.timestampMs).toISOString());
-      const [{ data: epoch, error: epochError }, { data: summary, error: summaryError }, { data: positions, error: positionsError }, { data: orders, error: ordersError }, feeVolume, { data: fundingPayments, error: fundingError }, { data: fundingExposure, error: fundingExposureError }, { data: leverageSettings, error: leverageError }, { data: accountCursor, error: cursorError }] = await Promise.all([
-        service.from("paper_account_epochs").select("version").eq("id", epochId).eq("state", "active").maybeSingle(),
-        service.from("paper_account_summaries").select("cash_balance,equity").eq("epoch_id", epochId).maybeSingle(),
-        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
-        service.from("paper_orders").select("id,asset,side,order_type,time_in_force,status,remaining_size,limit_price,trigger_price,queue_ahead,reduce_only,leverage,reserved_margin,created_at")
-          .eq("epoch_id", epochId).in("status", ["resting", "partially_filled", "trigger_waiting"])
-          .order("created_at", { ascending: true }),
-        loadFeeVolume(epochId),
-        service.from("paper_funding_payments").select("funding_timestamp").eq("epoch_id", epochId).eq("asset", snapshot.asset),
-        service.rpc("paper_funding_exposure", {
-          p_epoch_id: epochId, p_asset: snapshot.asset, p_timestamps: fundingTimestamps,
+      const [{ data: accountState, error: accountStateError }, feeVolume] = await Promise.all([
+        service.rpc("paper_processor_account_state", {
+          p_epoch_id: epochId, p_asset: snapshot.asset, p_funding_timestamps: fundingTimestamps,
         }),
-        service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epochId),
-        service.from("paper_account_market_cursors").select("last_trade_id,last_timestamp_ms")
-          .eq("epoch_id", epochId).eq("asset", snapshot.asset).maybeSingle(),
+        loadFeeVolume(epochId),
       ]);
-      if (epochError || summaryError || positionsError || ordersError || fundingError || fundingExposureError || leverageError || cursorError) throw new Error(epochError?.message ?? summaryError?.message ?? positionsError?.message ?? ordersError?.message ?? fundingError?.message ?? fundingExposureError?.message ?? leverageError?.message ?? cursorError?.message);
-      if (!epoch) return { mutated: false, accepted: true };
+      if (accountStateError) throw new Error(accountStateError.message);
+      if (!accountState) return { mutated: false, accepted: true };
+      type NumericValue = string | number;
+      const { epochVersion, summary, positions, orders, fundingPayments, fundingExposure, leverageSettings, cursor: accountCursor } = accountState as {
+        epochVersion: number; summary: { cash_balance: NumericValue; equity: NumericValue } | null;
+        positions: ProcessorPosition[];
+        orders: Array<{ id: string; asset: string; side: "buy" | "sell"; order_type: ReplayOrder["orderType"]; time_in_force: ReplayOrder["timeInForce"]; status: ReplayOrder["status"]; remaining_size: string; limit_price: string | null; trigger_price: string | null; queue_ahead: string | null; reduce_only: boolean; leverage: number; reserved_margin: string; created_at: string }>;
+        fundingPayments: Array<{ funding_timestamp: string }>;
+        fundingExposure: Array<{ funding_timestamp: string; signed_size: unknown }>;
+        leverageSettings: Array<{ asset: string; leverage: number }>;
+        cursor: { last_trade_id: string | null; last_timestamp_ms: number | null } | null;
+      };
       if (!summary) return { mutated: false, accepted: false, reconciliationFailure: true };
       const reconciled = reconcileAccount({
         cashBalance: String(summary.cash_balance), cachedEquity: String(summary.equity),
@@ -228,7 +264,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
         if (overlap < 0) accountTradeGap = true;
         else accountTrades = payload.trades.slice(overlap + 1);
       }
-      let expectedVersion = Number(epoch.version);
+      let expectedVersion = Number(epochVersion);
       const storedPosition = (positions ?? []).find((position) => position.asset === snapshot.asset);
       let position = storedPosition ? {
         signedSize: String(storedPosition.signed_size), entryPrice: String(storedPosition.entry_price),
@@ -344,40 +380,28 @@ function runtimeDependencies(): ProcessPaperDependencies {
       if (!data) return { mutated: false, accepted: false };
       expectedVersion += replayEffects.length + fundingEffects.length + (position ? 1 : 0);
 
-      const { data: cooldown, error: cooldownError } = await service.from("paper_liquidations")
-        .select("cooldown_until").eq("epoch_id", epochId).eq("asset", snapshot.asset)
-        .not("cooldown_until", "is", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
-      if (cooldownError) throw new Error(cooldownError.message);
-      if (!position) {
-        return { mutated: replayEffects.length > 0 || fundingEffects.length > 0 || position !== null, accepted: true };
-      }
-      const partialCooldownActive = Boolean(cooldown?.cooldown_until && Date.parse(cooldown.cooldown_until) > Date.now());
-      const [{ data: currentSummary, error: currentSummaryError }, { data: currentPositions, error: currentPositionsError }] = await Promise.all([
-        service.from("paper_account_summaries").select("cash_balance").eq("epoch_id", epochId).single(),
-        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,mark_price,isolated_margin").eq("epoch_id", epochId),
-      ]);
-      if (currentSummaryError || currentPositionsError) throw new Error(currentSummaryError?.message ?? currentPositionsError?.message);
+      const { data: riskState, error: riskStateError } = await service.rpc("paper_processor_risk_state", {
+        p_epoch_id: epochId, p_asset: snapshot.asset,
+      });
+      if (riskStateError) throw new Error(riskStateError.message);
+      if (!riskState || Number(riskState.epochVersion) !== expectedVersion) return { mutated: true, accepted: false };
+      const currentSummary = { cash_balance: riskState.cashBalance };
+      const currentPositions = riskState.positions as typeof positions;
+      const partialCooldownActive = Boolean(riskState.cooldownUntil && Date.parse(riskState.cooldownUntil) > Date.now());
       const currentStored = (currentPositions ?? []).find((item) => item.asset === snapshot.asset);
-      if (!currentStored) return { mutated: true, accepted: true };
-      position = { signedSize: String(currentStored.signed_size), entryPrice: String(currentStored.entry_price) };
       const currentMetadataByAsset = new Map(payload.catalog.map((item) => [item.asset, item]));
-      const riskProjection = (currentPositions ?? []).reduce((totals, item) => {
-        const metadata = currentMetadataByAsset.get(item.asset);
-        if (!metadata) return totals;
-        const notional = decimalString(decimal(item.signed_size).abs().times(item.mark_price));
-        const positionMargin = item.margin_mode === "isolated"
-          ? String(item.isolated_margin ?? 0)
-          : initialMargin(notional, leverageByAsset.get(item.asset) ?? 1, metadata.marginTiers);
-        return {
-          margin: totals.margin.plus(positionMargin),
-          maintenance: totals.maintenance.plus(maintenanceMargin(notional, metadata.marginTiers)),
-        };
-      }, { margin: decimal(0), maintenance: decimal(0) });
-      const { error: projectionError } = await service.from("paper_account_summaries").update({
-        margin_used: decimalString(riskProjection.margin),
-        maintenance_margin: decimalString(riskProjection.maintenance),
-      }).eq("epoch_id", epochId);
+      const riskProjection = accountRiskProjection(currentPositions ?? [], currentMetadataByAsset, leverageByAsset);
+      const { data: projectionApplied, error: projectionError } = await service.rpc("set_paper_risk_projection", {
+        p_epoch_id: epochId, p_expected_version: expectedVersion,
+        p_margin_used: decimalString(riskProjection.margin),
+        p_maintenance_margin: decimalString(riskProjection.maintenance),
+      });
       if (projectionError) throw new Error(projectionError.message);
+      if (!projectionApplied) return { mutated: true, accepted: false };
+      if (!currentStored) {
+        return { mutated: replayEffects.length > 0 || fundingEffects.length > 0, accepted: true };
+      }
+      position = { signedSize: String(currentStored.signed_size), entryPrice: String(currentStored.entry_price) };
       const currentNotional = decimalString(decimal(position.signedSize).abs().times(payload.markPrice));
       const requiredMaintenance = maintenanceMargin(currentNotional, payload.metadata.marginTiers);
       let risk;
@@ -411,7 +435,26 @@ function runtimeDependencies(): ProcessPaperDependencies {
         p_epoch_id: epochId, p_expected_version: expectedVersion, p_effect: liquidation,
       });
       if (liquidationError) throw new Error(liquidationError.message);
-      return { mutated: liquidationApplied === true, accepted: liquidationApplied === true };
+      if (liquidationApplied !== true) return { mutated: false, accepted: false };
+
+      const liquidationVersion = expectedVersion + 1;
+      const { data: postLiquidationState, error: postLiquidationError } = await service.rpc("paper_processor_risk_state", {
+        p_epoch_id: epochId, p_asset: snapshot.asset,
+      });
+      if (postLiquidationError) throw new Error(postLiquidationError.message);
+      if (!postLiquidationState || Number(postLiquidationState.epochVersion) !== liquidationVersion) {
+        return { mutated: true, accepted: false };
+      }
+      const postLiquidationProjection = accountRiskProjection(
+        postLiquidationState.positions as ProcessorPosition[], currentMetadataByAsset, leverageByAsset,
+      );
+      const { data: postLiquidationApplied, error: postLiquidationProjectionError } = await service.rpc("set_paper_risk_projection", {
+        p_epoch_id: epochId, p_expected_version: liquidationVersion,
+        p_margin_used: decimalString(postLiquidationProjection.margin),
+        p_maintenance_margin: decimalString(postLiquidationProjection.maintenance),
+      });
+      if (postLiquidationProjectionError) throw new Error(postLiquidationProjectionError.message);
+      return { mutated: true, accepted: postLiquidationApplied === true };
     },
     processStrategies: strategyRuntime,
     async persistSnapshot(snapshot) {
@@ -446,7 +489,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       return data === true;
     },
     async process() {
-      const live = await processPaperBatch(processor, 500, Math.floor(Date.now() / 10_000));
+      const live = await processPaperBatch(processor, 500, Math.floor(Date.now() / PAPER_PROCESSOR_INTERVAL_MS), { deadlineMs: 20_000 });
       const backtest = await backtestRuntime();
       return { ...live, backtest };
     },

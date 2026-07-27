@@ -33,8 +33,10 @@ Deno.test("one asset fetch advances every account in deterministic order", async
   const fetched: string[] = [];
   const processed: string[] = [];
   const persisted: string[] = [];
+  const prepared: string[][] = [];
   const result = await processPaperBatch({
     loadWork: async () => [{ asset: "ORCL", hasPosition: true, requiresTradeReplay: false, accountIds: ["b", "a", "a"] }],
+    prepareWork: async (work) => { prepared.push(work.map(({ asset }) => asset)); },
     fetchSnapshot: async (work) => {
       fetched.push(work.asset);
       return { asset: work.asset, inputVersion: "v1", apiWeight: 42, degraded: false, payload: {} };
@@ -45,6 +47,7 @@ Deno.test("one asset fetch advances every account in deterministic order", async
     },
     persistSnapshot: async (snapshot) => { persisted.push(snapshot.inputVersion); },
   }, 100);
+  assertEquals(prepared, [["ORCL"]]);
   assertEquals(fetched, ["ORCL"]);
   assertEquals(processed, ["a:v1", "b:v1"]);
   assertEquals(persisted, ["v1"]);
@@ -168,4 +171,50 @@ Deno.test("budgeted assets rotate without placing resting work ahead of risk", a
     processAccount: async () => ({ mutated: true }),
   }, 20, 1);
   assertEquals(fetched, ["B", "A"]);
+});
+
+Deno.test("the processor stops starting assets before its lease window can overlap", async () => {
+  const fetched: string[] = [];
+  let now = 0;
+  const result = await processPaperBatch({
+    loadWork: async () => ["A", "B"].map((asset) => ({ asset, hasPosition: true, requiresTradeReplay: false, accountIds: [asset] })),
+    fetchSnapshot: async (work) => {
+      fetched.push(work.asset);
+      now += 21_000;
+      return { asset: work.asset, inputVersion: work.asset, apiWeight: 1, degraded: false, payload: {} };
+    },
+    processAccount: async () => ({ mutated: true, accepted: true }),
+  }, 100, 0, { now: () => now, deadlineMs: 20_000 });
+  assertEquals(fetched, ["A"]);
+  assertEquals(result.degradedAssets, [{ asset: "B", reason: "processor_deadline_exhausted" }]);
+});
+
+Deno.test("one account failure is isolated without aborting later assets", async () => {
+  const processed: string[] = [];
+  const result = await processPaperBatch({
+    loadWork: () => Promise.resolve([
+      { asset: "BTC", hasPosition: true, requiresTradeReplay: false, accountIds: ["bad", "good"] },
+      { asset: "ETH", hasPosition: true, requiresTradeReplay: false, accountIds: ["good"] },
+    ]),
+    fetchSnapshot: (work) => Promise.resolve({ asset: work.asset, inputVersion: work.asset, apiWeight: 0, degraded: false, payload: {} }),
+    processAccount: (accountId, snapshot) => {
+      if (accountId === "bad") throw new Error("temporary database failure");
+      processed.push(`${accountId}:${snapshot.asset}`);
+      return Promise.resolve({ mutated: true, accepted: true });
+    },
+  }, 500);
+  assertEquals(processed, ["good:BTC", "good:ETH"]);
+  assertEquals(result.state, "partial");
+  assertEquals(result.degradedAssets[0], { asset: "BTC", reason: "account_processor:temporary database failure" });
+});
+
+Deno.test("diagnostic persistence failure degrades rather than aborts the batch", async () => {
+  const result = await processPaperBatch({
+    loadWork: () => Promise.resolve([{ asset: "BTC", hasPosition: true, requiresTradeReplay: false, accountIds: ["account"] }]),
+    fetchSnapshot: () => Promise.resolve({ asset: "BTC", inputVersion: "v1", apiWeight: 0, degraded: false, payload: {} }),
+    processAccount: () => Promise.resolve({ mutated: true, accepted: true }),
+    persistSnapshot: () => Promise.reject(new Error("storage unavailable")),
+  }, 500);
+  assertEquals(result.state, "partial");
+  assertEquals(result.degradedAssets, [{ asset: "BTC", reason: "market_input_persistence:storage unavailable" }]);
 });
