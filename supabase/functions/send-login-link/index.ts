@@ -23,7 +23,9 @@ function dependencies(): LoginLinkDependencies {
   return {
     allowedOrigin: ALLOWED_ORIGIN,
     async claim() {
-      const { data, error } = await service.rpc("claim_sign_in_email_delivery");
+      const { data, error } = await service.rpc("claim_sign_in_email_delivery", {
+        p_now: new Date().toISOString(),
+      });
       if (error || !data) throw new Error(error?.message ?? "Unable to claim email delivery");
       return data;
     },
