@@ -1,4 +1,5 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
+import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260718-listener";
 import {
   applyLiveMarketContext,
@@ -202,11 +203,8 @@ async function handleAccountAction() {
   renderAccount();
   setAccountMessage("Sending link…");
   try {
-    const { error } = await state.supabase.auth.signInWithOtp({
-      email: APP_CONFIG.allowedEmail,
-      options: { emailRedirectTo: window.location.href.split("#")[0] },
-    });
-    setAccountMessage(error ? formatAuthError(error) : "Link sent. Open it in this browser.");
+    await requestSignInLink(state.supabase);
+    setAccountMessage("Link sent. Open it in this browser.");
   } catch (error) {
     setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to send sign-in link.");
   } finally {
