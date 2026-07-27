@@ -1,15 +1,3 @@
-create table public.sign_in_email_limits (
-  limiter_key text primary key,
-  window_started_at timestamptz not null,
-  last_sent_at timestamptz,
-  attempt_count integer not null default 0 check (attempt_count >= 0)
-);
-
-alter table public.sign_in_email_limits enable row level security;
-
-revoke all on table public.sign_in_email_limits from public, anon, authenticated;
-grant all on table public.sign_in_email_limits to service_role;
-
 create or replace function public.claim_sign_in_email_delivery(p_now timestamptz default now())
 returns text
 language plpgsql

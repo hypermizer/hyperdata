@@ -10,7 +10,7 @@ select is(public.claim_sign_in_email_delivery('2026-07-27T00:00:00Z'), 'claimed'
 select is(public.claim_sign_in_email_delivery('2026-07-27T00:00:05Z'), 'cooldown', 'rapid repeat is throttled');
 select is(public.claim_sign_in_email_delivery('2026-07-27T00:00:11Z'), 'claimed', 'request after cooldown is claimed');
 
-update public.sign_in_email_limits set attempt_count = 100, window_started_at = '2026-07-27T00:00:00Z', last_sent_at = '2026-07-27T00:30:00Z';
+update public.sign_in_email_limits set attempt_count = 20, window_started_at = '2026-07-27T00:00:00Z', last_sent_at = '2026-07-27T00:30:00Z';
 select is(public.claim_sign_in_email_delivery('2026-07-27T00:30:11Z'), 'hourly_limit', 'hourly cap is enforced');
 
 select * from finish();
