@@ -63,4 +63,18 @@ Deno.test("login link returns a generic provider failure without leaking details
   }));
   assertEquals(response.status, 502);
   assertEquals(await response.json(), { error: "delivery_failed" });
+  assertEquals(response.headers.get("x-hyperdata-failure-stage"), "send");
+});
+
+Deno.test("login link identifies the failing boundary without exposing its error", async () => {
+  const failures = [
+    ["claim", { claim: () => Promise.reject(new Error("database secret")) }],
+    ["generate", { generate: () => Promise.reject(new Error("auth secret")) }],
+  ] as const;
+  for (const [stage, overrides] of failures) {
+    const response = await handleLoginLink(request(), dependencies(overrides));
+    assertEquals(response.status, 502);
+    assertEquals(await response.json(), { error: "delivery_failed" });
+    assertEquals(response.headers.get("x-hyperdata-failure-stage"), stage);
+  }
 });
