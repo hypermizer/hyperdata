@@ -41,6 +41,8 @@ for (const file of files) {
   console.log(`Applied ${file}`);
 }
 
+await query("notify pgrst, 'reload schema'");
+
 const verification = await query("select version, name from supabase_migrations.schema_migrations order by version");
 const verifiedRows = Array.isArray(verification) ? verification : verification.result ?? [];
 for (const file of files) {
