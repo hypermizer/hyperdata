@@ -45,3 +45,6 @@ verify_jwt = false
 
 [functions.strategy-command]
 verify_jwt = false
+
+[functions.send-login-link]
+verify_jwt = false

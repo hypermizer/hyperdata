@@ -55,11 +55,6 @@ jobs:
           TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
           ALERT_SMS_TO: ${{ secrets.ALERT_SMS_TO }}
-      - name: Configure reliable Auth email delivery
-        run: node scripts/configure-supabase-auth.mjs
-        env:
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       - name: Deploy functions
         run: |
           supabase functions deploy monitor-market --project-ref "$SUPABASE_PROJECT_ID"
@@ -68,6 +63,7 @@ jobs:
           supabase functions deploy paper-command --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy process-paper --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy strategy-command --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy send-login-link --project-ref "$SUPABASE_PROJECT_ID"
       - name: Configure scheduler
         run: node scripts/configure-supabase-runtime.mjs
         env:
