@@ -52,9 +52,9 @@ test("project restart can quiesce the paper scheduler before returning", async (
     maxAttempts: 1,
   });
 
-  assert.equal(calls.length, 3);
-  assert.deepEqual(JSON.parse(calls[2].options.body), {
-    query: "select cron.unschedule(jobid) from cron.job where jobname = 'hyperdata-process-paper'",
+  assert.equal(calls.length, 2);
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    query: "select cron.unschedule(jobid) from cron.job where jobname = 'hyperdata-process-paper'; select 1 as ready",
     read_only: false,
   });
 });
