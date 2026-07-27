@@ -2,6 +2,12 @@ name: Deploy Supabase listener
 
 on:
   workflow_dispatch:
+    inputs:
+      restart_project:
+        description: Restart Supabase before deploying
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -28,6 +34,11 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.109.1
+      - name: Restart unhealthy project
+        if: ${{ inputs.restart_project == true }}
+        run: node scripts/restart-supabase-project.mjs
+        env:
+          QUIESCE_PAPER_PROCESSOR: "true"
       - name: Apply migrations
         run: node scripts/deploy-supabase-migrations.mjs
       - name: Configure function secrets
@@ -63,6 +74,7 @@ jobs:
           supabase functions deploy paper-command --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy process-paper --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy strategy-command --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy send-login-link --project-ref "$SUPABASE_PROJECT_ID"
       - name: Configure scheduler
         run: node scripts/configure-supabase-runtime.mjs
         env:
