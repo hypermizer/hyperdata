@@ -37,6 +37,8 @@ jobs:
       - name: Restart unhealthy project
         if: ${{ inputs.restart_project == true }}
         run: node scripts/restart-supabase-project.mjs
+        env:
+          QUIESCE_PAPER_PROCESSOR: "true"
       - name: Apply migrations
         run: node scripts/deploy-supabase-migrations.mjs
       - name: Configure function secrets

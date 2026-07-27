@@ -23,6 +23,18 @@ export async function restartSupabaseProject({
       body: JSON.stringify({ query: "select 1 as ready", read_only: true }),
     });
     if (health.ok) {
+      if (env.QUIESCE_PAPER_PROCESSOR === "true") {
+        const quiesce = await fetchImpl(`${baseUrl}/database/query`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            query: "select cron.unschedule(jobid) from cron.job where jobname = 'hyperdata-process-paper'",
+            read_only: false,
+          }),
+        });
+        if (!quiesce.ok) throw new Error(`Unable to quiesce paper processor (${quiesce.status})`);
+        logger.log("Paper processor quiesced for database recovery");
+      }
       logger.log("Supabase Postgres recovered after restart");
       return;
     }

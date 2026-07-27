@@ -38,3 +38,23 @@ test("project restart fails when Postgres never becomes available", async () => 
     maxAttempts: 2,
   }), /database did not recover after restart/);
 });
+
+test("project restart can quiesce the paper scheduler before returning", async () => {
+  const calls = [];
+  await restartSupabaseProject({
+    env: { ...env, QUIESCE_PAPER_PROCESSOR: "true" },
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return url.endsWith("/restart") ? new Response(null, { status: 200 }) : Response.json([]);
+    },
+    sleep: async () => {},
+    logger: { log() {} },
+    maxAttempts: 1,
+  });
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(JSON.parse(calls[2].options.body), {
+    query: "select cron.unschedule(jobid) from cron.job where jobname = 'hyperdata-process-paper'",
+    read_only: false,
+  });
+});
