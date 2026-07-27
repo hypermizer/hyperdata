@@ -16,6 +16,7 @@ export async function restartSupabaseProject({
   if (!restart.ok) throw new Error(`Supabase restart request failed (${restart.status})`);
   logger.log("Supabase restart accepted; waiting for Postgres");
 
+  let observedUnavailable = false;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const quiesce = env.QUIESCE_PAPER_PROCESSOR === "true";
     const health = await fetchImpl(`${baseUrl}/database/query`, {
@@ -28,7 +29,8 @@ export async function restartSupabaseProject({
         read_only: !quiesce,
       }),
     });
-    if (health.ok) {
+    if (!health.ok) observedUnavailable = true;
+    if (health.ok && observedUnavailable) {
       if (quiesce) logger.log("Paper processor quiesced for database recovery");
       logger.log("Supabase Postgres recovered after restart");
       return;
