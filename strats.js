@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260721-strats";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260723-sizing-audit";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { displayStrategyAsset, escapeStrategyHtml, money, strategyRuleSummary, strategyStateLabel, summarizeBacktest } from "./lib/strats.js?v=20260721-strats";
 
 const client = createWatchlistClient(APP_CONFIG);

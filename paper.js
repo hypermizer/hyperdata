@@ -36,7 +36,7 @@ import {
   projectLivePaperAccount,
   quoteIsFresh,
 } from "./lib/paper-live.js?v=20260728-paper-live";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 
 const client = createWatchlistClient(APP_CONFIG);
 const state = {
