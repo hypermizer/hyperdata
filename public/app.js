@@ -9,7 +9,8 @@ import {
 } from "./lib/hyperliquid.js?v=20260720-assets";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260721-strats";
+import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
+import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
 import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-tools";
 
@@ -67,10 +68,15 @@ initialize();
 
 async function initialize() {
   try {
+    await initializeWatchlistStorage();
+  } catch (error) {
+    setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to restore browser session.");
+  }
+  renderRoute();
+  try {
     const markets = await getMarketCatalog();
     state.catalog = markets;
     updateMarketMap(markets);
-    await initializeWatchlistStorage();
     ensureValidWatchlist();
     await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
     renderCatalog();
@@ -88,7 +94,7 @@ function wireEvents() {
   elements.alertType.addEventListener("change", renderAlertFields);
   elements.settingsButton.addEventListener("click", openSettings);
   window.addEventListener("hashchange", renderRoute);
-  renderRoute();
+  if (!hasAuthCallbackParameters()) renderRoute();
 
   elements.watchlistForm.addEventListener("submit", addToWatchlist);
   elements.removeAssetForm.addEventListener("submit", (event) => {
@@ -183,9 +189,12 @@ async function setSession(session) {
     state.watchlist = [...APP_CONFIG.initialWatchlist];
     await loadAlerts();
   }
-  ensureValidWatchlist();
-  renderAccount();
-  render();
+  if (state.markets.size) {
+    ensureValidWatchlist();
+    render();
+  } else {
+    renderAccount();
+  }
 }
 
 async function handleAccountAction() {
