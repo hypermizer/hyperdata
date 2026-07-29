@@ -77,3 +77,21 @@ test("project restart can quiesce the paper scheduler before returning", async (
     read_only: false,
   });
 });
+
+test("project restart allows slow infrastructure recovery beyond two minutes", async () => {
+  let databaseAttempts = 0;
+  await restartSupabaseProject({
+    env,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/restart")) return new Response(null, { status: 200 });
+      databaseAttempts += 1;
+      return databaseAttempts < 25
+        ? Response.json({ message: "restarting" }, { status: 503 })
+        : Response.json([{ ready: 1 }]);
+    },
+    sleep: async () => {},
+    logger: { log() {} },
+  });
+
+  assert.equal(databaseAttempts, 25);
+});

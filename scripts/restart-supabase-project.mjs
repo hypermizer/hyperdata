@@ -5,7 +5,7 @@ export async function restartSupabaseProject({
   fetchImpl = fetch,
   sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   logger = console,
-  maxAttempts = 24,
+  maxAttempts = 120,
 } = {}) {
   const token = required(env, "SUPABASE_ACCESS_TOKEN");
   const projectRef = required(env, "SUPABASE_PROJECT_ID");
