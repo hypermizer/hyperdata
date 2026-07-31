@@ -50,7 +50,10 @@ const [monitorHealth = {}] = await query(`
     extract(epoch from now() - max(bucket) filter (where state in ('succeeded', 'partial')))::integer as latest_completed_age_seconds,
     count(*) filter (where state = 'succeeded' and bucket > now() - interval '24 hours')::integer as succeeded_24h,
     count(*) filter (where state = 'partial' and bucket > now() - interval '24 hours')::integer as partial_24h,
-    count(*) filter (where state = 'failed' and bucket > now() - interval '24 hours')::integer as failed_24h
+    count(*) filter (where state = 'failed' and bucket > now() - interval '24 hours')::integer as failed_24h,
+    (select rules_checked from public.monitor_runs order by bucket desc limit 1)::integer as latest_rules_checked,
+    (select assets_checked from public.monitor_runs order by bucket desc limit 1)::integer as latest_assets_checked,
+    (select details from public.monitor_runs order by bucket desc limit 1) as latest_details
   from public.monitor_runs
 `);
 if (!monitorHealth.latest_completed_bucket || Number(monitorHealth.latest_completed_age_seconds) > 180) {
@@ -65,8 +68,10 @@ const [ruleHealth = {}] = await query(`
       or state.status = 'error')::integer as unhealthy_rules,
     coalesce(jsonb_agg(jsonb_build_object(
       'asset', rule.asset,
+      'dex', rule.dex,
       'detector', rule.detector,
       'rule_created_at', rule.created_at,
+      'rule_updated_at', rule.updated_at,
       'evaluation_status', state.status,
       'evaluation_updated_at', state.updated_at
     )) filter (where state.rule_id is null
