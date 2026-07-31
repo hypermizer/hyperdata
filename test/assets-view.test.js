@@ -13,3 +13,10 @@ test("asset stars are positioned outside the name flow", () => {
   assert.match(css, /\.asset-name\s*\{[^}]*position:\s*relative/s);
   assert.match(css, /\.watch-button\s*\{[^}]*position:\s*absolute[^}]*right:\s*100%/s);
 });
+
+test("asset details use native routes with a vendored interactive chart", () => {
+  assert.match(html, /id="asset-view"/);
+  assert.match(html, /id="asset-chart"/);
+  assert.match(html, /lightweight-charts\.standalone\.production\.js\?v=5\.2\.0/);
+  assert.match(html, /id="asset-hyperliquid-link"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
+});

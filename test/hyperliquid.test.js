@@ -4,10 +4,12 @@ import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAverageDailyVolume,
+  fetchCandles,
   fetchDexNames,
   fetchMarketsForDex,
   fetchPriceHistory,
   postInfo,
+  updateLiveCandle,
 } from "../public/lib/hyperliquid.js";
 
 function jsonResponse(data, status = 200) {
@@ -177,6 +179,53 @@ test("fetchPriceHistory requests compact hourly and five-minute snapshots", asyn
     },
   ]);
   assert.deepEqual(points, [{ time: now - 300_000, price: 100 }]);
+});
+
+test("fetchCandles normalizes and sorts Hyperliquid OHLC snapshots", async () => {
+  const now = Date.UTC(2026, 6, 17, 12);
+  let request;
+  const candles = await fetchCandles("xyz:DRAM", "1h", 48, async (_url, options) => {
+    request = JSON.parse(options.body);
+    return jsonResponse([
+      { t: now - 3_600_000, T: now - 1, o: "50", h: "54", l: "49", c: "53" },
+      { T: now - 7_200_000, o: "48", h: "51", l: "47", c: "50" },
+      { t: now, o: "bad", h: "55", l: "52", c: "54" },
+    ]);
+  }, now);
+
+  assert.deepEqual(request, {
+    type: "candleSnapshot",
+    req: {
+      coin: "xyz:DRAM",
+      interval: "1h",
+      startTime: now - (48 * 3_600_000),
+      endTime: now,
+    },
+  });
+  assert.deepEqual(candles, [
+    { time: Math.floor((now - 7_200_000) / 1000), open: 48, high: 51, low: 47, close: 50 },
+    { time: Math.floor((now - 3_600_000) / 1000), open: 50, high: 54, low: 49, close: 53 },
+  ]);
+});
+
+test("updateLiveCandle updates the active hour and starts a new hour", () => {
+  const hour = Date.UTC(2026, 6, 17, 12);
+  const candles = [{ time: hour / 1000, open: 50, high: 54, low: 49, close: 53 }];
+
+  assert.deepEqual(updateLiveCandle(candles, 55, hour + 30_000), {
+    time: hour / 1000,
+    open: 50,
+    high: 55,
+    low: 49,
+    close: 55,
+  });
+  assert.deepEqual(updateLiveCandle(candles, 52, hour + 3_600_000), {
+    time: (hour + 3_600_000) / 1000,
+    open: 52,
+    high: 52,
+    low: 52,
+    close: 52,
+  });
 });
 
 test("buildPriceChangeSignals returns ordered changes across all seven intervals", () => {

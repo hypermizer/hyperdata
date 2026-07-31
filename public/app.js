@@ -1,4 +1,5 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
+import { createAssetChart } from "./asset-chart.js?v=20260801";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
 import { annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-rsi";
@@ -6,15 +7,22 @@ import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cac
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
-} from "./lib/hyperliquid.js?v=20260731-timeout";
+  fetchCandles,
+  updateLiveCandle,
+} from "./lib/hyperliquid.js?v=20260801-asset-page";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-tools";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260801-asset-page";
 
 const state = {
   accountMessage: "",
+  assetCandles: [],
+  assetChart: null,
+  assetChartAsset: null,
+  assetChartLoadToken: 0,
+  assetChartRetryTimer: null,
   averageVolumes: new Map(),
   catalog: [],
   favoritePending: new Set(),
@@ -41,8 +49,14 @@ const state = {
 const elements = {
   accountButton: document.querySelector("#account-button"),
   accountStatus: document.querySelector("#account-status"),
+  assetChart: document.querySelector("#asset-chart"),
+  assetChartStatus: document.querySelector("#asset-chart-status"),
   assetCount: document.querySelector("#asset-count"),
+  assetDetailMetrics: document.querySelector("#asset-detail-metrics"),
+  assetDetailName: document.querySelector("#asset-detail-name"),
+  assetDetailSignals: document.querySelector("#asset-detail-signals"),
   assetFilter: document.querySelector("#asset-filter"),
+  assetHyperliquidLink: document.querySelector("#asset-hyperliquid-link"),
   alertAsset: document.querySelector("#alert-asset"),
   alertCount: document.querySelector("#alert-count"),
   alertForm: document.querySelector("#alert-form"),
@@ -117,16 +131,9 @@ function wireEvents() {
       await toggleWatchedAsset(favoriteButton.dataset.watchAsset);
       return;
     }
-    const button = event.target.closest(".signal-dot-button");
-    if (!button) return;
-    const asset = button.dataset.asset;
-    const label = button.dataset.label;
-    const willOpen = state.openDot?.asset !== asset || state.openDot?.label !== label;
-    closeDotTooltips();
-    state.openDot = willOpen ? { asset, label } : null;
-    button.classList.toggle("is-open", willOpen);
-    button.setAttribute("aria-expanded", String(willOpen));
+    handleSignalClick(event);
   });
+  elements.assetDetailSignals.addEventListener("click", handleSignalClick);
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".signal-dot-button")) closeDotTooltips();
   });
@@ -333,6 +340,7 @@ function render() {
   renderAlertOptions();
   renderAccount();
   renderAlertFields();
+  renderRoute();
 }
 
 function renderMarkets() {
@@ -364,7 +372,7 @@ function renderMarkets() {
       const favoritePending = state.favoritePending.has(market.id);
       const rsi = rsiValues.get(market.id);
       const watchLabel = `${isWatched ? "Remove" : "Add"} ${displayAssetName(market.id)} ${isWatched ? "from" : "to"} watched assets`;
-      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><span>${escapeHtml(displayAssetName(market.id))}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
   const body = rows || `<tr><td class="asset-cell" colspan="9">NO MATCHING ASSETS</td></tr>`;
@@ -421,10 +429,22 @@ function openSettings() {
 
 function closeDotTooltips() {
   state.openDot = null;
-  elements.marketList.querySelectorAll(".signal-dot-button.is-open").forEach((button) => {
+  document.querySelectorAll(".signal-dot-button.is-open").forEach((button) => {
     button.classList.remove("is-open");
     button.setAttribute("aria-expanded", "false");
   });
+}
+
+function handleSignalClick(event) {
+  const button = event.target.closest(".signal-dot-button");
+  if (!button) return;
+  const asset = button.dataset.asset;
+  const label = button.dataset.label;
+  const willOpen = state.openDot?.asset !== asset || state.openDot?.label !== label;
+  closeDotTooltips();
+  state.openDot = willOpen ? { asset, label } : null;
+  button.classList.toggle("is-open", willOpen);
+  button.setAttribute("aria-expanded", String(willOpen));
 }
 
 async function loadAlerts() {
@@ -490,9 +510,10 @@ function renderAlertFields() {
 }
 
 function renderRoute() {
-  const { view, paperView, toolsView } = parseRoute(window.location.hash);
+  const { view, asset, paperView, toolsView } = parseRoute(window.location.hash);
+  const selectedTab = view === "asset" ? "watchlist" : view;
   elements.tabs.forEach((tab) => {
-    tab.setAttribute("aria-selected", String(tab.dataset.tab === view));
+    tab.setAttribute("aria-selected", String(tab.dataset.tab === selectedTab));
   });
   elements.views.forEach((panel) => {
     panel.hidden = panel.id !== `${view}-view`;
@@ -509,8 +530,92 @@ function renderRoute() {
   elements.toolsPanels.forEach((panel) => {
     panel.hidden = panel.dataset.toolsPanel !== toolsView;
   });
-  const canonical = routeFor(view, paperView, toolsView);
+  if (view === "asset") renderAssetDetail(asset);
+  else destroyAssetChart();
+  const canonical = view === "asset" ? routeFor("asset", asset) : routeFor(view, paperView, toolsView);
   if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
+}
+
+function renderAssetDetail(asset) {
+  elements.assetDetailName.textContent = displayAssetName(asset);
+  elements.assetHyperliquidLink.href = `https://app.hyperliquid.xyz/trade/${encodeURIComponent(asset)}`;
+  const market = state.markets.get(asset);
+  if (!market) {
+    if (state.assetChartAsset !== asset) destroyAssetChart();
+    elements.assetDetailMetrics.innerHTML = state.catalog.length
+      ? `<span><small>STATUS</small><strong>ASSET NOT FOUND</strong></span>`
+      : `<span><small>STATUS</small><strong>LOADING MARKET DATA</strong></span>`;
+    elements.assetDetailSignals.innerHTML = "";
+    elements.assetChartStatus.textContent = state.catalog.length ? "ASSET NOT FOUND" : "LOADING MARKET DATA…";
+    return;
+  }
+
+  const rsi = calculateHourlyRsi(state.priceHistories.get(asset) ?? [], market.markPrice);
+  const metrics = [
+    ["MARK", formatPrice(market.markPrice)],
+    ["24H +/-", formatPercent(market.changePercent)],
+    ["24H VOL", formatUsdCompact(market.volume24h)],
+    ["AVG VOL", formatUsdCompact(state.averageVolumes.get(asset))],
+    ["APR", formatPercent(annualizedFundingApr(market.funding))],
+    ["RSI", formatRsi(rsi)],
+    ["OI", formatCompact(market.openInterest)],
+  ];
+  elements.assetDetailMetrics.innerHTML = metrics
+    .map(([label, value]) => `<span><small>${label}</small><strong>${escapeHtml(value)}</strong></span>`)
+    .join("");
+  elements.assetDetailSignals.innerHTML = renderPriceSignals(market);
+  if (state.assetChartAsset !== asset) loadAssetChart(asset);
+}
+
+async function loadAssetChart(asset) {
+  destroyAssetChart();
+  state.assetChartAsset = asset;
+  const token = ++state.assetChartLoadToken;
+  elements.assetChartStatus.textContent = "LOADING 1H CANDLES…";
+  try {
+    state.assetChart = createAssetChart(elements.assetChart);
+    const candles = await fetchCandles(asset, "1h", 168);
+    if (token !== state.assetChartLoadToken || state.assetChartAsset !== asset) return;
+    state.assetCandles = candles;
+    state.assetChart.setData(candles);
+    updateAssetChart(asset, state.markets.get(asset)?.markPrice);
+    elements.assetChartStatus.textContent = "";
+  } catch (error) {
+    if (token !== state.assetChartLoadToken) return;
+    state.assetChart?.destroy();
+    state.assetChart = null;
+    elements.assetChart.replaceChildren();
+    elements.assetChartStatus.textContent = error.message ?? "CHART UNAVAILABLE";
+    state.assetChartRetryTimer = window.setTimeout(() => {
+      state.assetChartRetryTimer = null;
+      const route = parseRoute(window.location.hash);
+      if (route.view === "asset" && route.asset === asset) loadAssetChart(asset);
+    }, 15_000);
+  }
+}
+
+function updateAssetChart(asset, markPrice, now = Date.now()) {
+  if (state.assetChartAsset !== asset || !state.assetChart) return;
+  const candle = updateLiveCandle(state.assetCandles, markPrice, now);
+  if (!candle) return;
+  if (state.assetCandles.at(-1)?.time === candle.time) {
+    state.assetCandles[state.assetCandles.length - 1] = candle;
+    state.assetChart.update(candle);
+    return;
+  }
+  state.assetCandles = [...state.assetCandles.slice(-167), candle];
+  state.assetChart.setData(state.assetCandles);
+}
+
+function destroyAssetChart() {
+  state.assetChartLoadToken += 1;
+  window.clearTimeout(state.assetChartRetryTimer);
+  state.assetChartRetryTimer = null;
+  state.assetChart?.destroy();
+  state.assetChart = null;
+  state.assetChartAsset = null;
+  state.assetCandles = [];
+  elements.assetChart.replaceChildren();
 }
 
 function renderConnectionStatus(detail = "") {
@@ -582,6 +687,7 @@ function connectMarketStream() {
     const updatedMarket = applyLiveMarketContext(market, message.data.ctx);
     state.markets.set(message.data.coin, updatedMarket);
     recordLivePrice(message.data.coin, updatedMarket.markPrice);
+    updateAssetChart(message.data.coin, updatedMarket.markPrice);
     updateLastSync();
     scheduleMarketRender();
   });
@@ -617,6 +723,8 @@ function scheduleMarketRender() {
     state.marketRenderTimer = null;
     renderMarkets();
     renderAlertOptions();
+    const route = parseRoute(window.location.hash);
+    if (route.view === "asset") renderAssetDetail(route.asset);
   }, delayMs);
 }
 

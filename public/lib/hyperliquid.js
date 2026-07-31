@@ -2,6 +2,12 @@ export const INFO_ENDPOINT = "https://api.hyperliquid.xyz/info";
 
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const ONE_HOUR_MS = 60 * 60 * 1000;
+const CANDLE_INTERVAL_MS = new Map([
+  ["5m", FIVE_MINUTES_MS],
+  ["1h", ONE_HOUR_MS],
+  ["4h", 4 * ONE_HOUR_MS],
+  ["1d", 24 * ONE_HOUR_MS],
+]);
 const PRICE_CHANGE_WINDOWS = [
   { label: "1w", milliseconds: 7 * 24 * ONE_HOUR_MS },
   { label: "1d", milliseconds: 24 * ONE_HOUR_MS },
@@ -190,6 +196,48 @@ export async function fetchPriceHistory(asset, fetchImpl = fetch, now = Date.now
     .filter(({ time, price }) => time !== null && price !== null)
     .forEach((point) => pointsByTime.set(point.time, point));
   return [...pointsByTime.values()].sort((left, right) => left.time - right.time);
+}
+
+export async function fetchCandles(asset, interval = "1h", count = 168, fetchImpl = fetch, now = Date.now()) {
+  const intervalMs = CANDLE_INTERVAL_MS.get(interval);
+  if (!intervalMs) throw new Error(`Unsupported candle interval: ${interval}`);
+  const endTime = Number(now);
+  const candles = await postInfo({
+    type: "candleSnapshot",
+    req: {
+      coin: asset,
+      interval,
+      startTime: endTime - (Math.max(1, Number(count)) * intervalMs),
+      endTime,
+    },
+  }, fetchImpl);
+
+  return candles
+    .map((candle) => ({
+      time: toNumber(candle.t ?? candle.T),
+      open: toNumber(candle.o),
+      high: toNumber(candle.h),
+      low: toNumber(candle.l),
+      close: toNumber(candle.c),
+    }))
+    .filter((candle) => Object.values(candle).every((value) => value !== null))
+    .map((candle) => ({ ...candle, time: Math.floor(candle.time / 1000) }))
+    .sort((left, right) => left.time - right.time);
+}
+
+export function updateLiveCandle(candles, markPrice, now = Date.now(), intervalMs = ONE_HOUR_MS) {
+  if (!Number.isFinite(markPrice) || markPrice <= 0) return null;
+  const time = Math.floor(Math.floor(Number(now) / intervalMs) * intervalMs / 1000);
+  const current = candles.at(-1);
+  if (!current || current.time !== time) {
+    return { time, open: markPrice, high: markPrice, low: markPrice, close: markPrice };
+  }
+  return {
+    ...current,
+    high: Math.max(current.high, markPrice),
+    low: Math.min(current.low, markPrice),
+    close: markPrice,
+  };
 }
 
 export function buildPriceChangeSignals(markPrice, points, now = Date.now()) {

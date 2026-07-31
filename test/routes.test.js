@@ -11,6 +11,21 @@ test("site routes resolve top-level and nested paper views", () => {
   assert.deepEqual(parseRoute("#/tools/exposure-ladder"), { view: "tools", paperView: "home", toolsView: "exposure-ladder" });
 });
 
+test("asset routes preserve the canonical Hyperliquid asset id", () => {
+  assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM"), {
+    view: "asset",
+    asset: "xyz:DRAM",
+    paperView: "home",
+    toolsView: "exposure-ladder",
+  });
+  assert.equal(routeFor("asset", "xyz:DRAM"), "#/assets/xyz%3ADRAM");
+  assert.deepEqual(parseRoute("#/assets"), {
+    view: "watchlist",
+    paperView: "home",
+    toolsView: "exposure-ladder",
+  });
+});
+
 test("unknown routes fall back to the watchlist", () => {
   assert.deepEqual(parseRoute(""), { view: "watchlist", paperView: "home", toolsView: "exposure-ladder" });
   assert.deepEqual(parseRoute("#/missing"), { view: "watchlist", paperView: "home", toolsView: "exposure-ladder" });
