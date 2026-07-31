@@ -10,7 +10,11 @@ if (!token || !projectRef || !monitorSecret || (paperProcessorEnabled && !paperS
 }
 
 const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
-const keysResponse = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(projectRef)}/api-keys`, { headers });
+const fetchWithTimeout = (url, options = {}, timeout = 30_000) => fetch(url, {
+  ...options,
+  signal: options.signal ?? AbortSignal.timeout(timeout),
+});
+const keysResponse = await fetchWithTimeout(`https://api.supabase.com/v1/projects/${encodeURIComponent(projectRef)}/api-keys`, { headers });
 if (!keysResponse.ok) throw new Error(`Unable to retrieve project API keys (${keysResponse.status})`);
 const keys = await keysResponse.json();
 const serviceRoleKey = keys.find((key) => key.name === "service_role")?.api_key;
@@ -18,10 +22,23 @@ if (!serviceRoleKey) throw new Error("Project service-role key was unavailable")
 
 const queryUrl = `https://api.supabase.com/v1/projects/${encodeURIComponent(projectRef)}/database/query`;
 async function query(sql, parameters = []) {
-  const response = await fetch(queryUrl, { method: "POST", headers, body: JSON.stringify({ query: sql, parameters, read_only: false }) });
-  const body = await response.text();
-  if (!response.ok) throw new Error(`Runtime configuration query failed (${response.status}): ${body.slice(0, 300)}`);
-  return body ? JSON.parse(body) : [];
+  let lastFailure;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let response;
+    try {
+      response = await fetchWithTimeout(queryUrl, { method: "POST", headers, body: JSON.stringify({ query: sql, parameters, read_only: false }) });
+    } catch (error) {
+      lastFailure = error;
+    }
+    if (response) {
+      const body = await response.text();
+      if (response.ok) return body ? JSON.parse(body) : [];
+      lastFailure = new Error(`Runtime configuration query failed (${response.status}): ${body.slice(0, 300)}`);
+      if (![429, 500, 502, 503, 504].includes(response.status)) throw lastFailure;
+    }
+    if (attempt < 3) await wait(1_000 * 2 ** attempt);
+  }
+  throw lastFailure;
 }
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
