@@ -19,7 +19,7 @@ async function fetchNews(asset: string): Promise<NewsItem[]> {
   url.searchParams.set("hl", "en-US");
   url.searchParams.set("gl", "US");
   url.searchParams.set("ceid", "US:en");
-  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
   if (!response.ok) throw new Error(`news provider returned ${response.status}`);
   const items = parseNewsFeed(await response.text());
   if (!cache.has(asset) && cache.size >= MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value!);
