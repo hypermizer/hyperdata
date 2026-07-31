@@ -94,6 +94,7 @@ test("applyLiveMarketContext replaces a market's live stats from the WebSocket f
       prevDayPx: "126.01",
       dayNtlVlm: "14367445.938",
       openInterest: "225972.12",
+      funding: "-0.00025",
     },
   );
 
@@ -103,6 +104,7 @@ test("applyLiveMarketContext replaces a market's live stats from the WebSocket f
   assert.ok(Math.abs(updated.changePercent - 0.6904213951273654) < 0.000001);
   assert.equal(updated.volume24h, 14367445.938);
   assert.equal(updated.openInterest, 225972.12);
+  assert.equal(updated.funding, -0.00025);
 });
 
 test("fetchAverageDailyVolume estimates trailing daily notional volume from candles", async () => {

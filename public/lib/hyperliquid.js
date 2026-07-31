@@ -129,6 +129,7 @@ export function applyLiveMarketContext(market, context) {
         : null,
     volume24h: toNumber(context.dayNtlVlm) ?? market.volume24h,
     openInterest: toNumber(context.openInterest) ?? market.openInterest,
+    funding: toNumber(context.funding) ?? market.funding,
   };
 }
 
