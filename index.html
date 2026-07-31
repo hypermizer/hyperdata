@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260801-rsi" />
+    <link rel="stylesheet" href="./styles.css?v=20260801-asset-page" />
   </head>
   <body>
     <main>
@@ -44,6 +44,21 @@
         <p id="watchlist-message" class="message" role="status"></p>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
+      </section>
+
+      <section id="asset-view" role="tabpanel" aria-labelledby="watchlist-tab" hidden>
+        <div class="asset-detail-nav">
+          <a href="#/watchlist">BACK TO ASSETS</a>
+          <a id="asset-hyperliquid-link" href="https://app.hyperliquid.xyz/trade" target="_blank" rel="noopener noreferrer">OPEN ON HYPERLIQUID</a>
+        </div>
+        <div class="asset-detail-heading">
+          <h2 id="asset-detail-name">—</h2>
+          <span class="hint">1H CANDLES · LIVE MARK</span>
+        </div>
+        <div id="asset-detail-metrics" class="asset-detail-metrics" aria-live="polite"></div>
+        <div class="asset-detail-signals"><span class="hint">MOVES</span><div id="asset-detail-signals"></div></div>
+        <p id="asset-chart-status" class="message" role="status">LOADING CHART…</p>
+        <div id="asset-chart" class="asset-chart" aria-label="Live one-hour candlestick chart"></div>
       </section>
 
       <section id="alerts-view" role="tabpanel" aria-labelledby="alerts-tab" hidden>
@@ -428,7 +443,8 @@
       </section>
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
-    <script type="module" src="./app.js?v=20260801-rsi"></script>
+    <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
+    <script type="module" src="./app.js?v=20260801-asset-page"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>

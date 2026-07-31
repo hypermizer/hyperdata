@@ -154,6 +154,8 @@ input, select { min-width: 0; }
 }
 .metric { font-variant-numeric: tabular-nums; text-align: left; white-space: nowrap; }
 .asset-name { display: flex; position: relative; align-items: center; min-width: 0; }
+.asset-link { color: inherit; text-decoration: none; }
+.asset-link:hover, .asset-link:focus-visible { color: #45e1c0; text-decoration: underline; }
 .watch-button {
   position: absolute;
   right: 100%;
@@ -491,6 +493,27 @@ input, select { min-width: 0; }
 .rubric-math p + p { margin-top: 5px; }
 .rubric-math code { color: #eceff1; font: inherit; }
 
+.asset-detail-nav { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.asset-detail-nav a { color: #a8afb7; font-size: 11px; text-decoration: none; }
+.asset-detail-nav a:hover, .asset-detail-nav a:focus-visible { color: #eceff1; text-decoration: underline; }
+.asset-detail-heading { display: flex; align-items: baseline; gap: 10px; }
+.asset-detail-heading h2 { font-size: 22px; }
+.asset-detail-metrics {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-top: 14px;
+  border: 1px solid #34383d;
+}
+.asset-detail-metrics > span { min-width: 0; padding: 9px; border-right: 1px solid #34383d; }
+.asset-detail-metrics > span:last-child { border-right: 0; }
+.asset-detail-metrics small, .asset-detail-metrics strong { display: block; }
+.asset-detail-metrics small { color: #a8afb7; font-size: 10px; }
+.asset-detail-metrics strong { overflow: hidden; margin-top: 3px; font-size: 14px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
+.asset-detail-signals { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.asset-detail-signals .signal-grid { width: 308px; }
+.asset-chart { width: 100%; min-height: 430px; border: 1px solid #34383d; }
+#asset-chart-status:empty { display: none; }
+
 @media (max-width: 600px) {
   main { padding-top: 16px; }
   .tab-bar { flex-wrap: wrap; }
@@ -519,6 +542,10 @@ input, select { min-width: 0; }
   .market-table th:first-child .sort-header,
   .market-table td:first-child .asset-name { padding-left: 22px; }
   .market-table td:first-child .watch-button { right: auto; left: 0; }
+  .asset-detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .asset-detail-metrics > span { border-bottom: 1px solid #34383d; }
+  .asset-detail-signals { align-items: flex-start; overflow-x: auto; }
+  .asset-chart { min-height: 360px; }
   .paper-toolbar #paper-status { width: 100%; margin-left: 0; }
   .paper-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .paper-metrics > span { border-bottom: 1px solid #34383d; }
