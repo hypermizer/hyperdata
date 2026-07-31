@@ -130,6 +130,23 @@ input, select { min-width: 0; }
   font-weight: 400;
 }
 .market-table th { color: #a8afb7; font-size: 12px; font-weight: 650; text-transform: uppercase; }
+.sort-header {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+}
+.market-table th:first-child .sort-header { justify-content: flex-start; }
+.sort-indicator { width: 9px; color: #eceff1; }
+.signal-cell .sort-header { min-height: 44px; }
 .market-table th:not(:first-child) { text-align: center; }
 .market-table th:first-child, .market-table td:first-child { width: 100%; }
 .market-table th:not(:first-child), .market-table td:not(:first-child) { width: 1%; }

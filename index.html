@@ -40,18 +40,9 @@
         <div class="assets-controls">
           <input id="asset-filter" type="search" autocomplete="off" placeholder="SEARCH ASSETS" aria-label="Search TradFi assets" />
           <select id="asset-sort" aria-label="Sort assets">
-            <option value="asset">ASSET A–Z</option>
-            <option value="volume-desc">24H VOLUME · HIGH–LOW</option>
-            <option value="avg-volume-desc">AVG VOLUME · HIGH–LOW</option>
+            <option value="" selected disabled>SPECIAL SORT</option>
             <option value="move-5m-abs">5M MOVE · BIGGEST</option>
-            <option value="move-5m-desc">5M CHANGE · HIGH–LOW</option>
-            <option value="move-5m-asc">5M CHANGE · LOW–HIGH</option>
             <option value="change-24h-abs">24H MOVE · BIGGEST</option>
-            <option value="change-24h-desc">24H CHANGE · HIGH–LOW</option>
-            <option value="change-24h-asc">24H CHANGE · LOW–HIGH</option>
-            <option value="open-interest-desc">OI · HIGH–LOW</option>
-            <option value="apr-desc">APR · HIGH–LOW</option>
-            <option value="apr-asc">APR · LOW–HIGH</option>
           </select>
           <label class="watched-first"><input id="watched-first" type="checkbox" /> WATCHED FIRST</label>
         </div>
@@ -441,7 +432,8 @@
         </div>
       </section>
     </dialog>
-    <script type="module" src="./app.js?v=20260731-assets-live"></script>
+    <script type="module" src="./transient-messages.js?v=20260801"></script>
+    <script type="module" src="./app.js?v=20260801-alerts-sorting"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>

@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
-import { displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260718-listener";
-import { annualizedFundingApr, filterAndSortTradFiAssets, hydrateTradFiMarkets } from "./lib/assets.js?v=20260731-assets-live";
+import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
+import { annualizedFundingApr, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-sorting";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
@@ -34,7 +34,7 @@ const state = {
   marketRenderedAt: 0,
   query: "",
   signingIn: false,
-  sort: "asset",
+  sort: "asset-asc",
   user: null,
   watchedFirst: false,
   watchlist: [...APP_CONFIG.initialWatchlist],
@@ -103,6 +103,7 @@ function wireEvents() {
     renderMarkets();
   });
   elements.assetSort.addEventListener("change", () => {
+    if (!elements.assetSort.value) return;
     state.sort = elements.assetSort.value;
     renderMarkets();
   });
@@ -114,6 +115,13 @@ function wireEvents() {
   if (!hasAuthCallbackParameters()) renderRoute();
 
   elements.marketList.addEventListener("click", async (event) => {
+    const sortButton = event.target.closest("[data-sort-column]");
+    if (sortButton) {
+      state.sort = nextColumnSort(state.sort, sortButton.dataset.sortColumn);
+      elements.assetSort.value = "";
+      renderMarkets();
+      return;
+    }
     const favoriteButton = event.target.closest("[data-watch-asset]");
     if (favoriteButton) {
       await toggleWatchedAsset(favoriteButton.dataset.watchAsset);
@@ -376,7 +384,7 @@ function renderMarkets() {
     })
     .join("");
   const body = rows || `<tr><td class="asset-cell" colspan="8">NO MATCHING ASSETS</td></tr>`;
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th class="asset-cell">ASSET</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>MARK</th><th>24H +/-</th><th>24H VOL</th><th>AVG VOL</th><th title="Annualized current hourly funding rate">APR</th><th>OI</th></tr></thead><tbody>${body}</tbody></table>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSortHeader(renderSignalLabels(), "move-5m", "signal-cell", "5-minute price change")}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
   state.marketRenderedAt = now;
 }
 
@@ -399,6 +407,12 @@ function renderSignalLabels() {
   return `<span class="signal-grid signal-labels">${["1W", "1D", "6H", "1H", "30M", "10M", "5M"]
     .map((label) => `<span class="signal-slot">${label}</span>`)
     .join("")}</span>`;
+}
+
+function renderSortHeader(content, column, className = "", title = "") {
+  const direction = state.sort === `${column}-desc` ? "descending" : state.sort === `${column}-asc` ? "ascending" : "none";
+  const indicator = direction === "descending" ? "↓" : direction === "ascending" ? "↑" : "";
+  return `<th class="${className}" aria-sort="${direction}"${title ? ` title="${escapeHtml(title)}"` : ""}><button class="sort-header" type="button" data-sort-column="${column}">${content}<span class="sort-indicator" aria-hidden="true">${indicator}</span></button></th>`;
 }
 
 function renderAlertOptions() {
@@ -435,32 +449,51 @@ async function loadAlerts() {
     elements.alertList.innerHTML = `<p class="hint">Sign in to manage alerts.</p>`; return;
   }
   try {
-    const [rulesResponse, runsResponse, statesResponse, occurrencesResponse, deliveryResponse] = await Promise.all([
+    const [rulesResponse, runsResponse, statesResponse] = await Promise.all([
       state.supabase.from("alert_rules").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
       state.supabase.from("monitor_runs").select("*").order("bucket", { ascending: false }).limit(1),
       state.supabase.from("rule_evaluation_state").select("rule_id,status,tail_percentile,updated_at"),
-      state.supabase.from("alert_occurrences").select("id,rule_id,bucket").order("bucket", { ascending: false }).limit(100),
-      state.supabase.from("notification_outbox").select("occurrence_id,state,updated_at").order("updated_at", { ascending: false }).limit(100),
     ]);
-    const error = rulesResponse.error ?? runsResponse.error ?? statesResponse.error ?? occurrencesResponse.error ?? deliveryResponse.error; if (error) throw error;
+    const error = rulesResponse.error ?? runsResponse.error ?? statesResponse.error; if (error) throw error;
     const rules = rulesResponse.data ?? []; const states = new Map((statesResponse.data ?? []).map((item) => [item.rule_id, item]));
-    const deliveryByOccurrence = new Map((deliveryResponse.data ?? []).map((item) => [item.occurrence_id, item.state]));
-    const latestDeliveryByRule = new Map();
-    (occurrencesResponse.data ?? []).forEach((occurrence) => {
-      if (!latestDeliveryByRule.has(occurrence.rule_id) && deliveryByOccurrence.has(occurrence.id)) latestDeliveryByRule.set(occurrence.rule_id, deliveryByOccurrence.get(occurrence.id));
-    });
+    const latestDeliveryByRule = await loadLatestAlertDeliveries(rules);
     elements.listenerHealth.textContent = listenerHealth(runsResponse.data?.[0]); elements.alertCount.textContent = String(rules.filter((rule) => rule.enabled).length);
     elements.alertList.innerHTML = rules.length ? rules.map((rule) => {
       const evaluation = states.get(rule.id); const status = evaluation?.status ?? (rule.detector === "large_move" ? "warming" : "not evaluated");
-      const deliveryState = latestDeliveryByRule.get(rule.id);
-      const meta = `${rule.enabled ? status : "disabled"}${deliveryState ? ` · delivery ${deliveryState}` : ""}`;
-      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · ${rule.delivery === "sms" ? "text" : "email"}</span><br><span class="alert-meta">${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
+      const delivery = latestDeliveryByRule.get(rule.id);
+      const meta = alertStatusLabel({ enabled: rule.enabled, evaluationStatus: status, deliveryState: delivery?.state, delivery: rule.delivery });
+      const deliveryError = delivery?.last_error ? ` title="${escapeHtml(delivery.last_error)}"` : "";
+      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · ${rule.delivery === "sms" ? "text" : "email"}</span><br><span class="alert-meta"${deliveryError}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
     }).join("") : `<p class="hint">No alerts.</p>`;
   } catch (error) {
     elements.alertCount.textContent = "—";
     elements.listenerHealth.textContent = "MONITOR UNKNOWN";
     elements.alertList.innerHTML = `<p class="hint">${escapeHtml(error.message ?? "Could not load alerts.")}</p>`;
   }
+}
+
+async function loadLatestAlertDeliveries(rules) {
+  const occurrenceResponses = await Promise.all(rules.map((rule) => state.supabase
+    .from("alert_occurrences")
+    .select("id,rule_id,bucket")
+    .eq("rule_id", rule.id)
+    .order("bucket", { ascending: false })
+    .limit(1)
+    .maybeSingle()));
+  const occurrenceError = occurrenceResponses.find(({ error }) => error)?.error;
+  if (occurrenceError) throw occurrenceError;
+  const occurrences = occurrenceResponses.flatMap(({ data }) => data ? [data] : []);
+  if (!occurrences.length) return new Map();
+  const { data: deliveries, error } = await state.supabase
+    .from("notification_outbox")
+    .select("occurrence_id,state,attempts,last_error,updated_at")
+    .in("occurrence_id", occurrences.map(({ id }) => id));
+  if (error) throw error;
+  const deliveryByOccurrence = new Map((deliveries ?? []).map((item) => [item.occurrence_id, item]));
+  return new Map(occurrences.flatMap((occurrence) => {
+    const delivery = deliveryByOccurrence.get(occurrence.id);
+    return delivery ? [[occurrence.rule_id, delivery]] : [];
+  }));
 }
 
 function renderAlertFields() {
