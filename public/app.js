@@ -2,11 +2,10 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
 import { annualizedFundingApr, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-sorting";
+import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cache";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
-  fetchAverageDailyVolume,
-  fetchPriceHistory,
 } from "./lib/hyperliquid.js?v=20260731-timeout";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
@@ -16,7 +15,6 @@ import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-tools";
 
 const state = {
   accountMessage: "",
-  analyticsRefreshing: false,
   averageVolumes: new Map(),
   catalog: [],
   favoritePending: new Set(),
@@ -79,14 +77,13 @@ async function initialize() {
   }
   renderRoute();
   try {
-    const markets = await getMarketCatalog();
+    const [markets] = await Promise.all([getMarketCatalog(), loadCachedAssetAnalytics()]);
     state.catalog = markets;
     updateMarketMap(markets);
     if (!tradFiMarkets().length) throw new Error("No XYZ TradFi markets were returned.");
     ensureValidWatchlist();
     render();
     connectMarketStream();
-    refreshAssetAnalytics();
   } catch (error) {
     state.streamPhase = "error";
     renderConnectionStatus(error.message);
@@ -178,7 +175,7 @@ function wireEvents() {
     await loadAlerts();
   });
 
-  setInterval(refreshAssetAnalytics, APP_CONFIG.assetAnalyticsRefreshIntervalMs);
+  setInterval(loadCachedAssetAnalytics, APP_CONFIG.assetAnalyticsCachePollIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
   setInterval(checkQuoteHealth, 1_000);
   setInterval(sendStreamHeartbeat, 30_000);
@@ -309,28 +306,15 @@ async function toggleWatchedAsset(asset) {
   }
 }
 
-async function refreshAssetAnalytics() {
-  if (state.analyticsRefreshing || !state.catalog.length) return;
-  state.analyticsRefreshing = true;
-  const tradFiIds = tradFiMarkets().map(({ id }) => id);
-  const watched = new Set(state.watchlist);
-  const prioritized = [...tradFiIds].sort((left, right) => Number(watched.has(right)) - Number(watched.has(left)));
-  try {
-    for (const asset of prioritized) {
-      const [averageResult, historyResult] = await Promise.allSettled([
-        fetchAverageDailyVolume(asset),
-        fetchPriceHistory(asset),
-      ]);
-      if (averageResult.status === "fulfilled") state.averageVolumes.set(asset, averageResult.value);
-      if (historyResult.status === "fulfilled") {
-        state.priceHistories.set(asset, mergePricePoints(state.priceHistories.get(asset) ?? [], historyResult.value));
-      }
-      scheduleMarketRender();
-      await delay(APP_CONFIG.assetAnalyticsRequestSpacingMs);
-    }
-  } finally {
-    state.analyticsRefreshing = false;
-  }
+async function loadCachedAssetAnalytics() {
+  if (!state.supabase) return 0;
+  const { data, error } = await state.supabase
+    .from("asset_analytics_cache")
+    .select("asset,average_daily_volume,price_history");
+  if (error) return 0;
+  const applied = applyAssetAnalyticsRows(data, state);
+  if (applied && state.catalog.length) scheduleMarketRender();
+  return applied;
 }
 
 function updateMarketMap(markets) {
@@ -384,7 +368,7 @@ function renderMarkets() {
     })
     .join("");
   const body = rows || `<tr><td class="asset-cell" colspan="8">NO MATCHING ASSETS</td></tr>`;
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSortHeader(renderSignalLabels(), "move-5m", "signal-cell", "5-minute price change")}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSignalHeaders()}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
   state.marketRenderedAt = now;
 }
 
@@ -403,16 +387,16 @@ function renderPriceSignals(market) {
   return `<span class="signal-grid price-dots">${dots}</span>`;
 }
 
-function renderSignalLabels() {
-  return `<span class="signal-grid signal-labels">${["1W", "1D", "6H", "1H", "30M", "10M", "5M"]
-    .map((label) => `<span class="signal-slot">${label}</span>`)
-    .join("")}</span>`;
+function renderSignalHeaders() {
+  const windows = [["1W", "1w"], ["1D", "1d"], ["6H", "6h"], ["1H", "1h"], ["30M", "30m"], ["10M", "10m"], ["5M", "5m"]];
+  return `<th class="signal-cell"><span class="signal-grid signal-labels">${windows
+    .map(([label, window]) => `<button class="signal-slot" type="button" data-sort-column="move-${window}" aria-label="Sort by ${label} price change">${label}</button>`)
+    .join("")}</span></th>`;
 }
 
 function renderSortHeader(content, column, className = "", title = "") {
   const direction = state.sort === `${column}-desc` ? "descending" : state.sort === `${column}-asc` ? "ascending" : "none";
-  const indicator = direction === "descending" ? "↓" : direction === "ascending" ? "↑" : "";
-  return `<th class="${className}" aria-sort="${direction}"${title ? ` title="${escapeHtml(title)}"` : ""}><button class="sort-header" type="button" data-sort-column="${column}">${content}<span class="sort-indicator" aria-hidden="true">${indicator}</span></button></th>`;
+  return `<th class="${className}" aria-sort="${direction}"${title ? ` title="${escapeHtml(title)}"` : ""}><button class="sort-header" type="button" data-sort-column="${column}">${content}</button></th>`;
 }
 
 function renderAlertOptions() {
@@ -644,15 +628,6 @@ function recordLivePrice(asset, price, now = Date.now()) {
   if (recent.at(-1)?.time >= bucket) recent[recent.length - 1] = { time: bucket, price };
   else recent.push({ time: bucket, price });
   state.priceHistories.set(asset, recent);
-}
-
-function mergePricePoints(existing, incoming) {
-  const byTime = new Map([...incoming, ...existing].map((point) => [point.time, point]));
-  return [...byTime.values()].sort((left, right) => left.time - right.time);
-}
-
-function delay(milliseconds) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function formatDotDetail({ label, referencePrice, changePercent }) {

@@ -1,0 +1,32 @@
+name: Refresh asset analytics
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asset-analytics-production
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/refresh-asset-analytics.mjs
+        env:
+          SUPABASE_PROJECT_ID: itheknkmuutquriojdzt
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          ANALYTICS_SHARD_INDEX: ${{ matrix.shard }}
+          ANALYTICS_SHARD_COUNT: 8

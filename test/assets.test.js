@@ -94,6 +94,37 @@ test("column sorting starts high-to-low and toggles direction", () => {
   assert.equal(nextColumnSort("volume-desc", "asset"), "asset-desc");
 });
 
+test("each signal column sorts by its own time window", () => {
+  const now = Date.UTC(2026, 6, 31, 12);
+  const markets = [
+    { id: "xyz:ALPHA", symbol: "ALPHA", dexId: "xyz", markPrice: 100 },
+    { id: "xyz:BETA", symbol: "BETA", dexId: "xyz", markPrice: 100 },
+  ];
+  const priceHistories = new Map([
+    ["xyz:ALPHA", [
+      { time: now - 30 * 60_000, price: 50 },
+      { time: now - 5 * 60_000, price: 99 },
+    ]],
+    ["xyz:BETA", [
+      { time: now - 30 * 60_000, price: 90 },
+      { time: now - 5 * 60_000, price: 50 },
+    ]],
+  ]);
+
+  assert.deepEqual(
+    filterAndSortTradFiAssets(markets, { sort: "move-30m-desc", priceHistories, now }).map(({ id }) => id),
+    ["xyz:ALPHA", "xyz:BETA"],
+  );
+  assert.deepEqual(
+    filterAndSortTradFiAssets(markets, { sort: "move-30m-asc", priceHistories, now }).map(({ id }) => id),
+    ["xyz:BETA", "xyz:ALPHA"],
+  );
+  assert.deepEqual(
+    filterAndSortTradFiAssets(markets, { sort: "move-5m-desc", priceHistories, now }).map(({ id }) => id),
+    ["xyz:BETA", "xyz:ALPHA"],
+  );
+});
+
 test("watched-first grouping preserves the selected sort within each group", () => {
   const markets = [
     { id: "xyz:A", symbol: "A", dexId: "xyz", volume24h: 10 },

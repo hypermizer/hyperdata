@@ -21,7 +21,15 @@ export function searchAssets(catalog, value, limit = Infinity) {
     .map(({ asset }) => asset);
 }
 
-const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const MOVE_WINDOWS_MS = new Map([
+  ["1w", 7 * 24 * 60 * 60 * 1000],
+  ["1d", 24 * 60 * 60 * 1000],
+  ["6h", 6 * 60 * 60 * 1000],
+  ["1h", 60 * 60 * 1000],
+  ["30m", 30 * 60 * 1000],
+  ["10m", 10 * 60 * 1000],
+  ["5m", 5 * 60 * 1000],
+]);
 const HOURS_PER_YEAR = 24 * 365;
 
 export function annualizedFundingApr(hourlyFundingRate) {
@@ -102,15 +110,17 @@ function metricSelector(sort, context) {
   if (sort === "apr-desc" || sort === "apr-asc") return (market) => annualizedFundingApr(market.funding);
   if (sort === "change-24h-desc" || sort === "change-24h-asc") return (market) => market.changePercent;
   if (sort === "change-24h-abs") return (market) => absolute(market.changePercent);
-  if (["move-5m-abs", "move-5m-desc", "move-5m-asc"].includes(sort)) {
+  const moveMatch = /^move-(1w|1d|6h|1h|30m|10m|5m)-(asc|desc|abs)$/.exec(sort);
+  if (moveMatch) {
+    const [, window, order] = moveMatch;
     return (market) => {
       const change = marketChangePercentForWindow(
         market,
         context.priceHistories.get(market.id) ?? [],
-        FIVE_MINUTES_MS,
+        MOVE_WINDOWS_MS.get(window),
         context.now,
       );
-      return sort === "move-5m-abs" ? absolute(change) : change;
+      return order === "abs" ? absolute(change) : change;
     };
   }
   return null;
