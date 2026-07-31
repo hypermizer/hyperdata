@@ -34,6 +34,12 @@ export function isTradFiMarket(market) {
   return market?.dexId === "xyz" && !market.isDelisted;
 }
 
+export function hydrateTradFiMarkets(catalog, marketsById) {
+  return catalog
+    .filter(isTradFiMarket)
+    .map((market) => marketsById.get(market.id) ?? market);
+}
+
 export function filterAndSortTradFiAssets(markets, options = {}) {
   const {
     averageVolumes = new Map(),

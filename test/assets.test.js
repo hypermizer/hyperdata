@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   annualizedFundingApr,
+  hydrateTradFiMarkets,
   filterAndSortTradFiAssets,
   resolveAsset,
   searchAssets,
@@ -49,6 +50,21 @@ test("TradFi asset view includes active xyz markets and supports search", () => 
     filterAndSortTradFiAssets(markets).map(({ id }) => id),
     ["xyz:ORCL", "xyz:XYZ100"],
   );
+});
+
+test("TradFi asset view hydrates catalog entries with the latest live market values", () => {
+  const catalogMarkets = [
+    { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz", markPrice: 100, funding: 0.0001 },
+    { id: "xyz:DELISTED", symbol: "DELISTED", dexId: "xyz", isDelisted: true },
+    { id: "BTC", symbol: "BTC", dexId: "", markPrice: 120000 },
+  ];
+  const liveMarkets = new Map([
+    ["xyz:ORCL", { ...catalogMarkets[0], markPrice: 125, funding: 0.0002 }],
+  ]);
+
+  assert.deepEqual(hydrateTradFiMarkets(catalogMarkets, liveMarkets), [
+    { ...catalogMarkets[0], markPrice: 125, funding: 0.0002 },
+  ]);
 });
 
 test("TradFi asset view sorts metrics with unavailable values last", () => {

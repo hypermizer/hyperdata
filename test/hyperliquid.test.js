@@ -36,6 +36,17 @@ test("postInfo surfaces non-success responses", async () => {
   );
 });
 
+test("postInfo aborts requests that exceed the timeout", async () => {
+  const stalledFetch = (_url, { signal }) => new Promise((_resolve, reject) => {
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+
+  await assert.rejects(
+    () => postInfo({ type: "perpDexs" }, stalledFetch, 5),
+    /timed out/i,
+  );
+});
+
 test("fetchDexNames includes the default perp dex", async () => {
   const names = await fetchDexNames(async () =>
     jsonResponse([null, { name: "xyz" }, { name: "flx" }]),

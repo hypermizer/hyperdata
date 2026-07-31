@@ -1,13 +1,13 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260718-listener";
-import { annualizedFundingApr, filterAndSortTradFiAssets, isTradFiMarket } from "./lib/assets.js?v=20260731-assets";
+import { annualizedFundingApr, filterAndSortTradFiAssets, hydrateTradFiMarkets } from "./lib/assets.js?v=20260731-assets-live";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260720-assets";
+} from "./lib/hyperliquid.js?v=20260731-timeout";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
@@ -19,6 +19,7 @@ const state = {
   analyticsRefreshing: false,
   averageVolumes: new Map(),
   catalog: [],
+  favoritePending: new Set(),
   markets: new Map(),
   openDot: null,
   priceHistories: new Map(),
@@ -267,11 +268,13 @@ function renderAccount() {
 }
 
 async function toggleWatchedAsset(asset) {
+  if (state.favoritePending.has(asset)) return;
   if (!state.user) {
     setWatchlistMessage("Sign in to save watched assets.");
     return;
   }
   const wasWatched = state.watchlist.includes(asset);
+  state.favoritePending.add(asset);
   state.watchlist = wasWatched
     ? state.watchlist.filter((id) => id !== asset)
     : [...state.watchlist, asset];
@@ -292,6 +295,9 @@ async function toggleWatchedAsset(asset) {
     renderMarkets();
     renderAlertOptions();
     setWatchlistMessage(error.message);
+  } finally {
+    state.favoritePending.delete(asset);
+    renderMarkets();
   }
 }
 
@@ -347,7 +353,7 @@ function render() {
 function renderMarkets() {
   const now = Date.now();
   const totalAssets = tradFiMarkets().length;
-  const visibleMarkets = filterAndSortTradFiAssets(state.catalog, {
+  const visibleMarkets = filterAndSortTradFiAssets(tradFiMarkets(), {
     averageVolumes: state.averageVolumes,
     now,
     priceHistories: state.priceHistories,
@@ -364,8 +370,9 @@ function renderMarkets() {
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
       const isWatched = watched.has(market.id);
+      const favoritePending = state.favoritePending.has(market.id);
       const watchLabel = `${isWatched ? "Remove" : "Add"} ${displayAssetName(market.id)} ${isWatched ? "from" : "to"} watched assets`;
-      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}">${isWatched ? "★" : "☆"}</button><span>${escapeHtml(displayAssetName(market.id))}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><span>${escapeHtml(displayAssetName(market.id))}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
   const body = rows || `<tr><td class="asset-cell" colspan="8">NO MATCHING ASSETS</td></tr>`;
@@ -583,7 +590,7 @@ function sendStreamHeartbeat() {
 }
 
 function tradFiMarkets() {
-  return state.catalog.filter(isTradFiMarket);
+  return hydrateTradFiMarkets(state.catalog, state.markets);
 }
 
 function scheduleMarketRender() {
