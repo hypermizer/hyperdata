@@ -5,7 +5,16 @@ const displayAsset = (asset: string) => asset.startsWith("xyz:") ? asset.slice(4
 export function buildNotification(context: NotificationContext): { subject: string; text: string } {
   const asset = displayAsset(context.asset); const price = `$${context.markPrice.toLocaleString("en-US", { maximumFractionDigits: 6 })}`;
   if (context.detector === "fixed_price") {
-    return { subject: `HYPERDATA · ${asset} price alert`, text: `HYPERDATA\n${asset} mark is ${price}.\nTriggered ${context.bucket}.` };
+    const direction = context.evidence.direction === "below" ? "below" : "above";
+    const targetValue = Number(context.evidence.target);
+    const target = Number.isFinite(targetValue)
+      ? `$${targetValue.toLocaleString("en-US", { maximumFractionDigits: 6 })}`
+      : "configured target";
+    const observedAt = typeof context.evidence.observedAt === "string" ? context.evidence.observedAt : context.bucket;
+    return {
+      subject: `HYPERDATA · ${asset} ${direction} ${target}`,
+      text: `HYPERDATA\n${asset} mark ${price} crossed ${direction} target ${target}.\nObserved ${observedAt}.`,
+    };
   }
   const move = Number(context.evidence.movePercent); const percentile = Number(context.evidence.empiricalPercentile);
   const label = context.classification === "venue_dislocation" ? "venue dislocation" : context.classification === "underlying_move" ? "underlying move" : "large move";

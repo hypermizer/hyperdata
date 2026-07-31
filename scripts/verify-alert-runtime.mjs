@@ -45,7 +45,9 @@ async function query(sql) {
   throw lastFailure;
 }
 
-const [monitorHealth = {}] = await query(`
+let monitorHealth = {};
+for (let attempt = 0; attempt < 13; attempt += 1) {
+  [monitorHealth = {}] = await query(`
   select max(bucket) filter (where state in ('succeeded', 'partial')) as latest_completed_bucket,
     extract(epoch from now() - max(bucket) filter (where state in ('succeeded', 'partial')))::integer as latest_completed_age_seconds,
     count(*) filter (where state = 'succeeded' and bucket > now() - interval '24 hours')::integer as succeeded_24h,
@@ -53,10 +55,24 @@ const [monitorHealth = {}] = await query(`
     count(*) filter (where state = 'failed' and bucket > now() - interval '24 hours')::integer as failed_24h,
     (select rules_checked from public.monitor_runs order by bucket desc limit 1)::integer as latest_rules_checked,
     (select assets_checked from public.monitor_runs order by bucket desc limit 1)::integer as latest_assets_checked,
-    (select details from public.monitor_runs order by bucket desc limit 1) as latest_details
+    (select details from public.monitor_runs order by bucket desc limit 1) as latest_details,
+    (select count(*)::integer from public.monitor_runs
+      where state in ('succeeded', 'partial') and bucket > now() - interval '90 seconds') as completed_90s,
+    (select max(extract(epoch from bucket - previous_bucket)) from (
+      select bucket, lag(bucket) over (order by bucket) as previous_bucket
+      from public.monitor_runs where state in ('succeeded', 'partial') and bucket > now() - interval '90 seconds'
+    ) recent) as max_completed_gap_seconds
   from public.monitor_runs
-`);
-if (!monitorHealth.latest_completed_bucket || Number(monitorHealth.latest_completed_age_seconds) > 180) {
+  `);
+  const cadenceHealthy = Number(monitorHealth.completed_90s) >= 3
+    && Number(monitorHealth.max_completed_gap_seconds) <= 30
+    && Number(monitorHealth.latest_details?.cadenceSeconds) === 15;
+  if (cadenceHealthy) break;
+  if (attempt < 12) await new Promise((resolve) => setTimeout(resolve, 5_000));
+}
+if (!monitorHealth.latest_completed_bucket || Number(monitorHealth.latest_completed_age_seconds) > 45
+  || Number(monitorHealth.completed_90s) < 3 || Number(monitorHealth.max_completed_gap_seconds) > 30
+  || Number(monitorHealth.latest_details?.cadenceSeconds) !== 15) {
   throw new Error(`Alert monitor is stale: ${JSON.stringify(monitorHealth)}`);
 }
 console.log(`Alert monitor health: ${JSON.stringify(monitorHealth)}`);

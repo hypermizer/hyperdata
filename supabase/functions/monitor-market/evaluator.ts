@@ -4,10 +4,19 @@ import { logReturn } from "../_shared/statistics/returns.ts";
 import { updateVariance } from "../_shared/statistics/robust-volatility.ts";
 import type { AlertRule, DetectorModel, MarketObservation, VolatilityState } from "../_shared/types.ts";
 
-export async function evaluateRules(client: SupabaseClient, rules: AlertRule[], observations: MarketObservation[], bucket: Date): Promise<{ occurrences: number; errors: string[] }> {
+export async function evaluateRules(
+  client: SupabaseClient,
+  rules: AlertRule[],
+  observations: MarketObservation[],
+  bucket: Date,
+  options: { updateVolatility?: boolean } = {},
+): Promise<{ occurrences: number; errors: string[] }> {
   const currentByAsset = new Map(observations.map((item) => [item.asset, item])); let occurrences = 0; const errors: string[] = [];
   const assets = [...currentByAsset.keys()];
-  const { data: stateRows, error: statesError } = assets.length ? await client.from("volatility_states").select("*").in("asset", assets) : { data: [], error: null };
+  const needsVolatilityState = options.updateVolatility !== false || rules.some((rule) => rule.detector === "large_move");
+  const { data: stateRows, error: statesError } = assets.length && needsVolatilityState
+    ? await client.from("volatility_states").select("*").in("asset", assets)
+    : { data: [], error: null };
   if (statesError) throw new Error(statesError.message);
   const states = new Map((stateRows ?? []).map((item) => [item.asset, item as VolatilityState]));
   const pairContexts = new Map<string, Promise<{ reference?: MarketObservation; model?: DetectorModel }>>();
@@ -32,7 +41,7 @@ export async function evaluateRules(client: SupabaseClient, rules: AlertRule[], 
       }
     } catch (error) { errors.push(`${rule.id}: ${error instanceof Error ? error.message : String(error)}`); }
   }
-  await updateOnlineStates(client, observations, states, bucket);
+  if (options.updateVolatility !== false) await updateOnlineStates(client, observations, states, bucket);
   return { occurrences, errors };
 }
 
