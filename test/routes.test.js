@@ -15,10 +15,19 @@ test("asset routes preserve the canonical Hyperliquid asset id", () => {
   assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM"), {
     view: "asset",
     asset: "xyz:DRAM",
+    interval: "1h",
     paperView: "home",
     toolsView: "exposure-ladder",
   });
-  assert.equal(routeFor("asset", "xyz:DRAM"), "#/assets/xyz%3ADRAM");
+  assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/5m"), {
+    view: "asset",
+    asset: "xyz:DRAM",
+    interval: "5m",
+    paperView: "home",
+    toolsView: "exposure-ladder",
+  });
+  assert.equal(routeFor("asset", "xyz:DRAM"), "#/assets/xyz%3ADRAM/1h");
+  assert.equal(routeFor("asset", "xyz:DRAM", "1d"), "#/assets/xyz%3ADRAM/1d");
   assert.deepEqual(parseRoute("#/assets"), {
     view: "watchlist",
     paperView: "home",

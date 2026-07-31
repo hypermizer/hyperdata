@@ -48,3 +48,6 @@ verify_jwt = false
 
 [functions.send-login-link]
 verify_jwt = false
+
+[functions.asset-news]
+verify_jwt = false

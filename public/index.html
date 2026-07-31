@@ -53,12 +53,21 @@
         </div>
         <div class="asset-detail-heading">
           <h2 id="asset-detail-name">—</h2>
-          <span class="hint">1H CANDLES · LIVE MARK</span>
+          <span class="hint">LIVE HYPERLIQUID BARS</span>
         </div>
         <div id="asset-detail-metrics" class="asset-detail-metrics" aria-live="polite"></div>
         <div class="asset-detail-signals"><span class="hint">MOVES</span><div id="asset-detail-signals"></div></div>
+        <nav id="asset-intervals" class="asset-intervals" aria-label="Chart interval"></nav>
+        <div id="asset-bar-readout" class="asset-bar-readout" aria-live="polite"></div>
         <p id="asset-chart-status" class="message" role="status">LOADING CHART…</p>
-        <div id="asset-chart" class="asset-chart" aria-label="Live one-hour candlestick chart"></div>
+        <div id="asset-chart" class="asset-chart" aria-label="Live Hyperliquid candlestick chart"></div>
+        <section class="asset-news" aria-labelledby="asset-news-heading">
+          <div class="section-header">
+            <h3 id="asset-news-heading">NEWS</h3>
+            <span id="asset-news-status" class="hint">LOADING</span>
+          </div>
+          <div id="asset-news-list" class="asset-news-list"></div>
+        </section>
       </section>
 
       <section id="alerts-view" role="tabpanel" aria-labelledby="alerts-tab" hidden>
@@ -444,7 +453,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20260801-asset-page"></script>
+    <script type="module" src="./app.js?v=20260801-bars-news"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>

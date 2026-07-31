@@ -3,13 +3,15 @@ import test from "node:test";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
+  CANDLE_INTERVALS,
   fetchAverageDailyVolume,
   fetchCandles,
   fetchDexNames,
   fetchMarketsForDex,
   fetchPriceHistory,
   postInfo,
-  updateLiveCandle,
+  mergeLiveCandle,
+  normalizeCandle,
 } from "../public/lib/hyperliquid.js";
 
 function jsonResponse(data, status = 200) {
@@ -187,8 +189,8 @@ test("fetchCandles normalizes and sorts Hyperliquid OHLC snapshots", async () =>
   const candles = await fetchCandles("xyz:DRAM", "1h", 48, async (_url, options) => {
     request = JSON.parse(options.body);
     return jsonResponse([
-      { t: now - 3_600_000, T: now - 1, o: "50", h: "54", l: "49", c: "53" },
-      { T: now - 7_200_000, o: "48", h: "51", l: "47", c: "50" },
+      { t: now - 3_600_000, T: now - 1, o: "50", h: "54", l: "49", c: "53", v: "125", n: 8 },
+      { T: now - 7_200_000, o: "48", h: "51", l: "47", c: "50", v: "90", n: 5 },
       { t: now, o: "bad", h: "55", l: "52", c: "54" },
     ]);
   }, now);
@@ -198,34 +200,32 @@ test("fetchCandles normalizes and sorts Hyperliquid OHLC snapshots", async () =>
     req: {
       coin: "xyz:DRAM",
       interval: "1h",
-      startTime: now - (48 * 3_600_000),
+      startTime: 0,
       endTime: now,
     },
   });
   assert.deepEqual(candles, [
-    { time: Math.floor((now - 7_200_000) / 1000), open: 48, high: 51, low: 47, close: 50 },
-    { time: Math.floor((now - 3_600_000) / 1000), open: 50, high: 54, low: 49, close: 53 },
+    { time: Math.floor((now - 7_200_000) / 1000), open: 48, high: 51, low: 47, close: 50, volume: 90, trades: 5 },
+    { time: Math.floor((now - 3_600_000) / 1000), open: 50, high: 54, low: 49, close: 53, volume: 125, trades: 8 },
   ]);
 });
 
-test("updateLiveCandle updates the active hour and starts a new hour", () => {
-  const hour = Date.UTC(2026, 6, 17, 12);
-  const candles = [{ time: hour / 1000, open: 50, high: 54, low: 49, close: 53 }];
+test("official candle intervals include minute through monthly bars", () => {
+  assert.deepEqual(CANDLE_INTERVALS.map(({ value }) => value), [
+    "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M",
+  ]);
+});
 
-  assert.deepEqual(updateLiveCandle(candles, 55, hour + 30_000), {
-    time: hour / 1000,
-    open: 50,
-    high: 55,
-    low: 49,
-    close: 55,
-  });
-  assert.deepEqual(updateLiveCandle(candles, 52, hour + 3_600_000), {
-    time: (hour + 3_600_000) / 1000,
-    open: 52,
-    high: 52,
-    low: 52,
-    close: 52,
-  });
+test("normalizeCandle and mergeLiveCandle replace or append exact streamed bars", () => {
+  const hour = Date.UTC(2026, 6, 17, 12);
+  const current = { time: hour / 1000, open: 50, high: 54, low: 49, close: 53, volume: 100, trades: 7 };
+  const replacement = normalizeCandle({ t: hour, o: "50", h: "55", l: "48", c: "54", v: "120", n: 9 });
+  const next = normalizeCandle({ t: hour + 3_600_000, o: "54", h: "56", l: "53", c: "55", v: "40", n: 3 });
+
+  assert.deepEqual(mergeLiveCandle([current], replacement), [replacement]);
+  assert.deepEqual(mergeLiveCandle([current], next), [current, next]);
+  const candles = [current];
+  assert.strictEqual(mergeLiveCandle(candles, { ...current, time: current.time - 1 }), candles);
 });
 
 test("buildPriceChangeSignals returns ordered changes across all seven intervals", () => {

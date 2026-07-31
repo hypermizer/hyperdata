@@ -19,4 +19,7 @@ test("asset details use native routes with a vendored interactive chart", () => 
   assert.match(html, /id="asset-chart"/);
   assert.match(html, /lightweight-charts\.standalone\.production\.js\?v=5\.2\.0/);
   assert.match(html, /id="asset-hyperliquid-link"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
+  assert.match(html, /id="asset-intervals"/);
+  assert.match(html, /id="asset-bar-readout"/);
+  assert.match(html, /id="asset-news-list"/);
 });

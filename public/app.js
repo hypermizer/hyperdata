@@ -1,5 +1,5 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
-import { createAssetChart } from "./asset-chart.js?v=20260801";
+import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
 import { annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-rsi";
@@ -7,22 +7,40 @@ import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cac
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
+  CANDLE_INTERVALS,
   fetchCandles,
-  updateLiveCandle,
-} from "./lib/hyperliquid.js?v=20260801-asset-page";
+  MAX_CANDLE_BARS,
+  mergeLiveCandle,
+  normalizeCandle,
+} from "./lib/hyperliquid.js?v=20260801-bars-news";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
+import { fetchAssetNews } from "./lib/news.js?v=20260801";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260801-asset-page";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260801-bars-news";
+
+const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "UTC",
+});
 
 const state = {
   accountMessage: "",
   assetCandles: [],
   assetChart: null,
   assetChartAsset: null,
+  assetChartInterval: null,
+  assetChartCursorTime: null,
   assetChartLoadToken: 0,
   assetChartRetryTimer: null,
+  assetCandleSubscription: null,
+  assetNewsAsset: null,
+  assetNewsLoadToken: 0,
   averageVolumes: new Map(),
   catalog: [],
   favoritePending: new Set(),
@@ -51,12 +69,16 @@ const elements = {
   accountStatus: document.querySelector("#account-status"),
   assetChart: document.querySelector("#asset-chart"),
   assetChartStatus: document.querySelector("#asset-chart-status"),
+  assetBarReadout: document.querySelector("#asset-bar-readout"),
   assetCount: document.querySelector("#asset-count"),
   assetDetailMetrics: document.querySelector("#asset-detail-metrics"),
   assetDetailName: document.querySelector("#asset-detail-name"),
   assetDetailSignals: document.querySelector("#asset-detail-signals"),
   assetFilter: document.querySelector("#asset-filter"),
   assetHyperliquidLink: document.querySelector("#asset-hyperliquid-link"),
+  assetIntervals: document.querySelector("#asset-intervals"),
+  assetNewsList: document.querySelector("#asset-news-list"),
+  assetNewsStatus: document.querySelector("#asset-news-status"),
   alertAsset: document.querySelector("#alert-asset"),
   alertCount: document.querySelector("#alert-count"),
   alertForm: document.querySelector("#alert-form"),
@@ -510,7 +532,7 @@ function renderAlertFields() {
 }
 
 function renderRoute() {
-  const { view, asset, paperView, toolsView } = parseRoute(window.location.hash);
+  const { view, asset, interval, paperView, toolsView } = parseRoute(window.location.hash);
   const selectedTab = view === "asset" ? "watchlist" : view;
   elements.tabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selectedTab));
@@ -530,15 +552,22 @@ function renderRoute() {
   elements.toolsPanels.forEach((panel) => {
     panel.hidden = panel.dataset.toolsPanel !== toolsView;
   });
-  if (view === "asset") renderAssetDetail(asset);
-  else destroyAssetChart();
-  const canonical = view === "asset" ? routeFor("asset", asset) : routeFor(view, paperView, toolsView);
+  if (view === "asset") {
+    updateCandleSubscription(asset, interval);
+    renderAssetDetail(asset, interval);
+  } else {
+    updateCandleSubscription(null, null);
+    destroyAssetChart();
+  }
+  const canonical = view === "asset" ? routeFor("asset", asset, interval) : routeFor(view, paperView, toolsView);
   if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
 }
 
-function renderAssetDetail(asset) {
+function renderAssetDetail(asset, interval = "1h") {
   elements.assetDetailName.textContent = displayAssetName(asset);
   elements.assetHyperliquidLink.href = `https://app.hyperliquid.xyz/trade/${encodeURIComponent(asset)}`;
+  renderAssetIntervals(asset, interval);
+  if (state.assetNewsAsset !== asset) loadAssetNews(asset);
   const market = state.markets.get(asset);
   if (!market) {
     if (state.assetChartAsset !== asset) destroyAssetChart();
@@ -564,21 +593,27 @@ function renderAssetDetail(asset) {
     .map(([label, value]) => `<span><small>${label}</small><strong>${escapeHtml(value)}</strong></span>`)
     .join("");
   elements.assetDetailSignals.innerHTML = renderPriceSignals(market);
-  if (state.assetChartAsset !== asset) loadAssetChart(asset);
+  if (state.assetChartAsset !== asset || state.assetChartInterval !== interval) loadAssetChart(asset, interval);
 }
 
-async function loadAssetChart(asset) {
+async function loadAssetChart(asset, interval) {
   destroyAssetChart();
   state.assetChartAsset = asset;
+  state.assetChartInterval = interval;
   const token = ++state.assetChartLoadToken;
-  elements.assetChartStatus.textContent = "LOADING 1H CANDLES…";
+  elements.assetChartStatus.textContent = `LOADING FULL ${interval.toUpperCase()} HISTORY…`;
+  renderAssetBarReadout();
   try {
-    state.assetChart = createAssetChart(elements.assetChart);
-    const candles = await fetchCandles(asset, "1h", 168);
-    if (token !== state.assetChartLoadToken || state.assetChartAsset !== asset) return;
-    state.assetCandles = candles;
-    state.assetChart.setData(candles);
-    updateAssetChart(asset, state.markets.get(asset)?.markPrice);
+    state.assetChart = createAssetChart(elements.assetChart, (time) => {
+      state.assetChartCursorTime = time;
+      renderAssetBarReadout();
+    });
+    const candles = await fetchCandles(asset, interval, MAX_CANDLE_BARS);
+    if (token !== state.assetChartLoadToken || state.assetChartAsset !== asset || state.assetChartInterval !== interval) return;
+    const liveCandles = state.assetCandles;
+    state.assetCandles = liveCandles.reduce((history, candle) => mergeLiveCandle(history, candle), candles);
+    state.assetChart.setData(state.assetCandles);
+    renderAssetBarReadout();
     elements.assetChartStatus.textContent = "";
   } catch (error) {
     if (token !== state.assetChartLoadToken) return;
@@ -589,22 +624,21 @@ async function loadAssetChart(asset) {
     state.assetChartRetryTimer = window.setTimeout(() => {
       state.assetChartRetryTimer = null;
       const route = parseRoute(window.location.hash);
-      if (route.view === "asset" && route.asset === asset) loadAssetChart(asset);
+      if (route.view === "asset" && route.asset === asset && route.interval === interval) loadAssetChart(asset, interval);
     }, 15_000);
   }
 }
 
-function updateAssetChart(asset, markPrice, now = Date.now()) {
-  if (state.assetChartAsset !== asset || !state.assetChart) return;
-  const candle = updateLiveCandle(state.assetCandles, markPrice, now);
+function updateAssetCandle(rawCandle) {
+  const subscription = state.assetCandleSubscription;
+  if (!subscription || rawCandle?.s !== subscription.asset || rawCandle?.i !== subscription.interval) return;
+  const candle = normalizeCandle(rawCandle);
   if (!candle) return;
-  if (state.assetCandles.at(-1)?.time === candle.time) {
-    state.assetCandles[state.assetCandles.length - 1] = candle;
-    state.assetChart.update(candle);
-    return;
-  }
-  state.assetCandles = [...state.assetCandles.slice(-167), candle];
-  state.assetChart.setData(state.assetCandles);
+  const merged = mergeLiveCandle(state.assetCandles, candle);
+  if (merged === state.assetCandles) return;
+  state.assetCandles = merged;
+  state.assetChart?.update(candle);
+  renderAssetBarReadout();
 }
 
 function destroyAssetChart() {
@@ -614,8 +648,85 @@ function destroyAssetChart() {
   state.assetChart?.destroy();
   state.assetChart = null;
   state.assetChartAsset = null;
+  state.assetChartInterval = null;
+  state.assetChartCursorTime = null;
   state.assetCandles = [];
   elements.assetChart.replaceChildren();
+  renderAssetBarReadout();
+}
+
+function updateCandleSubscription(asset, interval) {
+  const current = state.assetCandleSubscription;
+  if (current?.asset === asset && current?.interval === interval) return;
+  if (current) sendCandleSubscription("unsubscribe", current);
+  state.assetCandleSubscription = asset && interval ? { asset, interval } : null;
+  if (state.assetCandleSubscription) sendCandleSubscription("subscribe", state.assetCandleSubscription);
+}
+
+function sendCandleSubscription(method, { asset, interval }) {
+  if (state.stream?.readyState !== WebSocket.OPEN) return;
+  state.stream.send(JSON.stringify({ method, subscription: { type: "candle", coin: asset, interval } }));
+}
+
+function renderAssetBarReadout() {
+  const cursorCandle = state.assetChartCursorTime === null
+    ? null
+    : findCandleByTime(state.assetCandles, state.assetChartCursorTime);
+  const candle = cursorCandle ?? state.assetCandles.at(-1);
+  if (!candle) {
+    elements.assetBarReadout.textContent = "NO BAR DATA";
+    return;
+  }
+  const values = [
+    ["TIME", formatBarTime(candle.time)],
+    ["O", formatPrice(candle.open)],
+    ["H", formatPrice(candle.high)],
+    ["L", formatPrice(candle.low)],
+    ["C", formatPrice(candle.close)],
+    ["VOL", formatCompact(candle.volume)],
+    ["TRADES", Number.isFinite(candle.trades) ? candle.trades.toLocaleString() : "—"],
+  ];
+  elements.assetBarReadout.innerHTML = values.map(([label, value]) => `<span>${label}<strong>${escapeHtml(value)}</strong></span>`).join("");
+}
+
+function renderAssetIntervals(asset, interval) {
+  if (elements.assetIntervals.dataset.asset === asset && elements.assetIntervals.dataset.interval === interval) return;
+  elements.assetIntervals.dataset.asset = asset;
+  elements.assetIntervals.dataset.interval = interval;
+  elements.assetIntervals.innerHTML = CANDLE_INTERVALS.map(({ value, label }) => (
+    `<a href="${routeFor("asset", asset, value)}"${value === interval ? ' aria-current="page"' : ""}>${label}</a>`
+  )).join("");
+}
+
+function findCandleByTime(candles, time) {
+  let low = 0;
+  let high = candles.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (candles[middle].time === time) return candles[middle];
+    if (candles[middle].time < time) low = middle + 1;
+    else high = middle - 1;
+  }
+  return null;
+}
+
+async function loadAssetNews(asset) {
+  state.assetNewsAsset = asset;
+  const token = ++state.assetNewsLoadToken;
+  elements.assetNewsStatus.textContent = "LOADING";
+  elements.assetNewsList.innerHTML = '<p class="asset-news-empty">LOADING PUBLIC MARKET NEWS…</p>';
+  try {
+    const items = await fetchAssetNews(state.supabase, asset);
+    if (token !== state.assetNewsLoadToken || state.assetNewsAsset !== asset) return;
+    elements.assetNewsStatus.textContent = `${items.length} ITEMS`;
+    elements.assetNewsList.innerHTML = items.length ? items.map((item) => (
+      `<a class="asset-news-item" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer"><span class="asset-news-title">${escapeHtml(item.title)}</span><small class="asset-news-meta">${escapeHtml(item.source.toUpperCase())} · ${escapeHtml(formatNewsTime(item.publishedAt))}</small></a>`
+    )).join("") : '<p class="asset-news-empty">NO RECENT PUBLIC COVERAGE FOUND.</p>';
+  } catch (error) {
+    if (token !== state.assetNewsLoadToken) return;
+    elements.assetNewsStatus.textContent = "UNAVAILABLE";
+    elements.assetNewsList.innerHTML = `<p class="asset-news-empty">${escapeHtml(error.message ?? "NEWS UNAVAILABLE")}</p>`;
+  }
 }
 
 function renderConnectionStatus(detail = "") {
@@ -673,6 +784,7 @@ function connectMarketStream() {
         subscription: { type: "activeAssetCtx", coin },
       }));
     });
+    if (state.assetCandleSubscription) sendCandleSubscription("subscribe", state.assetCandleSubscription);
     renderConnectionStatus();
   });
 
@@ -681,13 +793,16 @@ function connectMarketStream() {
     state.streamMessageAt = Date.now();
     renderConnectionStatus();
     const message = JSON.parse(data);
+    if (message.channel === "candle") {
+      updateAssetCandle(message.data);
+      return;
+    }
     if (message.channel !== "activeAssetCtx") return;
     const market = state.markets.get(message.data.coin);
     if (!market) return;
     const updatedMarket = applyLiveMarketContext(market, message.data.ctx);
     state.markets.set(message.data.coin, updatedMarket);
     recordLivePrice(message.data.coin, updatedMarket.markPrice);
-    updateAssetChart(message.data.coin, updatedMarket.markPrice);
     updateLastSync();
     scheduleMarketRender();
   });
@@ -724,7 +839,7 @@ function scheduleMarketRender() {
     renderMarkets();
     renderAlertOptions();
     const route = parseRoute(window.location.hash);
-    if (route.view === "asset") renderAssetDetail(route.asset);
+    if (route.view === "asset") renderAssetDetail(route.asset, route.interval);
   }, delayMs);
 }
 
@@ -747,6 +862,14 @@ function formatDotDetail({ label, referencePrice, changePercent }) {
 
 function displayAssetName(asset) {
   return asset.startsWith("xyz:") ? asset.slice(4) : asset;
+}
+
+function formatBarTime(seconds) {
+  return UTC_MINUTE_FORMATTER.format(new Date(seconds * 1000)).toUpperCase();
+}
+
+function formatNewsTime(value) {
+  return `${UTC_MINUTE_FORMATTER.format(new Date(value)).toUpperCase()} UTC`;
 }
 
 function formatPrice(value) {
