@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { annualizedFundingApr, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-sorting";
+import { annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-rsi";
 import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cache";
 import {
   applyLiveMarketContext,
@@ -43,7 +43,6 @@ const elements = {
   accountStatus: document.querySelector("#account-status"),
   assetCount: document.querySelector("#asset-count"),
   assetFilter: document.querySelector("#asset-filter"),
-  assetSort: document.querySelector("#asset-sort"),
   alertAsset: document.querySelector("#alert-asset"),
   alertCount: document.querySelector("#alert-count"),
   alertForm: document.querySelector("#alert-form"),
@@ -99,11 +98,6 @@ function wireEvents() {
     state.query = elements.assetFilter.value;
     renderMarkets();
   });
-  elements.assetSort.addEventListener("change", () => {
-    if (!elements.assetSort.value) return;
-    state.sort = elements.assetSort.value;
-    renderMarkets();
-  });
   elements.watchedFirst.addEventListener("change", () => {
     state.watchedFirst = elements.watchedFirst.checked;
     renderMarkets();
@@ -115,7 +109,6 @@ function wireEvents() {
     const sortButton = event.target.closest("[data-sort-column]");
     if (sortButton) {
       state.sort = nextColumnSort(state.sort, sortButton.dataset.sortColumn);
-      elements.assetSort.value = "";
       renderMarkets();
       return;
     }
@@ -344,12 +337,18 @@ function render() {
 
 function renderMarkets() {
   const now = Date.now();
-  const totalAssets = tradFiMarkets().length;
-  const visibleMarkets = filterAndSortTradFiAssets(tradFiMarkets(), {
+  const markets = tradFiMarkets();
+  const totalAssets = markets.length;
+  const rsiValues = new Map(markets.map((market) => [
+    market.id,
+    calculateHourlyRsi(state.priceHistories.get(market.id) ?? [], market.markPrice, now),
+  ]));
+  const visibleMarkets = filterAndSortTradFiAssets(markets, {
     averageVolumes: state.averageVolumes,
     now,
     priceHistories: state.priceHistories,
     query: state.query,
+    rsiValues,
     sort: state.sort,
     watched: state.watchlist,
     watchedFirst: state.watchedFirst,
@@ -363,12 +362,13 @@ function renderMarkets() {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
       const isWatched = watched.has(market.id);
       const favoritePending = state.favoritePending.has(market.id);
+      const rsi = rsiValues.get(market.id);
       const watchLabel = `${isWatched ? "Remove" : "Add"} ${displayAssetName(market.id)} ${isWatched ? "from" : "to"} watched assets`;
-      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><span>${escapeHtml(displayAssetName(market.id))}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><span>${escapeHtml(displayAssetName(market.id))}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
-  const body = rows || `<tr><td class="asset-cell" colspan="8">NO MATCHING ASSETS</td></tr>`;
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSignalHeaders()}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
+  const body = rows || `<tr><td class="asset-cell" colspan="9">NO MATCHING ASSETS</td></tr>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSignalHeaders()}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("RSI", "rsi", "", "Wilder RSI(14) on one-hour closes")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
   state.marketRenderedAt = now;
 }
 
@@ -390,7 +390,7 @@ function renderPriceSignals(market) {
 function renderSignalHeaders() {
   const windows = [["1W", "1w"], ["1D", "1d"], ["6H", "6h"], ["1H", "1h"], ["30M", "30m"], ["10M", "10m"], ["5M", "5m"]];
   return `<th class="signal-cell"><span class="signal-grid signal-labels">${windows
-    .map(([label, window]) => `<button class="signal-slot" type="button" data-sort-column="move-${window}" aria-label="Sort by ${label} price change">${label}</button>`)
+    .map(([label, window]) => `<button class="signal-slot" type="button" data-sort-column="move-${window}" aria-label="Sort by ${label} absolute price move">${label}</button>`)
     .join("")}</span></th>`;
 }
 
@@ -653,6 +653,10 @@ function formatPrice(value) {
 function formatPercent(value) {
   if (value === null || !Number.isFinite(value)) return "—";
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function formatRsi(value) {
+  return Number.isFinite(value) ? value.toFixed(1) : "—";
 }
 
 function formatUsdCompact(value) {
