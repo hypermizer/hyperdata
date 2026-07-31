@@ -194,12 +194,15 @@ Deno.test("disabled feature rejects before account or market reads", async () =>
 
 Deno.test("stored idempotent result bypasses market retrieval", async () => {
   let marketCalls = 0;
+  let accountCalls = 0;
   const stored = { response: { status: "filled" }, stored: true };
   const response = await handlePaperCommand(request(marketBuy), dependencies({
     findCommand: async () => stored,
+    loadAccount: async () => { accountCalls += 1; return null; },
     loadAsset: async () => { marketCalls += 1; return asset; },
   }));
   assertEquals(await response.json(), stored);
+  assertEquals(accountCalls, 0);
   assertEquals(marketCalls, 0);
 });
 

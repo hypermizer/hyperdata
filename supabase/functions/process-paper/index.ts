@@ -378,7 +378,7 @@ function runtimeDependencies(): ProcessPaperDependencies {
       });
       if (error) throw new Error(error.message);
       if (!data) return { mutated: false, accepted: false };
-      expectedVersion += replayEffects.length + fundingEffects.length + (position ? 1 : 0);
+      expectedVersion += replayEffects.length + fundingEffects.length;
 
       const { data: riskState, error: riskStateError } = await service.rpc("paper_processor_risk_state", {
         p_epoch_id: epochId, p_asset: snapshot.asset,

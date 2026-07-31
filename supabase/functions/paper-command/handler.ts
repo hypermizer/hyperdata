@@ -31,7 +31,7 @@ export interface PaperCommandDependencies {
   enabled: boolean;
   authenticate(token: string): Promise<PaperCommandUser | null>;
   loadAccount(accountId: string, userId: string, asset: string): Promise<PaperAccountState | null>;
-  findCommand(accountId: string, epochNumber: number, idempotencyKey: string): Promise<unknown | null>;
+  findCommand(accountId: string, epochNumber: number, idempotencyKey: string, userId: string): Promise<unknown | null>;
   loadAsset(asset: string): Promise<PaperAssetMetadata | null>;
   loadMark(asset: string, dex: string): Promise<{ markPrice: string; inputVersion: string }>;
   loadBook(asset: string): Promise<{ book: NormalizedBook; inputVersion: string }>;
@@ -99,10 +99,10 @@ export async function handlePaperCommand(
   const command = parseCommand(raw);
   if (!command) return jsonError("invalid_command", 400);
 
+  const stored = await dependencies.findCommand(command.accountId, command.epochNumber, command.idempotencyKey, user.id);
+  if (stored !== null) return Response.json(stored);
   const account = await dependencies.loadAccount(command.accountId, user.id, command.order.asset);
   if (!account) return jsonError("account_not_found", 404);
-  const stored = await dependencies.findCommand(command.accountId, command.epochNumber, command.idempotencyKey);
-  if (stored !== null) return Response.json(stored);
   if (account.epochNumber !== command.epochNumber || account.version !== command.expectedVersion) {
     return jsonError("stale_account", 409);
   }

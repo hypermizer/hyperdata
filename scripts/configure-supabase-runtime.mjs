@@ -5,7 +5,6 @@ const paperSchedulerSecret = process.env.PAPER_SCHEDULER_SECRET;
 const paperProcessorEnabled = process.env.PAPER_PROCESSOR_ENABLED === "true";
 const paperTradingEnabled = process.env.PAPER_TRADING_ENABLED === "true";
 const strategyCommandEnabled = process.env.STRATEGY_COMMAND_ENABLED === "true";
-const strategyExecutionEnabled = process.env.STRATEGY_EXECUTION_ENABLED === "true";
 if (!token || !projectRef || !monitorSecret || (paperProcessorEnabled && !paperSchedulerSecret)) {
   throw new Error("SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_ID, and MONITOR_SECRET are required; PAPER_SCHEDULER_SECRET is required when the paper processor is enabled");
 }
@@ -44,14 +43,11 @@ await query("select public.configure_paper_mutation_access($1)", [paperTradingEn
 await query("select public.configure_strategy_mutation_access($1)", [strategyCommandEnabled]);
 
 if (paperProcessorEnabled) {
-  await query("select public.ensure_paper_shadow_account()");
-  await query("select public.ensure_strategy_shadow()");
-  await query("select public.ensure_initial_strategy_backtest()");
   let runs = [];
   let recentCompletedRuns = [];
   for (let attempt = 0; attempt < 18; attempt += 1) {
     const result = await query(
-      "select state, reconciliation_failures, details from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
+      "select state, assets_processed, accounts_processed, reconciliation_failures, details from public.paper_processor_runs where bucket >= $1 order by bucket desc limit 12",
       [paperHealthWindowStartedAt],
     );
     runs = Array.isArray(result) ? result : result.result ?? [];
@@ -83,21 +79,41 @@ if (paperProcessorEnabled) {
     throw new Error(`Paper processor did not produce three consecutive reconciled successful runs during the deployment health window (observed ${observedStates})`);
   }
   console.log("Paper processor health verified: 3 consecutive reconciled successful runs");
-
-  let strategyHealth = [];
-  for (let attempt = 0; attempt < 24; attempt += 1) {
-    const result = await query("select * from public.strategy_operational_health");
-    strategyHealth = Array.isArray(result) ? result : result.result ?? [];
-    const health = strategyHealth[0];
-    if (Number(health?.fresh_assignments ?? 0) >= 3 && Number(health?.degraded_assignments ?? 0) === 0 &&
-      Number(health?.failed_actions ?? 0) === 0 && Number(health?.completed_backtests ?? 0) >= 1 && Number(health?.failed_backtests ?? 0) === 0) break;
-    await wait(5_000);
+  const riskResult = await query(`
+    with active_epochs as (
+      select epoch.id
+      from public.paper_accounts account
+      join public.paper_account_epochs epoch
+        on epoch.account_id = account.id and epoch.epoch_number = account.active_epoch
+      where account.archived_at is null and epoch.state = 'active'
+    ), position_totals as (
+      select epoch.id as epoch_id,
+        count(position.asset)::integer as position_count,
+        count(position.asset) filter (where position.updated_at < now() - interval '45 seconds')::integer as stale_positions,
+        coalesce(sum(position.signed_size * (position.mark_price - position.entry_price)), 0)::numeric(38, 6) as unrealized_pnl,
+        coalesce(sum(abs(position.signed_size) * position.mark_price), 0)::numeric(38, 6) as total_notional
+      from active_epochs epoch
+      left join public.paper_positions position on position.epoch_id = epoch.id
+      group by epoch.id
+    )
+    select coalesce(sum(position_count), 0)::integer as active_positions,
+      (select count(distinct position.asset)::integer from public.paper_positions position join active_epochs epoch on epoch.id = position.epoch_id) as active_assets,
+      coalesce(sum(stale_positions), 0)::integer as stale_positions,
+      count(*) filter (where summary.unrealized_pnl <> totals.unrealized_pnl
+        or summary.equity <> summary.cash_balance + totals.unrealized_pnl
+        or summary.total_notional <> totals.total_notional)::integer as inconsistent_accounts
+    from position_totals totals
+    join public.paper_account_summaries summary on summary.epoch_id = totals.epoch_id
+  `);
+  const riskHealth = (Array.isArray(riskResult) ? riskResult : riskResult.result ?? [])[0] ?? {};
+  const processedEveryPosition = recentCompletedRuns.every((run) =>
+    Number(run.assets_processed ?? 0) >= Number(riskHealth.active_assets ?? 0) &&
+    Number(run.accounts_processed ?? 0) >= Number(riskHealth.active_positions ?? 0)
+  );
+  if (!processedEveryPosition || Number(riskHealth.stale_positions ?? 0) > 0 || Number(riskHealth.inconsistent_accounts ?? 0) > 0) {
+    await query("select public.configure_paper_cron(false)");
+    throw new Error(`Paper authoritative state verification failed: ${JSON.stringify(riskHealth)}`);
   }
-  const health = strategyHealth[0];
-  if (Number(health?.fresh_assignments ?? 0) < 3 || Number(health?.degraded_assignments ?? 0) !== 0 ||
-    Number(health?.failed_actions ?? 0) !== 0 || Number(health?.completed_backtests ?? 0) < 1 || Number(health?.failed_backtests ?? 0) !== 0) {
-    throw new Error(`Strategy shadow health failed: ${JSON.stringify(health ?? {})}`);
-  }
-  console.log(`Strategy shadow verified: ${health.fresh_assignments} fresh assignments; ${health.completed_backtests} completed backtest(s)`);
+  console.log(`Paper authoritative state verified: ${Number(riskHealth.active_positions ?? 0)} active position(s), no stale marks or P&L inconsistencies`);
 }
-console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}; strategy commands ${strategyCommandEnabled ? "enabled" : "disabled"}; strategy entries ${strategyExecutionEnabled ? "enabled" : "shadow"}`);
+console.log(`Configured Hyperdata runtime; paper processor ${paperProcessorEnabled ? "enabled" : "disabled"}; paper mutations ${paperTradingEnabled ? "enabled" : "disabled"}; strategy commands ${strategyCommandEnabled ? "enabled" : "disabled"}`);

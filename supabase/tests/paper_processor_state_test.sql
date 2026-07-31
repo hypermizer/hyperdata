@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(7);
+select plan(11);
 
 insert into auth.users (
   id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
@@ -35,6 +35,10 @@ select is((public.paper_processor_risk_state('00000000-0000-0000-0000-0000000002
 select ok(public.set_paper_risk_projection('00000000-0000-0000-0000-000000000293', 4, 11, 2), 'matching version updates derived risk');
 select is((select margin_used from public.paper_account_summaries where epoch_id = '00000000-0000-0000-0000-000000000293'), 11::numeric, 'derived risk persists');
 select isnt(public.set_paper_risk_projection('00000000-0000-0000-0000-000000000293', 3, 99, 99), true, 'stale projection cannot overwrite current risk');
+select ok(public.revalue_paper_epoch_asset('00000000-0000-0000-0000-000000000293', 4, 'BTC', 120, 'input-v2'), 'matching version accepts mark revaluation');
+select is((select version from public.paper_account_epochs where id = '00000000-0000-0000-0000-000000000293'), 4::bigint, 'derived revaluation does not invalidate economic command versions');
+select is((select unrealized_pnl from public.paper_account_summaries where epoch_id = '00000000-0000-0000-0000-000000000293'), 20::numeric, 'revaluation persists current unrealized P&L');
+select is((select equity from public.paper_account_summaries where epoch_id = '00000000-0000-0000-0000-000000000293'), 5020::numeric, 'revaluation persists current equity');
 
 select * from finish();
 rollback;

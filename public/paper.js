@@ -28,7 +28,7 @@ import {
   paperSignClass,
   resolvePaperCommand,
   scalePerpFeeRate,
-} from "./lib/paper.js?v=20260722-close-retry";
+} from "./lib/paper.js?v=20260731-authoritative-risk";
 import {
   PAPER_STREAM_RECONNECT_MS,
   paperEngineHealth,
