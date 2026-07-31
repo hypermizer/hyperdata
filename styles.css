@@ -511,8 +511,38 @@ input, select { min-width: 0; }
 .asset-detail-metrics strong { overflow: hidden; margin-top: 3px; font-size: 14px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; }
 .asset-detail-signals { display: flex; align-items: center; gap: 12px; min-height: 44px; }
 .asset-detail-signals .signal-grid { width: 308px; }
+.asset-intervals { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 10px; }
+.asset-intervals a {
+  min-width: 34px;
+  padding: 5px 7px;
+  border: 1px solid #4c535b;
+  color: #eceff1;
+  font-size: 10px;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+}
+.asset-intervals a[aria-current="page"] { border-color: #2c8881; background: #2c8881; color: #fff; }
+.asset-bar-readout {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-bottom: 7px;
+  color: #a8afb7;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.asset-bar-readout span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.asset-bar-readout strong { margin-left: 3px; color: #eceff1; }
 .asset-chart { width: 100%; min-height: 430px; border: 1px solid #34383d; }
 #asset-chart-status:empty { display: none; }
+.asset-news { margin-top: 22px; padding-top: 16px; border-top: 1px solid #34383d; }
+.asset-news .section-header { margin-bottom: 0; }
+.asset-news-list { border-top: 1px solid #34383d; }
+.asset-news-item { display: block; padding: 12px 0; border-bottom: 1px solid #2b3035; color: #eceff1; text-decoration: none; }
+.asset-news-item:hover .asset-news-title, .asset-news-item:focus-visible .asset-news-title { text-decoration: underline; }
+.asset-news-title { display: block; font-size: 13px; line-height: 1.4; }
+.asset-news-meta { display: block; margin-top: 4px; color: #7f878f; font-size: 10px; }
+.asset-news-empty { padding: 14px 0; color: #7f878f; font-size: 11px; }
 
 @media (max-width: 600px) {
   main { padding-top: 16px; }
@@ -545,6 +575,7 @@ input, select { min-width: 0; }
   .asset-detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .asset-detail-metrics > span { border-bottom: 1px solid #34383d; }
   .asset-detail-signals { align-items: flex-start; overflow-x: auto; }
+  .asset-bar-readout { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 10px; }
   .asset-chart { min-height: 360px; }
   .paper-toolbar #paper-status { width: 100%; margin-left: 0; }
   .paper-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
