@@ -14,11 +14,9 @@ const corsHeaders = {
 async function fetchNews(asset: string): Promise<NewsItem[]> {
   const cached = cache.get(asset);
   if (cached && cached.expiresAt > Date.now()) return cached.items;
-  const url = new URL("https://news.google.com/rss/search");
+  const url = new URL("https://www.bing.com/news/search");
   url.searchParams.set("q", buildNewsQuery(asset));
-  url.searchParams.set("hl", "en-US");
-  url.searchParams.set("gl", "US");
-  url.searchParams.set("ceid", "US:en");
+  url.searchParams.set("format", "rss");
   const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
   if (!response.ok) throw new Error(`news provider returned ${response.status}`);
   const items = parseNewsFeed(await response.text());
