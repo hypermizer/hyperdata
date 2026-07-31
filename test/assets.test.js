@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   annualizedFundingApr,
+  calculateHourlyRsi,
   hydrateTradFiMarkets,
   filterAndSortTradFiAssets,
   nextColumnSort,
@@ -85,6 +86,10 @@ test("TradFi asset view sorts metrics with unavailable values last", () => {
   assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "apr-asc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
   assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "mark-desc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:GAMMA", "xyz:BETA"]);
   assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "volume-asc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+    sort: "rsi-desc",
+    rsiValues: new Map([["xyz:ALPHA", 62], ["xyz:BETA", 38]]),
+  }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
 });
 
 test("column sorting starts high-to-low and toggles direction", () => {
@@ -92,6 +97,12 @@ test("column sorting starts high-to-low and toggles direction", () => {
   assert.equal(nextColumnSort("volume-desc", "volume"), "volume-asc");
   assert.equal(nextColumnSort("volume-asc", "volume"), "volume-desc");
   assert.equal(nextColumnSort("volume-desc", "asset"), "asset-desc");
+});
+
+test("signal columns toggle between largest and smallest absolute moves", () => {
+  assert.equal(nextColumnSort("asset-asc", "move-30m"), "move-30m-abs-desc");
+  assert.equal(nextColumnSort("move-30m-abs-desc", "move-30m"), "move-30m-abs-asc");
+  assert.equal(nextColumnSort("move-30m-abs-asc", "move-30m"), "move-30m-abs-desc");
 });
 
 test("each signal column sorts by its own time window", () => {
@@ -123,6 +134,56 @@ test("each signal column sorts by its own time window", () => {
     filterAndSortTradFiAssets(markets, { sort: "move-5m-desc", priceHistories, now }).map(({ id }) => id),
     ["xyz:BETA", "xyz:ALPHA"],
   );
+});
+
+test("signal magnitude sorting ignores direction and keeps unavailable values last", () => {
+  const now = Date.UTC(2026, 6, 31, 12);
+  const markets = [
+    { id: "xyz:UP", symbol: "UP", dexId: "xyz", markPrice: 110 },
+    { id: "xyz:DOWN", symbol: "DOWN", dexId: "xyz", markPrice: 70 },
+    { id: "xyz:FLAT", symbol: "FLAT", dexId: "xyz", markPrice: 101 },
+    { id: "xyz:MISSING", symbol: "MISSING", dexId: "xyz", markPrice: 100 },
+  ];
+  const priceHistories = new Map([
+    ["xyz:UP", [{ time: now - 30 * 60_000, price: 100 }]],
+    ["xyz:DOWN", [{ time: now - 30 * 60_000, price: 100 }]],
+    ["xyz:FLAT", [{ time: now - 30 * 60_000, price: 100 }]],
+  ]);
+
+  assert.deepEqual(
+    filterAndSortTradFiAssets(markets, { sort: "move-30m-abs-desc", priceHistories, now }).map(({ id }) => id),
+    ["xyz:DOWN", "xyz:UP", "xyz:FLAT", "xyz:MISSING"],
+  );
+  assert.deepEqual(
+    filterAndSortTradFiAssets(markets, { sort: "move-30m-abs-asc", priceHistories, now }).map(({ id }) => id),
+    ["xyz:FLAT", "xyz:UP", "xyz:DOWN", "xyz:MISSING"],
+  );
+});
+
+test("hourly RSI uses Wilder smoothing and the live mark as the current hourly close", () => {
+  const hour = 60 * 60 * 1000;
+  const now = Date.UTC(2026, 6, 31, 12, 30);
+  const prices = [1, 2, 1, 3, 2];
+  const points = prices.map((price, index) => ({
+    time: now - (prices.length - index) * hour - 1,
+    price,
+  }));
+
+  assert.ok(Math.abs(calculateHourlyRsi(points, 4, now, 3) - 75) < 0.000001);
+  assert.equal(calculateHourlyRsi(points.slice(0, 2), 4, now, 3), null);
+});
+
+test("hourly RSI handles one-sided and flat price histories", () => {
+  const hour = 60 * 60 * 1000;
+  const now = Date.UTC(2026, 6, 31, 12, 30);
+  const points = (prices) => prices.map((price, index) => ({
+    time: now - (prices.length - index) * hour - 1,
+    price,
+  }));
+
+  assert.equal(calculateHourlyRsi(points([1, 2, 3]), 4, now, 3), 100);
+  assert.equal(calculateHourlyRsi(points([4, 3, 2]), 1, now, 3), 0);
+  assert.equal(calculateHourlyRsi(points([2, 2, 2]), 2, now, 3), 50);
 });
 
 test("watched-first grouping preserves the selected sort within each group", () => {
