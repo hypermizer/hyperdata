@@ -15,3 +15,16 @@ Deno.test("uses only the pre-move online variance state when fresh", () => {
   const result = evaluateLargeMove(rule, { current, reference, model, volatilityState: { asset: "BTC", fast_variance: 0.01, slow_variance: 0.01, last_mark: 100, last_bucket: "2026-01-01T00:04:00Z" } });
   assertEquals(result.qualifies, false);
 });
+Deno.test("honors the configured move direction", () => {
+  const downOnly = { ...rule, configuration: { ...rule.configuration, direction: "down" } } satisfies AlertRule;
+  const result = evaluateLargeMove(downOnly, { current, reference, model });
+  assertEquals(result.status, "not_triggered");
+  assertEquals(result.qualifies, false);
+});
+Deno.test("requires both an empirical tail event and the raw move floor", () => {
+  const floored = { ...rule, configuration: { ...rule.configuration, minimum_move_percent: 20 } } satisfies AlertRule;
+  const result = evaluateLargeMove(floored, { current, reference, model });
+  assertEquals(result.tailPercentile, 1);
+  assertEquals(result.status, "not_triggered");
+  assertEquals(result.qualifies, false);
+});

@@ -84,3 +84,12 @@ jobs:
           PAPER_PROCESSOR_ENABLED: ${{ vars.PAPER_PROCESSOR_ENABLED || 'false' }}
           STRATEGY_COMMAND_ENABLED: ${{ vars.STRATEGY_COMMAND_ENABLED || 'true' }}
           STRATEGY_EXECUTION_ENABLED: ${{ vars.STRATEGY_EXECUTION_ENABLED || 'false' }}
+      - name: Verify alert runtime and delivery
+        id: alert_health
+        run: node scripts/verify-alert-runtime.mjs
+        env:
+          MONITOR_SECRET: ${{ secrets.MONITOR_SECRET }}
+          DELIVERY_ENABLED: ${{ vars.DELIVERY_ENABLED || 'false' }}
+      - name: Disable alert delivery after a failed provider smoke
+        if: ${{ failure() && steps.alert_health.outcome == 'failure' }}
+        run: supabase secrets set --project-ref "$SUPABASE_PROJECT_ID" DELIVERY_ENABLED=false

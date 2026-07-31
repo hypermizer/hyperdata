@@ -4,6 +4,7 @@ import {
   annualizedFundingApr,
   hydrateTradFiMarkets,
   filterAndSortTradFiAssets,
+  nextColumnSort,
   resolveAsset,
   searchAssets,
 } from "../public/lib/assets.js";
@@ -82,6 +83,15 @@ test("TradFi asset view sorts metrics with unavailable values last", () => {
   assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "volume-desc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
   assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "move-5m-abs", priceHistories, now }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
   assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "apr-asc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "mark-desc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:GAMMA", "xyz:BETA"]);
+  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "volume-asc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
+});
+
+test("column sorting starts high-to-low and toggles direction", () => {
+  assert.equal(nextColumnSort("asset-asc", "volume"), "volume-desc");
+  assert.equal(nextColumnSort("volume-desc", "volume"), "volume-asc");
+  assert.equal(nextColumnSort("volume-asc", "volume"), "volume-desc");
+  assert.equal(nextColumnSort("volume-desc", "asset"), "asset-desc");
 });
 
 test("watched-first grouping preserves the selected sort within each group", () => {

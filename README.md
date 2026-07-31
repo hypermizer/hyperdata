@@ -43,7 +43,7 @@ The deployment workflow requires these GitHub Actions secrets:
 - `MONITOR_SECRET` (a long random value)
 - Existing delivery secrets: `ALERT_EMAIL`, `ALERT_SMS_TO`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`
 
-The workflow applies migrations, deploys functions, copies provider settings into Edge secrets, writes the scheduler values to Vault, and configures cron. The equivalent manual scheduler recovery is:
+The workflow applies migrations, deploys functions, copies provider settings into Edge secrets, writes the scheduler values to Vault, configures cron, verifies monitor freshness and large-move calibration, and uses any queued notification as a controlled provider smoke test. A failed provider smoke automatically disables delivery again. The equivalent manual scheduler recovery is:
 
 ```sql
 select vault.create_secret('https://itheknkmuutquriojdzt.supabase.co', 'project_url');
@@ -52,7 +52,7 @@ select vault.create_secret('<same MONITOR_SECRET>', 'monitor_secret');
 select public.configure_listener_cron();
 ```
 
-Keep `DELIVERY_ENABLED=false` for the initial shadow period. After at least 24 hours of fresh one-minute monitor runs, calibration checks, and a controlled provider smoke test, set it to `true`. Only then retire the legacy GitHub Action monitor.
+`DELIVERY_ENABLED=true` is the production setting after the completed shadow period. The Supabase one-minute listener is the only alert engine; the legacy GitHub issue monitor was retired at cutover.
 
 ## Local development
 
