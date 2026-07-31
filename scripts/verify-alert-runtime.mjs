@@ -64,7 +64,7 @@ console.log(`Alert monitor health: ${JSON.stringify(monitorHealth)}`);
 const [ruleHealth = {}] = await query(`
   select count(*)::integer as enabled_rules,
     count(*) filter (where state.rule_id is null
-      or state.updated_at < now() - interval '3 minutes'
+      or state.bucket < now() - interval '3 minutes'
       or state.status = 'error')::integer as unhealthy_rules,
     coalesce(jsonb_agg(jsonb_build_object(
       'asset', rule.asset,
@@ -73,9 +73,9 @@ const [ruleHealth = {}] = await query(`
       'rule_created_at', rule.created_at,
       'rule_updated_at', rule.updated_at,
       'evaluation_status', state.status,
-      'evaluation_updated_at', state.updated_at
+      'evaluation_bucket', state.bucket
     )) filter (where state.rule_id is null
-      or state.updated_at < now() - interval '3 minutes'
+      or state.bucket < now() - interval '3 minutes'
       or state.status = 'error'), '[]'::jsonb) as unhealthy_rule_details
   from public.alert_rules rule
   left join public.rule_evaluation_state state on state.rule_id = rule.id
