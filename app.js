@@ -1,14 +1,14 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260718-listener";
+import { annualizedFundingApr, filterAndSortTradFiAssets, hydrateTradFiMarkets } from "./lib/assets.js?v=20260731-assets-live";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
   fetchAverageDailyVolume,
   fetchPriceHistory,
-} from "./lib/hyperliquid.js?v=20260720-assets";
+} from "./lib/hyperliquid.js?v=20260731-timeout";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
@@ -16,8 +16,10 @@ import { parseRoute, routeFor } from "./lib/routes.js?v=20260721-tools";
 
 const state = {
   accountMessage: "",
+  analyticsRefreshing: false,
   averageVolumes: new Map(),
   catalog: [],
+  favoritePending: new Set(),
   markets: new Map(),
   openDot: null,
   priceHistories: new Map(),
@@ -28,15 +30,22 @@ const state = {
   streamPhase: "loading",
   streamStartedAt: 0,
   reconnectTimer: null,
+  marketRenderTimer: null,
+  marketRenderedAt: 0,
+  query: "",
   signingIn: false,
+  sort: "asset",
   user: null,
+  watchedFirst: false,
   watchlist: [...APP_CONFIG.initialWatchlist],
 };
 
 const elements = {
   accountButton: document.querySelector("#account-button"),
   accountStatus: document.querySelector("#account-status"),
-  addAssetButton: document.querySelector("#add-asset-button"),
+  assetCount: document.querySelector("#asset-count"),
+  assetFilter: document.querySelector("#asset-filter"),
+  assetSort: document.querySelector("#asset-sort"),
   alertAsset: document.querySelector("#alert-asset"),
   alertCount: document.querySelector("#alert-count"),
   alertForm: document.querySelector("#alert-form"),
@@ -47,9 +56,6 @@ const elements = {
   lastSync: document.querySelector("#last-sync"),
   listenerHealth: document.querySelector("#listener-health"),
   marketList: document.querySelector("#market-list"),
-  removeAsset: document.querySelector("#remove-asset"),
-  removeAssetButton: document.querySelector("#remove-asset-button"),
-  removeAssetForm: document.querySelector("#remove-asset-form"),
   settingsButton: document.querySelector("#settings-button"),
   settingsDialog: document.querySelector("#watchlist-settings"),
   tabs: [...document.querySelectorAll("[data-tab]")],
@@ -58,10 +64,9 @@ const elements = {
   paperPanels: [...document.querySelectorAll("[data-paper-panel]")],
   toolsTabs: [...document.querySelectorAll("[data-tools-tab]")],
   toolsPanels: [...document.querySelectorAll("[data-tools-panel]")],
-  watchlistForm: document.querySelector("#watchlist-form"),
   watchlistMessage: document.querySelector("#watchlist-message"),
+  watchedFirst: document.querySelector("#watched-first"),
 };
-const watchlistAssetPicker = new AssetPicker(document.querySelector("#watchlist-asset-picker"), { details: "none" });
 
 wireEvents();
 initialize();
@@ -77,11 +82,11 @@ async function initialize() {
     const markets = await getMarketCatalog();
     state.catalog = markets;
     updateMarketMap(markets);
+    if (!tradFiMarkets().length) throw new Error("No XYZ TradFi markets were returned.");
     ensureValidWatchlist();
-    await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
-    renderCatalog();
     render();
     connectMarketStream();
+    refreshAssetAnalytics();
   } catch (error) {
     state.streamPhase = "error";
     renderConnectionStatus(error.message);
@@ -93,15 +98,27 @@ function wireEvents() {
   elements.accountButton.addEventListener("click", handleAccountAction);
   elements.alertType.addEventListener("change", renderAlertFields);
   elements.settingsButton.addEventListener("click", openSettings);
+  elements.assetFilter.addEventListener("input", () => {
+    state.query = elements.assetFilter.value;
+    renderMarkets();
+  });
+  elements.assetSort.addEventListener("change", () => {
+    state.sort = elements.assetSort.value;
+    renderMarkets();
+  });
+  elements.watchedFirst.addEventListener("change", () => {
+    state.watchedFirst = elements.watchedFirst.checked;
+    renderMarkets();
+  });
   window.addEventListener("hashchange", renderRoute);
   if (!hasAuthCallbackParameters()) renderRoute();
 
-  elements.watchlistForm.addEventListener("submit", addToWatchlist);
-  elements.removeAssetForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    removeFromWatchlist(elements.removeAsset.value);
-  });
-  elements.marketList.addEventListener("click", (event) => {
+  elements.marketList.addEventListener("click", async (event) => {
+    const favoriteButton = event.target.closest("[data-watch-asset]");
+    if (favoriteButton) {
+      await toggleWatchedAsset(favoriteButton.dataset.watchAsset);
+      return;
+    }
     const button = event.target.closest(".signal-dot-button");
     if (!button) return;
     const asset = button.dataset.asset;
@@ -153,8 +170,7 @@ function wireEvents() {
     await loadAlerts();
   });
 
-  setInterval(refreshAverageVolumes, APP_CONFIG.averageVolumeRefreshIntervalMs);
-  setInterval(refreshPriceHistories, APP_CONFIG.priceHistoryRefreshIntervalMs);
+  setInterval(refreshAssetAnalytics, APP_CONFIG.assetAnalyticsRefreshIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
   setInterval(checkQuoteHealth, 1_000);
   setInterval(sendStreamHeartbeat, 30_000);
@@ -186,12 +202,13 @@ async function setSession(session) {
     state.accountMessage = "";
     await Promise.all([loadCloudWatchlist(), loadAlerts()]);
   } else {
-    state.watchlist = [...APP_CONFIG.initialWatchlist];
+    state.watchlist = [...APP_CONFIG.initialWatchlist].filter((id) => state.markets.size === 0 || state.markets.has(id));
     await loadAlerts();
   }
   if (state.markets.size) {
     ensureValidWatchlist();
     render();
+    if (state.stream) connectMarketStream();
   } else {
     renderAccount();
   }
@@ -228,20 +245,7 @@ async function loadCloudWatchlist() {
     .select("asset")
     .order("created_at");
   if (error) throw error;
-  if (data.length) {
-    state.watchlist = data.map((item) => item.asset);
-    dispatchWatchlist();
-    return;
-  }
-  const { data: seeded, error: seedError } = await state.supabase
-    .from("watchlist_items")
-    .upsert(
-      APP_CONFIG.initialWatchlist.map((asset) => ({ user_id: state.user.id, asset })),
-      { onConflict: "user_id,asset" },
-    )
-    .select("asset");
-  if (seedError) throw seedError;
-  state.watchlist = seeded.map((item) => item.asset);
+  state.watchlist = data.map((item) => item.asset);
   dispatchWatchlist();
 }
 
@@ -252,10 +256,6 @@ function dispatchWatchlist() {
 function renderAccount() {
   const storageReady = Boolean(state.supabase);
   elements.accountButton.disabled = !storageReady || state.signingIn;
-  watchlistAssetPicker.setDisabled(!state.user);
-  elements.addAssetButton.disabled = !state.user;
-  elements.removeAsset.disabled = !state.user || state.watchlist.length <= 1;
-  elements.removeAssetButton.disabled = !state.user || state.watchlist.length <= 1;
   elements.accountButton.textContent = state.user ? "Sign out" : "Sign in";
   const status = state.user
     ? state.user.email
@@ -267,79 +267,62 @@ function renderAccount() {
   elements.accountStatus.textContent = state.accountMessage || status;
 }
 
-async function addToWatchlist(event) {
-  event.preventDefault();
-  if (!state.user) return;
-  const market = state.markets.get(watchlistAssetPicker.value);
-  if (!market) {
-    setWatchlistMessage("Choose an asset from the list.");
+async function toggleWatchedAsset(asset) {
+  if (state.favoritePending.has(asset)) return;
+  if (!state.user) {
+    setWatchlistMessage("Sign in to save watched assets.");
     return;
   }
-  const { error } = await state.supabase.from("watchlist_items").insert({
-    user_id: state.user.id,
-    asset: market.id,
-  });
-  if (error && error.code !== "23505") {
-    setWatchlistMessage(error.message);
-    return;
-  }
-  watchlistAssetPicker.clear();
-  await loadCloudWatchlist();
-  ensureValidWatchlist();
-  await Promise.all([refreshAverageVolumes(), refreshPriceHistories()]);
-  render();
-  connectMarketStream();
-}
-
-async function removeFromWatchlist(asset) {
-  if (!state.user) return;
-  if (state.watchlist.length === 1) return;
-  const { error } = await state.supabase
-    .from("watchlist_items")
-    .delete()
-    .eq("user_id", state.user.id)
-    .eq("asset", asset);
-  if (error) {
-    setWatchlistMessage(error.message);
-    return;
-  }
-  await loadCloudWatchlist();
-  state.priceHistories.delete(asset);
-  ensureValidWatchlist();
-  render();
-  connectMarketStream();
-}
-
-async function refreshAverageVolumes(assetIds = state.watchlist) {
-  const results = await Promise.allSettled(
-    [...new Set(assetIds)].map(async (asset) => [
-      asset,
-      await fetchAverageDailyVolume(asset),
-    ]),
-  );
-  results.forEach((result) => {
-    if (result.status === "fulfilled") {
-      const [asset, volume] = result.value;
-      state.averageVolumes.set(asset, volume);
-    }
-  });
+  const wasWatched = state.watchlist.includes(asset);
+  state.favoritePending.add(asset);
+  state.watchlist = wasWatched
+    ? state.watchlist.filter((id) => id !== asset)
+    : [...state.watchlist, asset];
   renderMarkets();
+  renderAlertOptions();
+  try {
+    const request = wasWatched
+      ? state.supabase.from("watchlist_items").delete().eq("user_id", state.user.id).eq("asset", asset)
+      : state.supabase.from("watchlist_items").upsert({ user_id: state.user.id, asset }, { onConflict: "user_id,asset" });
+    const { error } = await request;
+    if (error) throw error;
+    dispatchWatchlist();
+    setWatchlistMessage(`${displayAssetName(asset)} ${wasWatched ? "removed from" : "added to"} watched assets.`);
+  } catch (error) {
+    state.watchlist = wasWatched
+      ? [...state.watchlist, asset]
+      : state.watchlist.filter((id) => id !== asset);
+    renderMarkets();
+    renderAlertOptions();
+    setWatchlistMessage(error.message);
+  } finally {
+    state.favoritePending.delete(asset);
+    renderMarkets();
+  }
 }
 
-async function refreshPriceHistories(assetIds = state.watchlist) {
-  const results = await Promise.allSettled(
-    [...new Set(assetIds)].map(async (asset) => [
-      asset,
-      await fetchPriceHistory(asset),
-    ]),
-  );
-  results.forEach((result) => {
-    if (result.status === "fulfilled") {
-      const [asset, points] = result.value;
-      state.priceHistories.set(asset, points);
+async function refreshAssetAnalytics() {
+  if (state.analyticsRefreshing || !state.catalog.length) return;
+  state.analyticsRefreshing = true;
+  const tradFiIds = tradFiMarkets().map(({ id }) => id);
+  const watched = new Set(state.watchlist);
+  const prioritized = [...tradFiIds].sort((left, right) => Number(watched.has(right)) - Number(watched.has(left)));
+  try {
+    for (const asset of prioritized) {
+      const [averageResult, historyResult] = await Promise.allSettled([
+        fetchAverageDailyVolume(asset),
+        fetchPriceHistory(asset),
+      ]);
+      if (averageResult.status === "fulfilled") state.averageVolumes.set(asset, averageResult.value);
+      if (historyResult.status === "fulfilled") {
+        state.priceHistories.set(asset, mergePricePoints(state.priceHistories.get(asset) ?? [], historyResult.value));
+      }
+      scheduleMarketRender();
+      await delay(APP_CONFIG.assetAnalyticsRequestSpacingMs);
     }
-  });
-  renderMarkets();
+  } finally {
+    state.analyticsRefreshing = false;
+  }
 }
 
 function updateMarketMap(markets) {
@@ -358,31 +341,43 @@ function updateLastSync() {
 
 function ensureValidWatchlist() {
   state.watchlist = state.watchlist.filter((id) => state.markets.has(id));
-  if (!state.watchlist.length) throw new Error("No configured watchlist assets are available.");
 }
 
 function render() {
   renderMarkets();
   renderAlertOptions();
-  renderWatchlistSettings();
   renderAccount();
   renderAlertFields();
 }
 
-function renderCatalog() {
-  watchlistAssetPicker.setCatalog(state.catalog);
-}
-
 function renderMarkets() {
-  const rows = state.watchlist
-    .map((id) => state.markets.get(id))
-    .filter(Boolean)
+  const now = Date.now();
+  const totalAssets = tradFiMarkets().length;
+  const visibleMarkets = filterAndSortTradFiAssets(tradFiMarkets(), {
+    averageVolumes: state.averageVolumes,
+    now,
+    priceHistories: state.priceHistories,
+    query: state.query,
+    sort: state.sort,
+    watched: state.watchlist,
+    watchedFirst: state.watchedFirst,
+  });
+  const watched = new Set(state.watchlist);
+  elements.assetCount.textContent = state.query.trim()
+    ? `${visibleMarkets.length} / ${totalAssets} ASSETS`
+    : `${totalAssets} ASSETS`;
+  const rows = visibleMarkets
     .map((market) => {
       const direction = market.changePercent >= 0 ? "positive" : "negative";
-      return `<tr><td class="asset-cell">${escapeHtml(displayAssetName(market.id))}</td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      const isWatched = watched.has(market.id);
+      const favoritePending = state.favoritePending.has(market.id);
+      const watchLabel = `${isWatched ? "Remove" : "Add"} ${displayAssetName(market.id)} ${isWatched ? "from" : "to"} watched assets`;
+      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><span>${escapeHtml(displayAssetName(market.id))}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th class="asset-cell">ASSET</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>MARK</th><th>24H +/-</th><th>24H VOL</th><th>AVG VOL</th><th>OI</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const body = rows || `<tr><td class="asset-cell" colspan="8">NO MATCHING ASSETS</td></tr>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr><th class="asset-cell">ASSET</th><th class="signal-cell" title="1w, 1d, 6h, 1h, 30m, 10m, 5m">${renderSignalLabels()}</th><th>MARK</th><th>24H +/-</th><th>24H VOL</th><th>AVG VOL</th><th title="Annualized current hourly funding rate">APR</th><th>OI</th></tr></thead><tbody>${body}</tbody></table>`;
+  state.marketRenderedAt = now;
 }
 
 function renderPriceSignals(market) {
@@ -411,18 +406,11 @@ function renderAlertOptions() {
   elements.alertAsset.innerHTML = `<option value="">Choose asset</option>${state.watchlist
     .map((id) => {
       const market = state.markets.get(id);
+      if (!market) return "";
       return `<option value="${escapeHtml(id)}">${escapeHtml(displayAssetName(market.id))} (${formatPrice(market.markPrice)})</option>`;
     })
     .join("")}`;
   if (state.watchlist.includes(selected)) elements.alertAsset.value = selected;
-}
-
-function renderWatchlistSettings() {
-  const selected = elements.removeAsset.value;
-  elements.removeAsset.innerHTML = state.watchlist
-    .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(displayAssetName(id))}</option>`)
-    .join("");
-  if (state.watchlist.includes(selected)) elements.removeAsset.value = selected;
 }
 
 function openSettings() {
@@ -556,7 +544,8 @@ function connectMarketStream() {
     if (state.stream !== stream) return;
     state.streamPhase = "open";
     state.streamOpenedAt = Date.now();
-    state.watchlist.forEach((coin) => {
+    const subscriptions = new Set([...tradFiMarkets().map(({ id }) => id), ...state.watchlist]);
+    subscriptions.forEach((coin) => {
       stream.send(JSON.stringify({
         method: "subscribe",
         subscription: { type: "activeAssetCtx", coin },
@@ -573,10 +562,11 @@ function connectMarketStream() {
     if (message.channel !== "activeAssetCtx") return;
     const market = state.markets.get(message.data.coin);
     if (!market) return;
-    state.markets.set(message.data.coin, applyLiveMarketContext(market, message.data.ctx));
+    const updatedMarket = applyLiveMarketContext(market, message.data.ctx);
+    state.markets.set(message.data.coin, updatedMarket);
+    recordLivePrice(message.data.coin, updatedMarket.markPrice);
     updateLastSync();
-    renderMarkets();
-    renderAlertOptions();
+    scheduleMarketRender();
   });
 
   stream.addEventListener("close", () => {
@@ -597,6 +587,39 @@ function checkQuoteHealth() {
 function sendStreamHeartbeat() {
   if (state.stream?.readyState !== WebSocket.OPEN) return;
   state.stream.send(JSON.stringify({ method: "ping" }));
+}
+
+function tradFiMarkets() {
+  return hydrateTradFiMarkets(state.catalog, state.markets);
+}
+
+function scheduleMarketRender() {
+  if (state.marketRenderTimer) return;
+  const delayMs = Math.max(0, 1_000 - (Date.now() - state.marketRenderedAt));
+  state.marketRenderTimer = window.setTimeout(() => {
+    state.marketRenderTimer = null;
+    renderMarkets();
+    renderAlertOptions();
+  }, delayMs);
+}
+
+function recordLivePrice(asset, price, now = Date.now()) {
+  if (!Number.isFinite(price) || price <= 0) return;
+  const bucket = Math.floor(now / 300_000) * 300_000;
+  const points = state.priceHistories.get(asset) ?? [];
+  const recent = points.filter((point) => point.time >= now - (8 * 24 * 60 * 60 * 1000));
+  if (recent.at(-1)?.time >= bucket) recent[recent.length - 1] = { time: bucket, price };
+  else recent.push({ time: bucket, price });
+  state.priceHistories.set(asset, recent);
+}
+
+function mergePricePoints(existing, incoming) {
+  const byTime = new Map([...incoming, ...existing].map((point) => [point.time, point]));
+  return [...byTime.values()].sort((left, right) => left.time - right.time);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function formatDotDetail({ label, referencePrice, changePercent }) {
