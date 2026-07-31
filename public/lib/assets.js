@@ -21,6 +21,106 @@ export function searchAssets(catalog, value, limit = Infinity) {
     .map(({ asset }) => asset);
 }
 
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const HOURS_PER_YEAR = 24 * 365;
+
+export function annualizedFundingApr(hourlyFundingRate) {
+  return Number.isFinite(hourlyFundingRate)
+    ? hourlyFundingRate * HOURS_PER_YEAR * 100
+    : null;
+}
+
+export function isTradFiMarket(market) {
+  return market?.dexId === "xyz" && !market.isDelisted;
+}
+
+export function hydrateTradFiMarkets(catalog, marketsById) {
+  return catalog
+    .filter(isTradFiMarket)
+    .map((market) => marketsById.get(market.id) ?? market);
+}
+
+export function filterAndSortTradFiAssets(markets, options = {}) {
+  const {
+    averageVolumes = new Map(),
+    now = Date.now(),
+    priceHistories = new Map(),
+    query = "",
+    sort = "asset",
+    watched = [],
+    watchedFirst = false,
+  } = options;
+  const normalizedQuery = String(query).trim().toLowerCase();
+  const watchedIds = new Set(watched);
+  const filtered = markets.filter((market) => {
+    if (!isTradFiMarket(market)) return false;
+    if (!normalizedQuery) return true;
+    return [market.symbol, market.id]
+      .some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery));
+  });
+  const metric = metricSelector(sort, { averageVolumes, now, priceHistories });
+  const direction = sort === "apr-asc" || sort === "move-5m-asc" || sort === "change-24h-asc" ? 1 : -1;
+
+  return filtered.sort((left, right) => {
+    if (watchedFirst) {
+      const watchedOrder = Number(watchedIds.has(right.id)) - Number(watchedIds.has(left.id));
+      if (watchedOrder) return watchedOrder;
+    }
+    if (metric) {
+      const metricOrder = compareMetrics(metric(left), metric(right), direction);
+      if (metricOrder) return metricOrder;
+    }
+    return displayAssetSymbol(left).localeCompare(displayAssetSymbol(right)) || left.id.localeCompare(right.id);
+  });
+}
+
+export function marketChangePercentForWindow(market, points, milliseconds, now = Date.now()) {
+  if (!Number.isFinite(market?.markPrice) || market.markPrice <= 0) return null;
+  const target = Number(now) - milliseconds;
+  let reference = null;
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (points[index].time <= target) {
+      reference = points[index].price;
+      break;
+    }
+  }
+  return Number.isFinite(reference) && reference > 0
+    ? (market.markPrice / reference - 1) * 100
+    : null;
+}
+
+function metricSelector(sort, context) {
+  if (sort === "volume-desc") return (market) => market.volume24h;
+  if (sort === "avg-volume-desc") return (market) => context.averageVolumes.get(market.id);
+  if (sort === "open-interest-desc") return (market) => market.openInterest;
+  if (sort === "apr-desc" || sort === "apr-asc") return (market) => annualizedFundingApr(market.funding);
+  if (sort === "change-24h-desc" || sort === "change-24h-asc") return (market) => market.changePercent;
+  if (sort === "change-24h-abs") return (market) => absolute(market.changePercent);
+  if (["move-5m-abs", "move-5m-desc", "move-5m-asc"].includes(sort)) {
+    return (market) => {
+      const change = marketChangePercentForWindow(
+        market,
+        context.priceHistories.get(market.id) ?? [],
+        FIVE_MINUTES_MS,
+        context.now,
+      );
+      return sort === "move-5m-abs" ? absolute(change) : change;
+    };
+  }
+  return null;
+}
+
+function compareMetrics(left, right, direction) {
+  const leftValid = Number.isFinite(left);
+  const rightValid = Number.isFinite(right);
+  if (!leftValid || !rightValid) return leftValid ? -1 : rightValid ? 1 : 0;
+  return left === right ? 0 : (left - right) * direction;
+}
+
+function absolute(value) {
+  return Number.isFinite(value) ? Math.abs(value) : null;
+}
+
 function matchScore(asset, query) {
   if (!query) return 10;
   const id = asset.id.toLowerCase();

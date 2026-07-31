@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260722-position-controls" />
+    <link rel="stylesheet" href="./styles.css?v=20260731-assets" />
   </head>
   <body>
     <main>
@@ -16,7 +16,7 @@
         <p><span id="connection-label">LOADING MARKET DATA</span> · UPDATED <time id="last-sync">—</time></p>
         <div class="tab-bar">
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
-            <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">Watchlist</a>
+            <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">ASSETS</a>
             <a id="alerts-tab" href="#/alerts" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</a>
             <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
             <a id="analysis-tab" href="#/analysis" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
@@ -33,9 +33,29 @@
 
       <section id="watchlist-view" role="tabpanel" aria-labelledby="watchlist-tab">
         <div class="section-header">
-          <h2 id="watchlist-heading">Watchlist</h2>
-          <button id="settings-button" class="icon-button" type="button" aria-label="Watchlist settings" title="Watchlist settings">⚙</button>
+          <div class="section-title"><h2 id="watchlist-heading">ASSETS</h2><span id="asset-count" class="hint">— ASSETS</span></div>
+          <button id="settings-button" class="icon-button" type="button" aria-label="Asset display settings" title="Asset display settings">⚙</button>
         </div>
+
+        <div class="assets-controls">
+          <input id="asset-filter" type="search" autocomplete="off" placeholder="SEARCH ASSETS" aria-label="Search TradFi assets" />
+          <select id="asset-sort" aria-label="Sort assets">
+            <option value="asset">ASSET A–Z</option>
+            <option value="volume-desc">24H VOLUME · HIGH–LOW</option>
+            <option value="avg-volume-desc">AVG VOLUME · HIGH–LOW</option>
+            <option value="move-5m-abs">5M MOVE · BIGGEST</option>
+            <option value="move-5m-desc">5M CHANGE · HIGH–LOW</option>
+            <option value="move-5m-asc">5M CHANGE · LOW–HIGH</option>
+            <option value="change-24h-abs">24H MOVE · BIGGEST</option>
+            <option value="change-24h-desc">24H CHANGE · HIGH–LOW</option>
+            <option value="change-24h-asc">24H CHANGE · LOW–HIGH</option>
+            <option value="open-interest-desc">OI · HIGH–LOW</option>
+            <option value="apr-desc">APR · HIGH–LOW</option>
+            <option value="apr-asc">APR · LOW–HIGH</option>
+          </select>
+          <label class="watched-first"><input id="watched-first" type="checkbox" /> WATCHED FIRST</label>
+        </div>
+        <p id="watchlist-message" class="message" role="status"></p>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
       </section>
@@ -404,29 +424,9 @@
 
     <dialog id="watchlist-settings" class="settings-dialog" aria-labelledby="settings-title">
       <div class="settings-header">
-        <h2 id="settings-title">Watchlist settings</h2>
+        <h2 id="settings-title">Asset display</h2>
         <form method="dialog"><button class="icon-button" type="submit" aria-label="Close settings" title="Close">×</button></form>
       </div>
-
-      <form id="watchlist-form" class="settings-form">
-        <label for="asset-search">Add asset</label>
-        <div class="settings-control">
-          <div id="watchlist-asset-picker" class="asset-picker">
-            <input id="asset-search" data-asset-input placeholder="ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="watchlist-asset-list" disabled />
-            <input data-asset-value name="asset" type="hidden" />
-            <div id="watchlist-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
-          </div>
-          <button id="add-asset-button" type="submit" disabled>Add</button>
-        </div>
-      </form>
-
-      <form id="remove-asset-form" class="settings-form">
-        <label for="remove-asset">Remove asset</label>
-        <div class="settings-control">
-          <select id="remove-asset" name="asset" disabled></select>
-          <button id="remove-asset-button" type="submit" disabled>Remove</button>
-        </div>
-      </form>
 
       <section class="dot-rubric" aria-labelledby="dot-rubric-title">
         <h3 id="dot-rubric-title">Dot colors</h3>
@@ -440,9 +440,8 @@
           <p>Light: score &lt; 1.5 · Medium: 1.5–&lt;3 · Strong: ≥3. Green means mark is above reference; red means below.</p>
         </div>
       </section>
-      <p id="watchlist-message" class="message" role="status"></p>
     </dialog>
-    <script type="module" src="./app.js?v=20260728-persistent-auth"></script>
+    <script type="module" src="./app.js?v=20260731-assets-live"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>
