@@ -12,6 +12,47 @@ import { decimal, decimalString } from "../_shared/paper/decimal.ts";
 import { makerFraction } from "../_shared/paper/fees.ts";
 import { initialMargin } from "../_shared/paper/margin.ts";
 
+type CommandPosition = {
+  asset: string;
+  margin_mode: "cross" | "isolated";
+  signed_size: string | number;
+  entry_price: string | number;
+  isolated_margin: string | number | null;
+};
+
+export function projectCommandPortfolio({
+  cashBalance, positions, marks, leverageByAsset, metadataByAsset,
+}: {
+  cashBalance: string;
+  positions: CommandPosition[];
+  marks: Map<string, string>;
+  leverageByAsset: Map<string, number>;
+  metadataByAsset: Map<string, { marginTiers: Parameters<typeof initialMargin>[2] }>;
+}) {
+  const marginByAsset = new Map<string, ReturnType<typeof decimal>>();
+  const totals = positions.reduce((result, position) => {
+    const mark = marks.get(position.asset);
+    const metadata = metadataByAsset.get(position.asset);
+    if (!mark) throw new Error(`portfolio_mark_unavailable:${position.asset}`);
+    if (!metadata) throw new Error(`portfolio_state_unavailable:metadata:${position.asset}`);
+    const notional = decimal(position.signed_size).abs().times(mark);
+    const positionMargin = position.margin_mode === "isolated"
+      ? decimal(position.isolated_margin ?? 0)
+      : decimal(initialMargin(decimalString(notional), leverageByAsset.get(position.asset) ?? 1, metadata.marginTiers));
+    marginByAsset.set(position.asset, positionMargin);
+    return {
+      unrealized: result.unrealized.plus(decimal(position.signed_size).times(decimal(mark).minus(position.entry_price))),
+      margin: result.margin.plus(positionMargin),
+    };
+  }, { unrealized: decimal(0), margin: decimal(0) });
+  return {
+    unrealizedPnl: decimalString(totals.unrealized),
+    equity: decimalString(decimal(cashBalance).plus(totals.unrealized)),
+    marginUsed: decimalString(totals.margin),
+    marginByAsset,
+  };
+}
+
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, content-type, apikey, x-client-info",
@@ -58,9 +99,9 @@ export function createPaperCommandDependencies(): PaperCommandDependencies {
       if (epochError) throw new Error(epochError.message);
       if (!epoch) return null;
       const [{ data: summary, error: summaryError }, { data: position, error: positionError }, { data: positions, error: positionsError }, { data: settings, error: settingsError }, { data: orders, error: ordersError }, { data: feeVolume, error: feeVolumeError }, catalog] = await Promise.all([
-        service.from("paper_account_summaries").select("cash_balance,equity,trailing_volume,maker_volume").eq("epoch_id", epoch.id).single(),
+        service.from("paper_account_summaries").select("cash_balance").eq("epoch_id", epoch.id).single(),
         service.from("paper_positions").select("signed_size,entry_price").eq("epoch_id", epoch.id).eq("asset", asset).maybeSingle(),
-        service.from("paper_positions").select("asset,margin_mode,signed_size,mark_price,isolated_margin").eq("epoch_id", epoch.id),
+        service.from("paper_positions").select("asset,margin_mode,signed_size,entry_price,isolated_margin").eq("epoch_id", epoch.id),
         service.from("paper_leverage_settings").select("asset,leverage").eq("epoch_id", epoch.id),
         service.from("paper_orders").select("reserved_margin").eq("epoch_id", epoch.id)
           .in("status", ["resting", "partially_filled", "trigger_waiting"]),
@@ -72,22 +113,22 @@ export function createPaperCommandDependencies(): PaperCommandDependencies {
       if (positionsError || settingsError || ordersError || feeVolumeError) throw new Error(positionsError?.message ?? settingsError?.message ?? ordersError?.message ?? feeVolumeError?.message);
       const leverageByAsset = new Map((settings ?? []).map((setting) => [setting.asset, Number(setting.leverage)]));
       const metadataByAsset = new Map(catalog.assets.map((item) => [item.asset, item]));
-      const marginByAsset = new Map<string, ReturnType<typeof decimal>>();
-      const marginUsed = (positions ?? []).reduce((used, item) => {
-        const metadata = metadataByAsset.get(item.asset);
-        if (!metadata) throw new Error(`asset metadata unavailable for ${item.asset}`);
-        const positionMargin = item.margin_mode === "isolated"
-          ? decimal(item.isolated_margin ?? 0)
-          : decimal(initialMargin(
-            decimalString(decimal(item.signed_size).abs().times(item.mark_price)),
-            leverageByAsset.get(item.asset) ?? 1,
-            metadata.marginTiers,
-          ));
-        marginByAsset.set(item.asset, positionMargin);
-        return used.plus(positionMargin);
-      }, decimal(0));
+      const requests = [...new Set((positions ?? []).map((item) => item.asset))]
+        .map((positionAsset) => ({ asset: positionAsset, dex: positionAsset.includes(":") ? positionAsset.split(":", 1)[0] : "" }));
+      const liveMarks = new Map<string, string>();
+      if (requests.length) {
+        const batches = await fetchMarketBatches(requests, new Date());
+        for (const result of batches.values()) {
+          if (!result.ok) throw new Error(`portfolio_mark_unavailable:${result.error}`);
+          for (const observation of result.observations) liveMarks.set(observation.asset, String(observation.mark_price));
+        }
+      }
+      const projection = projectCommandPortfolio({
+        cashBalance: String(summary.cash_balance), positions: positions ?? [],
+        marks: liveMarks, leverageByAsset, metadataByAsset,
+      });
       const reservedMargin = (orders ?? []).reduce((total, order) => total.plus(order.reserved_margin), decimal(0));
-      const availableMargin = decimal(summary.equity).minus(marginUsed).minus(reservedMargin);
+      const availableMargin = decimal(projection.equity).minus(projection.marginUsed).minus(reservedMargin);
       const feeTotals = feeVolume as { trailing_volume: unknown; maker_volume: unknown };
       const rollingVolume = {
         trailingVolume: String(feeTotals.trailing_volume), makerVolume: String(feeTotals.maker_volume),
@@ -96,14 +137,18 @@ export function createPaperCommandDependencies(): PaperCommandDependencies {
         epochNumber: epoch.epoch_number,
         version: Number(epoch.version),
         cashBalance: String(summary.cash_balance),
-        availableMargin: decimalString(availableMargin.isPositive() ? availableMargin : 0),
-        currentMargin: decimalString(marginByAsset.get(asset) ?? decimal(0)),
+        availableMargin: decimalString(availableMargin),
+        currentMargin: decimalString(projection.marginByAsset.get(asset) ?? decimal(0)),
         trailingVolume: rollingVolume.trailingVolume,
         makerFraction: makerFraction(rollingVolume.makerVolume, rollingVolume.trailingVolume),
         position: position ? { signedSize: String(position.signed_size), entryPrice: String(position.entry_price) } : null,
       };
     },
-    async findCommand(accountId, epochNumber, idempotencyKey) {
+    async findCommand(accountId, epochNumber, idempotencyKey, userId) {
+      const { data: owned, error: ownershipError } = await service.from("paper_accounts").select("id")
+        .eq("id", accountId).eq("user_id", userId).is("archived_at", null).maybeSingle();
+      if (ownershipError) throw new Error(ownershipError.message);
+      if (!owned) return null;
       const id = await epochId(accountId, epochNumber);
       if (!id) return null;
       const { data, error } = await service.from("paper_commands").select("canonical_result")
@@ -147,6 +192,12 @@ export function paperCommandFailureResponse(error: unknown): Response {
   const message = typeof failure?.message === "string" ? failure.message : String(error);
   if (failure?.code === "40001" || message === "stale paper account version") {
     return Response.json({ error: "stale_account" }, { status: 409, headers: corsHeaders });
+  }
+  if (message.startsWith("portfolio_mark_unavailable:")) {
+    return Response.json({ error: "portfolio_mark_unavailable" }, { status: 503, headers: corsHeaders });
+  }
+  if (message.startsWith("portfolio_state_unavailable:")) {
+    return Response.json({ error: "portfolio_state_unavailable" }, { status: 503, headers: corsHeaders });
   }
   return Response.json(
     { error: "paper_command_failed", detail: message },

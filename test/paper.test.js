@@ -188,6 +188,18 @@ test("definitive edge rejections expose the server reason", async () => {
   ), (error) => error.code === "invalid_order" && error.status === 422 && /minimum notional/i.test(error.message));
 });
 
+test("portfolio mark outages fail closed without reporting an ambiguous fill", async () => {
+  const failure = Object.assign(new Error("Edge Function returned a non-2xx status code"), {
+    context: Response.json({ error: "portfolio_mark_unavailable" }, { status: 503 }),
+  });
+  let lookups = 0;
+  await assert.rejects(resolvePaperCommand(
+    async () => ({ data: null, error: failure }),
+    async () => { lookups += 1; return null; },
+  ), (error) => error.code === "portfolio_mark_unavailable" && error.status === 503);
+  assert.equal(lookups, 0);
+});
+
 test("paper limit prices follow Hyperliquid tick precision", () => {
   assert.equal(paperPriceValid("53.32", 1), true);
   assert.equal(paperPriceValid("53.3219", 1), false);
