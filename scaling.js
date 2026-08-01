@@ -594,4 +594,3 @@ function compactPrice(value) {
   if (!Number.isFinite(Number(value))) return "—";
   return Number(value).toLocaleString(undefined, { maximumFractionDigits: Math.abs(Number(value)) < 1 ? 4 : 2 });
 }
-
