@@ -332,6 +332,7 @@
         <div class="section-header"><h2>TOOLS</h2><span class="hint">ANALYSIS ONLY</span></div>
         <div class="paper-subtabs tools-subtabs" role="tablist" aria-label="Tools">
           <a id="exposure-ladder-tab" href="#/tools/exposure-ladder" role="tab" aria-selected="true" aria-controls="exposure-ladder-panel" data-tools-tab="exposure-ladder">EXPOSURE LADDER</a>
+          <a id="scaling-tab" href="#/tools/scaling" role="tab" aria-selected="false" aria-controls="scaling-panel" data-tools-tab="scaling">SCALING</a>
         </div>
 
         <div id="exposure-ladder-panel" role="tabpanel" aria-labelledby="exposure-ladder-tab" data-tools-panel="exposure-ladder">
@@ -376,6 +377,82 @@
           <p class="ladder-note">THE PATH IS MONOTONIC TO THE SELECTED TURN, THEN MONOTONIC THROUGH THE SELECTED RECOVERY. ALL MOVE STEPS ARE PERCENTAGE POINTS OF THE ANCHOR PRICE. RE-ENTRY RESTORES THE MOST RECENTLY REMOVED TRANCHE FIRST.</p>
           <h3 class="paper-heading">EVENT LEDGER</h3>
           <div id="exposure-ladder-events" class="paper-table-wrap"></div>
+        </div>
+
+        <div id="scaling-panel" role="tabpanel" aria-labelledby="scaling-tab" data-tools-panel="scaling" hidden>
+          <p class="tool-intro">BUILD A POSITION ENTRY LADDER, THEN DRAW THE PRICE PATH TO SEE EVERY FILL, EXPOSURE CHANGE, AND P/L RESULT IN SEQUENCE.</p>
+
+          <form id="scaling-form" class="scaling-form">
+            <label>ASSET
+              <div id="scaling-asset-picker" class="asset-picker" data-picker-details="none">
+                <input id="scaling-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="scaling-asset-list" />
+                <input data-asset-value name="asset" type="hidden" />
+                <div id="scaling-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+              </div>
+            </label>
+            <span class="scaling-live-mark"><small>LIVE MARK</small><strong id="scaling-live-mark">—</strong><em id="scaling-live-status">WAITING</em></span>
+            <fieldset class="paper-ticket-fieldset">
+              <legend>SIDE</legend>
+              <div class="paper-segmented paper-direction">
+                <label><input name="direction" type="radio" value="long" checked /><span>LONG</span></label>
+                <label><input name="direction" type="radio" value="short" /><span>SHORT</span></label>
+              </div>
+            </fieldset>
+            <label>MAX RISK <input name="maxRisk" type="number" min="0.01" step="0.01" value="5000" /></label>
+            <label>MAX LOSS
+              <span class="scaling-inline-input"><input name="maxLoss" type="number" min="0.01" step="0.01" value="500" /><select name="maxLossMode" aria-label="Max loss unit"><option value="dollars">$</option><option value="percent">% RISK</option></select></span>
+              <small id="scaling-max-loss-conversion">—</small>
+            </label>
+            <label>STARTING LOT
+              <span class="scaling-inline-input"><input name="startingLot" type="number" min="0.00000001" step="any" value="500" /><select name="startingLotMode" aria-label="Starting lot unit"><option value="dollars">USDC</option><option value="shares">SHARES</option></select></span>
+              <small id="scaling-lot-conversion">—</small>
+            </label>
+            <label>LEVELS <input name="levelCount" type="number" min="1" max="50" step="1" value="8" /></label>
+            <label>FEE BPS <input name="feeBps" type="number" min="0" max="100" step="0.1" value="0" /></label>
+            <label class="scaling-range-control"><span>CHART RANGE <output id="scaling-range-output">±20%</output></span><input name="rangePct" type="range" min="2" max="100" step="1" value="20" /></label>
+            <button id="scaling-generate" type="button">REGENERATE LADDER</button>
+          </form>
+
+          <p id="scaling-error" class="message" role="alert"></p>
+          <div id="scaling-plan-metrics" class="paper-metrics scaling-plan-metrics" aria-live="polite"></div>
+
+          <div class="scaling-workspace">
+            <section class="scaling-card" aria-labelledby="scaling-ladder-heading">
+              <div class="scaling-card-header"><h3 id="scaling-ladder-heading">PRICE LADDER</h3><span class="hint">DRAG LEVELS AND LOT BARS</span></div>
+              <svg id="scaling-ladder-chart" class="scaling-ladder-chart" viewBox="0 0 560 400" role="img" aria-label="Interactive entry price ladder"></svg>
+            </section>
+            <section class="scaling-card scaling-level-editor" aria-labelledby="scaling-levels-heading">
+              <div class="scaling-card-header"><h3 id="scaling-levels-heading">LEVELS</h3><button id="scaling-add-level" type="button">+ ADD</button></div>
+              <div class="scaling-batch-controls" role="group" aria-label="Batch level controls">
+                <button type="button" data-scaling-batch="space">EVEN SPACE</button>
+                <button type="button" data-scaling-batch="size">EQUAL SIZE</button>
+                <button type="button" data-scaling-batch="front">FRONT LOAD</button>
+                <button type="button" data-scaling-batch="back">BACK LOAD</button>
+                <button type="button" data-scaling-batch="normalize">FIT RISK</button>
+              </div>
+              <div id="scaling-level-list" class="scaling-level-list"></div>
+            </section>
+          </div>
+
+          <section class="scaling-card scaling-path-card" aria-labelledby="scaling-path-heading">
+            <div class="scaling-card-header"><h3 id="scaling-path-heading">DRAW PRICE PATH</h3><span class="hint">DRAW LEFT TO RIGHT · DRAG A POINT TO EDIT</span></div>
+            <div class="scaling-path-controls" role="group" aria-label="Price path presets">
+              <button type="button" data-path-mode="draw" aria-pressed="true">DRAW</button>
+              <button type="button" data-path-mode="inspect" aria-pressed="false">INSPECT</button>
+              <button type="button" data-path-preset="up">UP</button>
+              <button type="button" data-path-preset="down">DOWN</button>
+              <button type="button" data-path-preset="v">V</button>
+              <button type="button" data-path-preset="inverse-v">INVERSE V</button>
+              <button type="button" data-path-preset="chop">CHOP</button>
+              <button type="button" data-path-preset="clear">CLEAR</button>
+            </div>
+            <svg id="scaling-path-chart" class="scaling-path-chart" viewBox="0 0 900 360" role="img" aria-label="Drawn price path with running profit and loss"></svg>
+          </section>
+
+          <div id="scaling-result-metrics" class="paper-metrics scaling-result-metrics" aria-live="polite"></div>
+          <h3 class="paper-heading">EVENT LEDGER</h3>
+          <div id="scaling-events" class="paper-table-wrap"><p class="hint">DRAW A PRICE PATH TO SIMULATE.</p></div>
+          <p class="ladder-note">EXACT LEVEL FILLS, NO SLIPPAGE OR QUEUE MODEL. EACH ENTRY FILLS ONCE. MAX LOSS IS ENFORCED AGAINST ACTUALLY FILLED EXPOSURE AND INCLUDES CONFIGURED ENTRY AND EXIT FEES.</p>
         </div>
       </section>
     </main>
@@ -468,6 +545,6 @@
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>
-    <script type="module" src="./tools.js?v=20260721-tools"></script>
+    <script type="module" src="./tools.js?v=20260801-scaling"></script>
   </body>
 </html>

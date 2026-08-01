@@ -9,6 +9,7 @@ test("site routes resolve top-level and nested paper views", () => {
   assert.deepEqual(parseRoute("#/paper"), { view: "paper", paperView: "home", toolsView: "exposure-ladder" });
   assert.deepEqual(parseRoute("#/strats"), { view: "strats", paperView: "home", toolsView: "exposure-ladder" });
   assert.deepEqual(parseRoute("#/tools/exposure-ladder"), { view: "tools", paperView: "home", toolsView: "exposure-ladder" });
+  assert.deepEqual(parseRoute("#/tools/scaling"), { view: "tools", paperView: "home", toolsView: "scaling" });
 });
 
 test("asset routes preserve the canonical Hyperliquid asset id", () => {
@@ -53,4 +54,5 @@ test("unknown routes fall back to the watchlist", () => {
   assert.equal(routeFor("analysis"), "#/analysis");
   assert.equal(routeFor("strats"), "#/strats");
   assert.equal(routeFor("tools", "home", "exposure-ladder"), "#/tools/exposure-ladder");
+  assert.equal(routeFor("tools", "home", "scaling"), "#/tools/scaling");
 });
