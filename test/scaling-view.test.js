@@ -4,7 +4,7 @@ import test from "node:test";
 
 const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
-const script = readFileSync(new URL("../public/tools.js", import.meta.url), "utf8");
+const script = readFileSync(new URL("../public/scaling.js", import.meta.url), "utf8");
 
 test("tools exposes the scaling simulator as a routed subview", () => {
   assert.match(html, /href="#\/tools\/scaling"/);
