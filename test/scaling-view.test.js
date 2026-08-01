@@ -9,6 +9,7 @@ const script = readFileSync(new URL("../public/scaling.js", import.meta.url), "u
 test("tools exposes the scaling simulator as a routed subview", () => {
   assert.match(html, /href="#\/tools\/scaling"/);
   assert.match(html, /id="scaling-panel"[^>]*data-tools-panel="scaling"/);
+  assert.doesNotMatch(html, /EXPOSURE LADDER|exposure-ladder/);
 });
 
 test("scaling view provides risk, lot, level, drawing, and audit controls", () => {
