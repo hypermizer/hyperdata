@@ -14,7 +14,8 @@ import {
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20260801-bars-news";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { fetchAssetNews } from "./lib/news.js?v=20260801";
+import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
+import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
@@ -39,6 +40,9 @@ const state = {
   assetChartLoadToken: 0,
   assetChartRetryTimer: null,
   assetCandleSubscription: null,
+  assetFundamentals: new Map(),
+  assetFundamentalsErrors: new Map(),
+  assetFundamentalsPending: new Set(),
   assetNewsAsset: null,
   assetNewsLoadToken: 0,
   averageVolumes: new Map(),
@@ -73,10 +77,16 @@ const elements = {
   assetCount: document.querySelector("#asset-count"),
   assetDetailMetrics: document.querySelector("#asset-detail-metrics"),
   assetDetailName: document.querySelector("#asset-detail-name"),
+  assetDetailOfficialName: document.querySelector("#asset-detail-official-name"),
   assetDetailSignals: document.querySelector("#asset-detail-signals"),
+  assetCompanyProfile: document.querySelector("#asset-company-profile"),
   assetFilter: document.querySelector("#asset-filter"),
   assetHyperliquidLink: document.querySelector("#asset-hyperliquid-link"),
   assetIntervals: document.querySelector("#asset-intervals"),
+  assetTabs: document.querySelector("#asset-tabs"),
+  assetPanels: [...document.querySelectorAll("[data-asset-panel]")],
+  assetFinancialsContent: document.querySelector("#asset-financials-content"),
+  assetFinancialsStatus: document.querySelector("#asset-financials-status"),
   assetNewsList: document.querySelector("#asset-news-list"),
   assetNewsStatus: document.querySelector("#asset-news-status"),
   alertAsset: document.querySelector("#alert-asset"),
@@ -532,7 +542,7 @@ function renderAlertFields() {
 }
 
 function renderRoute() {
-  const { view, asset, interval, paperView, toolsView } = parseRoute(window.location.hash);
+  const { view, asset, assetView, interval, paperView, toolsView } = parseRoute(window.location.hash);
   const selectedTab = view === "asset" ? "watchlist" : view;
   elements.tabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selectedTab));
@@ -553,21 +563,28 @@ function renderRoute() {
     panel.hidden = panel.dataset.toolsPanel !== toolsView;
   });
   if (view === "asset") {
-    updateCandleSubscription(asset, interval);
-    renderAssetDetail(asset, interval);
+    updateCandleSubscription(assetView === "overview" ? asset : null, assetView === "overview" ? interval : null);
+    if (assetView !== "overview") destroyAssetChart();
+    renderAssetDetail(asset, assetView, interval);
   } else {
     updateCandleSubscription(null, null);
     destroyAssetChart();
   }
-  const canonical = view === "asset" ? routeFor("asset", asset, interval) : routeFor(view, paperView, toolsView);
+  const canonical = view === "asset" ? routeFor("asset", asset, assetView, interval) : routeFor(view, paperView, toolsView);
   if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
 }
 
-function renderAssetDetail(asset, interval = "1h") {
+function renderAssetDetail(asset, assetView = "overview", interval = "1h") {
   elements.assetDetailName.textContent = displayAssetName(asset);
   elements.assetHyperliquidLink.href = `https://app.hyperliquid.xyz/trade/${encodeURIComponent(asset)}`;
-  renderAssetIntervals(asset, interval);
-  if (state.assetNewsAsset !== asset) loadAssetNews(asset);
+  renderAssetTabs(asset, assetView, interval);
+  elements.assetPanels.forEach((panel) => { panel.hidden = panel.dataset.assetPanel !== assetView; });
+  const fundamentals = state.assetFundamentals.get(asset);
+  renderCompanyIdentity(asset, fundamentals, assetView);
+  const retryAfter = state.assetFundamentalsErrors.get(asset) ?? 0;
+  if (!fundamentals && retryAfter <= Date.now() && !state.assetFundamentalsPending.has(asset)) loadAssetFundamentals(asset);
+  if (assetView === "news" && state.assetNewsAsset !== asset) loadAssetNews(asset);
+  if (assetView === "overview") renderAssetIntervals(asset, interval);
   const market = state.markets.get(asset);
   if (!market) {
     if (state.assetChartAsset !== asset) destroyAssetChart();
@@ -575,7 +592,7 @@ function renderAssetDetail(asset, interval = "1h") {
       ? `<span><small>STATUS</small><strong>ASSET NOT FOUND</strong></span>`
       : `<span><small>STATUS</small><strong>LOADING MARKET DATA</strong></span>`;
     elements.assetDetailSignals.innerHTML = "";
-    elements.assetChartStatus.textContent = state.catalog.length ? "ASSET NOT FOUND" : "LOADING MARKET DATA…";
+    if (assetView === "overview") elements.assetChartStatus.textContent = state.catalog.length ? "ASSET NOT FOUND" : "LOADING MARKET DATA…";
     return;
   }
 
@@ -592,8 +609,10 @@ function renderAssetDetail(asset, interval = "1h") {
   elements.assetDetailMetrics.innerHTML = metrics
     .map(([label, value]) => `<span><small>${label}</small><strong>${escapeHtml(value)}</strong></span>`)
     .join("");
-  elements.assetDetailSignals.innerHTML = renderPriceSignals(market);
-  if (state.assetChartAsset !== asset || state.assetChartInterval !== interval) loadAssetChart(asset, interval);
+  if (assetView === "overview") {
+    elements.assetDetailSignals.innerHTML = renderPriceSignals(market);
+    if (state.assetChartAsset !== asset || state.assetChartInterval !== interval) loadAssetChart(asset, interval);
+  }
 }
 
 async function loadAssetChart(asset, interval) {
@@ -624,7 +643,7 @@ async function loadAssetChart(asset, interval) {
     state.assetChartRetryTimer = window.setTimeout(() => {
       state.assetChartRetryTimer = null;
       const route = parseRoute(window.location.hash);
-      if (route.view === "asset" && route.asset === asset && route.interval === interval) loadAssetChart(asset, interval);
+      if (route.view === "asset" && route.asset === asset && route.assetView === "overview" && route.interval === interval) loadAssetChart(asset, interval);
     }, 15_000);
   }
 }
@@ -694,8 +713,100 @@ function renderAssetIntervals(asset, interval) {
   elements.assetIntervals.dataset.asset = asset;
   elements.assetIntervals.dataset.interval = interval;
   elements.assetIntervals.innerHTML = CANDLE_INTERVALS.map(({ value, label }) => (
-    `<a href="${routeFor("asset", asset, value)}"${value === interval ? ' aria-current="page"' : ""}>${label}</a>`
+    `<a href="${routeFor("asset", asset, "overview", value)}"${value === interval ? ' aria-current="page"' : ""}>${label}</a>`
   )).join("");
+}
+
+function renderAssetTabs(asset, assetView, interval) {
+  const key = `${asset}:${assetView}:${interval}`;
+  if (elements.assetTabs.dataset.key === key) return;
+  elements.assetTabs.dataset.key = key;
+  elements.assetTabs.innerHTML = ["overview", "news", "financials"].map((view) => (
+    `<a href="${routeFor("asset", asset, view, interval)}"${view === assetView ? ' aria-current="page"' : ""}>${view.toUpperCase()}</a>`
+  )).join("");
+}
+
+function renderCompanyIdentity(asset, data, assetView) {
+  const identity = data?.identity;
+  elements.assetDetailOfficialName.textContent = identity?.displayName && identity.displayName !== displayAssetName(asset)
+    ? identity.displayName.toUpperCase()
+    : "";
+  if (assetView === "overview") {
+    const profileKey = `${asset}:${identity?.source ?? "loading"}:${identity?.description ?? ""}`;
+    if (elements.assetCompanyProfile.dataset.key !== profileKey) {
+      elements.assetCompanyProfile.dataset.key = profileKey;
+      elements.assetCompanyProfile.innerHTML = identity?.description
+        ? `<p>${escapeHtml(identity.description)}</p><small>${escapeHtml(companySourceLabel(identity.source))}</small>`
+        : `<p class="hint">${data ? "NO COMPANY DESCRIPTION IS AVAILABLE FOR THIS INSTRUMENT." : "LOADING COMPANY PROFILE…"}</p>`;
+    }
+  }
+  if (assetView === "financials") renderFinancials(data, (state.assetFundamentalsErrors.get(asset) ?? 0) > Date.now());
+}
+
+async function loadAssetFundamentals(asset) {
+  state.assetFundamentalsPending.add(asset);
+  try {
+    const data = await fetchAssetFundamentals(state.supabase, asset);
+    state.assetFundamentals.set(asset, data);
+    state.assetFundamentalsErrors.delete(asset);
+    const route = parseRoute(window.location.hash);
+    if (route.view === "asset" && route.asset === asset) {
+      renderCompanyIdentity(asset, data, route.assetView);
+    }
+  } catch (error) {
+    state.assetFundamentalsErrors.set(asset, Date.now() + 60_000);
+    const route = parseRoute(window.location.hash);
+    if (route.view === "asset" && route.asset === asset) {
+      elements.assetDetailOfficialName.textContent = "";
+      if (route.assetView === "overview") elements.assetCompanyProfile.innerHTML = `<p class="hint">${escapeHtml(error.message ?? "COMPANY PROFILE UNAVAILABLE")}</p>`;
+      if (route.assetView === "financials") {
+        elements.assetFinancialsStatus.textContent = "UNAVAILABLE";
+        elements.assetFinancialsContent.innerHTML = `<p class="asset-news-empty">${escapeHtml(error.message ?? "FINANCIALS UNAVAILABLE")}</p>`;
+      }
+    }
+  } finally {
+    state.assetFundamentalsPending.delete(asset);
+  }
+}
+
+function renderFinancials(data, retrying = false) {
+  if (!data) {
+    elements.assetFinancialsStatus.textContent = retrying ? "TEMPORARILY UNAVAILABLE · RETRYING" : "LOADING";
+    if (!retrying || !elements.assetFinancialsContent.textContent) {
+      elements.assetFinancialsContent.innerHTML = `<p class="asset-news-empty">${retrying ? "YAHOO FINANCE DATA IS TEMPORARILY UNAVAILABLE." : "LOADING YAHOO FINANCE DATA…"}</p>`;
+    }
+    return;
+  }
+  const date = data.updatedAt ? new Date(data.updatedAt) : null;
+  elements.assetFinancialsStatus.textContent = data.available
+    ? `YAHOO FINANCE · ${date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : "LATEST"}`
+    : "NOT AVAILABLE ON YAHOO FINANCE";
+  if (!data.available) {
+    elements.assetFinancialsContent.innerHTML = '<p class="asset-news-empty">NO COMPANY FINANCIAL STATEMENTS ARE AVAILABLE FOR THIS INSTRUMENT.</p>';
+    return;
+  }
+  const renderKey = `${data.identity.yahooSymbol}:${data.updatedAt}:${data.metrics.length}:${data.quarters.length}`;
+  if (elements.assetFinancialsContent.dataset.key === renderKey) return;
+  elements.assetFinancialsContent.dataset.key = renderKey;
+  const metrics = data.metrics.map((metric) => (
+    `<span><small>${escapeHtml(String(metric.label || ""))}</small><strong>${escapeHtml(formatFinancialValue(metric.value, metric.format, data.currency))}</strong><em>${escapeHtml(String(metric.asOfDate || ""))}</em></span>`
+  )).join("");
+  const rows = data.quarters.map((quarter) => `<tr><th scope="row">${escapeHtml(String(quarter.date || ""))}</th>${["revenue", "grossProfit", "operatingIncome", "netIncome", "dilutedEps", "freeCashFlow"].map((key) => `<td>${escapeHtml(formatFinancialValue(quarter[key], key === "dilutedEps" ? "number" : "currency", data.currency))}</td>`).join("")}</tr>`).join("");
+  elements.assetFinancialsContent.innerHTML = `<div class="financial-metrics">${metrics}</div>${rows ? `<div class="financial-table-wrap"><table class="financial-table"><thead><tr><th>QUARTER</th><th>REVENUE</th><th>GROSS PROFIT</th><th>OPERATING INCOME</th><th>NET INCOME</th><th>DILUTED EPS</th><th>FREE CASH FLOW</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}<p class="financial-source">SOURCE: YAHOO FINANCE INTERNAL WEB DATA · VALUES MAY BE DELAYED OR RESTATED.</p>`;
+}
+
+function formatFinancialValue(value, format, currency) {
+  if (!Number.isFinite(Number(value))) return "—";
+  const number = Number(value);
+  if (format === "percent") return `${(number * 100).toFixed(2)}%`;
+  if (format === "ratio" || format === "number") return number.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return `${currency ? `${currency} ` : ""}${formatCompact(number)}`;
+}
+
+function companySourceLabel(source) {
+  if (source === "yahoo+wikipedia") return "OFFICIAL NAME: YAHOO FINANCE · DESCRIPTION: WIKIPEDIA";
+  if (source === "curated") return "INSTRUMENT DESCRIPTION";
+  return "COMPANY PROFILE";
 }
 
 function findCandleByTime(candles, time) {
@@ -720,7 +831,7 @@ async function loadAssetNews(asset) {
     if (token !== state.assetNewsLoadToken || state.assetNewsAsset !== asset) return;
     elements.assetNewsStatus.textContent = `${items.length} ITEMS`;
     elements.assetNewsList.innerHTML = items.length ? items.map((item) => (
-      `<a class="asset-news-item" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer"><span class="asset-news-title">${escapeHtml(item.title)}</span><small class="asset-news-meta">${escapeHtml(item.source.toUpperCase())} · ${escapeHtml(formatNewsTime(item.publishedAt))}</small></a>`
+      `<a class="asset-news-item" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer"><span class="asset-news-title">${escapeHtml(item.title)}</span><small class="asset-news-meta">${escapeHtml(item.source.toUpperCase())} · ${escapeHtml(formatNewsTime(item.publishedAt))} · ${escapeHtml(item.topic)}</small></a>`
     )).join("") : '<p class="asset-news-empty">NO RECENT PUBLIC COVERAGE FOUND.</p>';
   } catch (error) {
     if (token !== state.assetNewsLoadToken) return;
@@ -839,7 +950,7 @@ function scheduleMarketRender() {
     renderMarkets();
     renderAlertOptions();
     const route = parseRoute(window.location.hash);
-    if (route.view === "asset") renderAssetDetail(route.asset, route.interval);
+    if (route.view === "asset") renderAssetDetail(route.asset, route.assetView, route.interval);
   }, delayMs);
 }
 
