@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  evenlySpaceScalingLevels,
   generateScalingLevels,
   simulateScalingPath,
   scalingPlanSummary,
@@ -21,6 +22,29 @@ test("generates an evenly spaced adverse ladder within max risk", () => {
   assert.ok(plan.levels.every((level, index) => index === 0 || level.price < plan.levels[index - 1].price));
   assert.ok(plan.summary.plannedNotional <= 1_000);
   assert.ok(Math.abs(plan.summary.lossAtImpliedStop - 100) < 1e-6);
+});
+
+test("generated stops include entry and exit fees", () => {
+  const plan = generateScalingLevels({
+    direction: "long",
+    anchorPrice: 100,
+    maxRisk: 2_000,
+    maxLoss: 100,
+    startingLotUnits: 2,
+    levelCount: 5,
+    feeBps: 10,
+  });
+  const result = simulateScalingPath({
+    direction: "long",
+    maxRisk: 2_000,
+    maxLoss: 100,
+    feeBps: 10,
+    levels: plan.levels,
+    path: [100, plan.summary.impliedStop],
+  });
+
+  assert.equal(result.filledLevelIds.length, 5);
+  assert.ok(Math.abs(result.ending.pnl + 100) < 1e-7);
 });
 
 test("fills every crossed level in physical order and never refills it", () => {
@@ -98,6 +122,35 @@ test("fees are included in running pnl and the hard-loss boundary", () => {
   assert.ok(Math.abs(result.ending.pnl + 25) < 1e-9);
 });
 
+test("max drawdown includes fills crossed between drawn vertices", () => {
+  const result = simulateScalingPath({
+    direction: "long",
+    maxRisk: 1_000,
+    maxLoss: 500,
+    feeBps: 100,
+    levels: [{ id: "add", price: 90, units: 1 }],
+    path: [80, 120],
+  });
+
+  assert.ok(Math.abs(result.maxDrawdown - 0.9) < 1e-9);
+});
+
+test("closes immediately when round-trip fees already breach max loss", () => {
+  const result = simulateScalingPath({
+    direction: "long",
+    maxRisk: 1_000,
+    maxLoss: 0.5,
+    feeBps: 100,
+    levels: [{ id: "start", price: 100, units: 1 }],
+    path: [100, 110],
+  });
+
+  assert.equal(result.stopped, true);
+  assert.equal(result.events.at(-1).type, "stop");
+  assert.equal(result.events.at(-1).price, 100);
+  assert.equal(result.ending.pnl, -2);
+});
+
 test("rejects a configured ladder whose notional exceeds max risk", () => {
   assert.throws(() => simulateScalingPath({
     direction: "long",
@@ -125,4 +178,16 @@ test("summarizes favorable and adverse levels relative to side", () => {
   assert.equal(summary.adverseLevels, 1);
   assert.equal(summary.anchorLevels, 1);
   assert.equal(summary.plannedNotional, 300);
+});
+
+test("even spacing preserves levels on both sides of the anchor", () => {
+  const levels = evenlySpaceScalingLevels([
+    { id: "low-far", price: 80, units: 1 },
+    { id: "low-near", price: 93, units: 1 },
+    { id: "anchor", price: 100, units: 1 },
+    { id: "high-near", price: 104, units: 1 },
+    { id: "high-far", price: 130, units: 1 },
+  ], 100);
+
+  assert.deepEqual(levels.map(({ price }) => price), [80, 90, 100, 115, 130]);
 });
