@@ -4,6 +4,7 @@ import { APP_CONFIG } from "./config.js?v=20260801-scaling";
 import { applyLiveMarketContext } from "./lib/hyperliquid.js?v=20260722-position-controls";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import {
+  evenlySpaceScalingLevels,
   generateScalingLevels,
   scalingPlanSummary,
   simulateScalingPath,
@@ -515,10 +516,7 @@ function applyScalingBatch(action) {
   if (!scalingState.levels.length) return;
   const settings = readScalingSettings();
   const ordered = [...scalingState.levels].sort((left, right) => Math.abs(left.price - scalingState.anchorPrice) - Math.abs(right.price - scalingState.anchorPrice));
-  if (action === "space" && ordered.length > 1) {
-    const farthest = ordered.at(-1).price;
-    ordered.forEach((level, index) => { level.price = scalingState.anchorPrice + (farthest - scalingState.anchorPrice) * index / (ordered.length - 1); });
-  }
+  if (action === "space" && ordered.length > 1) scalingState.levels = evenlySpaceScalingLevels(scalingState.levels, scalingState.anchorPrice);
   if (action === "size") ordered.forEach((level) => { level.units = settings.startingLotUnits; });
   if (action === "front" || action === "back") {
     ordered.forEach((level, index) => {
