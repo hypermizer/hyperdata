@@ -1,4 +1,5 @@
-import { buildNewsQuery, parseNewsFeed, type NewsItem } from "./feed.ts";
+import { resolveAssetIdentity } from "../_shared/asset-identity.ts";
+import { buildNewsQueries, parseNewsFeed, rankAndDeduplicateNews, type NewsItem } from "./feed.ts";
 import { handleAssetNews } from "./handler.ts";
 
 const ALLOWED_ORIGIN = "https://hypermizer.github.io";
@@ -14,12 +15,18 @@ const corsHeaders = {
 async function fetchNews(asset: string): Promise<NewsItem[]> {
   const cached = cache.get(asset);
   if (cached && cached.expiresAt > Date.now()) return cached.items;
-  const url = new URL("https://www.bing.com/news/search");
-  url.searchParams.set("q", buildNewsQuery(asset));
-  url.searchParams.set("format", "rss");
-  const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
-  if (!response.ok) throw new Error(`news provider returned ${response.status}`);
-  const items = parseNewsFeed(await response.text());
+  const identity = await resolveAssetIdentity(asset, { includeDescription: false });
+  const results = await Promise.allSettled(buildNewsQueries(asset, identity.displayName).map(async (query) => {
+    const url = new URL("https://www.bing.com/news/search");
+    url.searchParams.set("q", query);
+    url.searchParams.set("format", "rss");
+    const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
+    if (!response.ok) throw new Error(`news provider returned ${response.status}`);
+    return parseNewsFeed(await response.text());
+  }));
+  const successful = results.filter((result): result is PromiseFulfilledResult<NewsItem[]> => result.status === "fulfilled");
+  if (!successful.length) throw new Error("all news queries failed");
+  const items = rankAndDeduplicateNews(successful.flatMap((result) => result.value), identity);
   if (!cache.has(asset) && cache.size >= MAX_CACHE_ENTRIES) cache.delete(cache.keys().next().value!);
   cache.set(asset, { expiresAt: Date.now() + CACHE_MS, items });
   return items;

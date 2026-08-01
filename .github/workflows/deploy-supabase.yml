@@ -76,6 +76,7 @@ jobs:
           supabase functions deploy strategy-command --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy send-login-link --project-ref "$SUPABASE_PROJECT_ID"
           supabase functions deploy asset-news --project-ref "$SUPABASE_PROJECT_ID"
+          supabase functions deploy asset-fundamentals --project-ref "$SUPABASE_PROJECT_ID"
       - name: Configure scheduler
         run: node scripts/configure-supabase-runtime.mjs
         env:

@@ -1,11 +1,19 @@
 import { assertEquals } from "@std/assert";
-import { buildNewsQuery, parseNewsFeed } from "../../asset-news/feed.ts";
+import { buildNewsQueries, buildNewsQuery, parseNewsFeed, rankAndDeduplicateNews } from "../../asset-news/feed.ts";
 
 Deno.test("company and market assets produce price-relevant news queries", () => {
   assertEquals(buildNewsQuery("xyz:ORCL").includes("ORCL"), true);
   assertEquals(buildNewsQuery("xyz:ORCL").includes("stock"), true);
   assertEquals(buildNewsQuery("xyz:DRAM").includes("DRAM memory"), true);
   assertEquals(buildNewsQuery("xyz:GOLD").includes("gold price"), true);
+});
+
+Deno.test("company news searches multiple price-relevant facets", () => {
+  const queries = buildNewsQueries("xyz:ORCL", "Oracle Corporation");
+  assertEquals(queries.length, 8);
+  assertEquals(queries.some((query) => query.includes("earnings")), true);
+  assertEquals(queries.some((query) => query.includes("SEC filing")), true);
+  assertEquals(queries.some((query) => query.includes("analyst")), true);
 });
 
 Deno.test("Google News RSS is decoded, deduplicated, and source suffixes are removed", () => {
@@ -19,6 +27,19 @@ Deno.test("Google News RSS is decoded, deduplicated, and source suffixes are rem
     source: "Reuters",
     publishedAt: "2026-07-31T12:00:00.000Z",
   }]);
+});
+
+Deno.test("news ranking rewards high-information sources and removes near duplicates", () => {
+  const identity = { symbol: "ORCL", yahooSymbol: "ORCL", displayName: "Oracle Corporation", description: "", instrumentType: "EQUITY", exchange: "NYSE", currency: "USD", regularMarketTime: null, market: {}, source: "yahoo" as const };
+  const items = [
+    { title: "Oracle raises earnings guidance after cloud revenue jump", url: "https://reuters.com/a?utm_source=x", source: "Reuters", publishedAt: "2026-07-31T12:00:00.000Z" },
+    { title: "Oracle raises earnings guidance after cloud revenue jumps", url: "https://example.com/copy", source: "Blog", publishedAt: "2026-07-31T11:00:00.000Z" },
+    { title: "Should you buy Oracle stock today?", url: "https://example.com/noise", source: "Motley Fool", publishedAt: "2026-07-31T13:00:00.000Z" },
+  ];
+  const ranked = rankAndDeduplicateNews(items, identity, Date.parse("2026-08-01T00:00:00Z"));
+  assertEquals(ranked.length, 1);
+  assertEquals(ranked[0].source, "Reuters");
+  assertEquals(ranked[0].topic, "EARNINGS");
 });
 
 Deno.test("Bing News RSS uses publisher sources and direct article links", () => {

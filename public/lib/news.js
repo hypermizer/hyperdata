@@ -14,7 +14,14 @@ export async function fetchAssetNews(client, asset, now = Date.now()) {
     try {
       const url = new URL(item?.url);
       if (!/^https?:$/.test(url.protocol) || !item?.title || Number.isNaN(publishedAt.getTime())) return [];
-      return [{ title: String(item.title), url: url.href, source: String(item.source || "Unknown"), publishedAt: publishedAt.toISOString() }];
+      return [{
+        title: String(item.title),
+        url: url.href,
+        source: String(item.source || "Unknown"),
+        publishedAt: publishedAt.toISOString(),
+        topic: String(item.topic || "MARKET"),
+        score: Number.isFinite(Number(item.score)) ? Number(item.score) : null,
+      }];
     } catch {
       return [];
     }

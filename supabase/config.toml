@@ -51,3 +51,6 @@ verify_jwt = false
 
 [functions.asset-news]
 verify_jwt = false
+
+[functions.asset-fundamentals]
+verify_jwt = false

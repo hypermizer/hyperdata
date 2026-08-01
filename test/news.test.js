@@ -11,7 +11,7 @@ test("fetchAssetNews returns normalized linked stories", async () => {
 
   const items = await fetchAssetNews(client, "xyz:ORCL");
   assert.deepEqual(calls, [{ name: "asset-news", options: { body: { asset: "xyz:ORCL" } } }]);
-  assert.deepEqual(items, [{ title: "Oracle reports earnings", url: "https://example.com/story", source: "Example", publishedAt: "2026-07-31T12:00:00.000Z" }]);
+  assert.deepEqual(items, [{ title: "Oracle reports earnings", url: "https://example.com/story", source: "Example", publishedAt: "2026-07-31T12:00:00.000Z", topic: "MARKET", score: null }]);
 });
 
 test("fetchAssetNews rejects malformed or failed responses", async () => {

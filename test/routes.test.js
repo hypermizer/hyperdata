@@ -15,6 +15,7 @@ test("asset routes preserve the canonical Hyperliquid asset id", () => {
   assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM"), {
     view: "asset",
     asset: "xyz:DRAM",
+    assetView: "overview",
     interval: "1h",
     paperView: "home",
     toolsView: "exposure-ladder",
@@ -22,12 +23,21 @@ test("asset routes preserve the canonical Hyperliquid asset id", () => {
   assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/5m"), {
     view: "asset",
     asset: "xyz:DRAM",
+    assetView: "overview",
     interval: "5m",
     paperView: "home",
     toolsView: "exposure-ladder",
   });
-  assert.equal(routeFor("asset", "xyz:DRAM"), "#/assets/xyz%3ADRAM/1h");
-  assert.equal(routeFor("asset", "xyz:DRAM", "1d"), "#/assets/xyz%3ADRAM/1d");
+  assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/news"), {
+    view: "asset", asset: "xyz:DRAM", assetView: "news", interval: "1h", paperView: "home", toolsView: "exposure-ladder",
+  });
+  assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/financials"), {
+    view: "asset", asset: "xyz:DRAM", assetView: "financials", interval: "1h", paperView: "home", toolsView: "exposure-ladder",
+  });
+  assert.equal(routeFor("asset", "xyz:DRAM"), "#/assets/xyz%3ADRAM/overview/1h");
+  assert.equal(routeFor("asset", "xyz:DRAM", "1d"), "#/assets/xyz%3ADRAM/overview/1d");
+  assert.equal(routeFor("asset", "xyz:DRAM", "news"), "#/assets/xyz%3ADRAM/news");
+  assert.equal(routeFor("asset", "xyz:DRAM", "overview", "5m"), "#/assets/xyz%3ADRAM/overview/5m");
   assert.deepEqual(parseRoute("#/assets"), {
     view: "watchlist",
     paperView: "home",

@@ -22,4 +22,10 @@ test("asset details use native routes with a vendored interactive chart", () => 
   assert.match(html, /id="asset-intervals"/);
   assert.match(html, /id="asset-bar-readout"/);
   assert.match(html, /id="asset-news-list"/);
+  assert.match(html, /id="asset-tabs"/);
+  assert.match(html, /data-asset-panel="overview"/);
+  assert.match(html, /data-asset-panel="news"/);
+  assert.match(html, /data-asset-panel="financials"/);
+  assert.match(html, /id="asset-company-profile"/);
+  assert.match(html, /id="asset-financials-content"/);
 });
