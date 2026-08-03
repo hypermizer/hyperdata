@@ -7,10 +7,18 @@ import {
   calculateHourlyRsi,
   hydrateTradFiMarkets,
   filterAndSortTradFiAssets,
+  formatMaxLeverage,
   nextColumnSort,
   resolveAsset,
   searchAssets,
 } from "../public/lib/assets.js";
+
+test("maximum leverage labels handle live metadata and unavailable values", () => {
+  assert.equal(formatMaxLeverage(20), "20×");
+  assert.equal(formatMaxLeverage("10"), "10×");
+  assert.equal(formatMaxLeverage(null), "—×");
+  assert.equal(formatMaxLeverage(0), "—×");
+});
 
 const catalog = [
   { id: "BTC", symbol: "BTC", dex: "Hyperliquid", markPrice: 120000, maxLeverage: 40 },
