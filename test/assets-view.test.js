@@ -4,6 +4,7 @@ import test from "node:test";
 
 const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
 const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
+const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 
 test("assets controls omit the legacy sorting dropdown", () => {
   assert.doesNotMatch(html, /id="asset-sort"/);
@@ -18,6 +19,11 @@ test("asset controls put category tabs left and icon-only watched/search control
 test("asset stars are positioned outside the name flow", () => {
   assert.match(css, /\.asset-name\s*\{[^}]*position:\s*relative/s);
   assert.match(css, /\.watch-button\s*\{[^}]*position:\s*absolute[^}]*right:\s*100%/s);
+});
+
+test("every asset row renders a compact maximum-leverage tag beside its name", () => {
+  assert.match(app, /class="asset-link"[\s\S]*class="asset-leverage-tag"[\s\S]*market\.maxLeverage/);
+  assert.match(css, /\.asset-leverage-tag\s*\{[^}]*font-size:[^;}]*9px[^}]*white-space:\s*nowrap/s);
 });
 
 test("asset details use native routes with a vendored interactive chart", () => {

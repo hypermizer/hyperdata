@@ -2,6 +2,11 @@ export function displayAssetSymbol(asset) {
   return String(asset?.symbol ?? asset?.id ?? "").replace(/^xyz:/i, "");
 }
 
+export function formatMaxLeverage(value) {
+  const leverage = Number(value);
+  return Number.isFinite(leverage) && leverage > 0 ? `${leverage}×` : "—×";
+}
+
 export const ASSET_CATEGORY_TABS = [
   { value: "all", label: "ALL" },
   { value: "equities", label: "EQUITIES" },
