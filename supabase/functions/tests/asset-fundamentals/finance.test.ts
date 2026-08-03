@@ -2,7 +2,7 @@ import { assertEquals } from "@std/assert";
 import { fetchYahooFundamentals } from "../../asset-fundamentals/finance.ts";
 
 Deno.test("Yahoo timeseries data becomes latest metrics and aligned quarterly rows", async () => {
-  const identity = { symbol: "ORCL", yahooSymbol: "ORCL", displayName: "Oracle Corporation", description: "", instrumentType: "EQUITY", exchange: "NYSE", currency: "USD", regularMarketTime: 1_785_528_246, market: { regularMarketPrice: 130, fiftyTwoWeekHigh: 200, fiftyTwoWeekLow: 100, regularMarketVolume: 20_000_000 }, source: "yahoo" as const };
+  const identity = { symbol: "ORCL", yahooSymbol: "ORCL", displayName: "Oracle Corporation", description: "", instrumentType: "EQUITY", category: "stocks", keywords: ["oracle"], exchange: "NYSE", currency: "USD", regularMarketTime: 1_785_528_246, market: { regularMarketPrice: 130, fiftyTwoWeekHigh: 200, fiftyTwoWeekLow: 100, regularMarketVolume: 20_000_000 }, source: "hyperliquid+yahoo" as const };
   const series = (type: string, values: Array<[string, number]>) => ({ meta: { type: [type] }, [type]: values.map(([asOfDate, raw]) => ({ asOfDate, currencyCode: "USD", reportedValue: { raw } })) });
   const fetcher = async () => Response.json({ timeseries: { result: [
     series("quarterlyTotalRevenue", [["2025-06-30", 80], ["2026-03-31", 100], ["2026-06-30", 120]]),

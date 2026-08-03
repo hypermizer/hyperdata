@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260801-asset-tabs" />
+    <link rel="stylesheet" href="./styles.css?v=20260803-asset-categories" />
   </head>
   <body>
     <main>
@@ -38,8 +38,20 @@
         </div>
 
         <div class="assets-controls">
-          <input id="asset-filter" type="search" autocomplete="off" placeholder="SEARCH ASSETS" aria-label="Search TradFi assets" />
-          <label class="watched-first"><input id="watched-first" type="checkbox" /> WATCHED FIRST</label>
+          <nav class="asset-category-tabs" aria-label="Asset categories">
+            <button type="button" data-asset-category="all" aria-pressed="true">ALL</button>
+            <button type="button" data-asset-category="equities" aria-pressed="false">EQUITIES</button>
+            <button type="button" data-asset-category="etfs" aria-pressed="false">ETFs</button>
+            <button type="button" data-asset-category="commodities" aria-pressed="false">COMMODITIES</button>
+            <button type="button" data-asset-category="fx" aria-pressed="false">FX</button>
+            <button type="button" data-asset-category="indices" aria-pressed="false">INDICES</button>
+            <button type="button" data-asset-category="pre-ipo" aria-pressed="false">PRE-IPO</button>
+            <button type="button" data-asset-category="other" aria-pressed="false">OTHER</button>
+          </nav>
+          <div class="asset-control-actions">
+            <label class="watched-first" aria-label="Watched assets first" title="Watched assets first"><input id="watched-first" type="checkbox" /></label>
+            <input id="asset-filter" type="search" autocomplete="off" placeholder="SEARCH ASSETS" aria-label="Search TradFi assets" />
+          </div>
         </div>
         <p id="watchlist-message" class="message" role="status"></p>
 
@@ -496,7 +508,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20260801-asset-tabs"></script>
+    <script type="module" src="./app.js?v=20260803-asset-categories"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>

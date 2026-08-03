@@ -9,6 +9,12 @@ test("assets controls omit the legacy sorting dropdown", () => {
   assert.doesNotMatch(html, /id="asset-sort"/);
 });
 
+test("asset controls put category tabs left and icon-only watched/search controls right", () => {
+  assert.match(html, /class="asset-category-tabs"[\s\S]*data-asset-category="all"[\s\S]*data-asset-category="equities"[\s\S]*data-asset-category="etfs"[\s\S]*data-asset-category="commodities"[\s\S]*data-asset-category="fx"[\s\S]*data-asset-category="indices"[\s\S]*data-asset-category="pre-ipo"[\s\S]*data-asset-category="other"/);
+  assert.match(html, /class="asset-control-actions"[\s\S]*class="watched-first"[^>]*aria-label="Watched assets first"[\s\S]*id="watched-first"[\s\S]*id="asset-filter"/);
+  assert.doesNotMatch(html, /WATCHED FIRST/);
+});
+
 test("asset stars are positioned outside the name flow", () => {
   assert.match(css, /\.asset-name\s*\{[^}]*position:\s*relative/s);
   assert.match(css, /\.watch-button\s*\{[^}]*position:\s*absolute[^}]*right:\s*100%/s);

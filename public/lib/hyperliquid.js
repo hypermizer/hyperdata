@@ -67,6 +67,22 @@ export async function fetchDexNames(fetchImpl = fetch) {
   ];
 }
 
+export async function fetchPerpAnnotations(fetchImpl = fetch) {
+  const payload = await postInfo({ type: "perpConciseAnnotations" }, fetchImpl);
+  if (!Array.isArray(payload)) return new Map();
+  return new Map(payload.flatMap((entry) => {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string" || !entry[1] || typeof entry[1] !== "object") return [];
+    const [id, annotation] = entry;
+    return [[id, {
+      category: String(annotation.category ?? "").toLowerCase(),
+      displayName: String(annotation.displayName ?? ""),
+      keywords: Array.isArray(annotation.keywords)
+        ? annotation.keywords.map((keyword) => String(keyword).toLowerCase()).filter(Boolean)
+        : [],
+    }]];
+  }));
+}
+
 export async function fetchMarketsForDex(dex, fetchImpl = fetch, dexMetadata = null) {
   const [meta, contexts] = await postInfo(
     { type: "metaAndAssetCtxs", dex },
@@ -123,7 +139,10 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch, dexMetadata = n
 }
 
 export async function fetchAllMarkets(fetchImpl = fetch) {
-  const dexes = await postInfo({ type: "perpDexs" }, fetchImpl);
+  const [dexes, annotations] = await Promise.all([
+    postInfo({ type: "perpDexs" }, fetchImpl),
+    fetchPerpAnnotations(fetchImpl).catch(() => new Map()),
+  ]);
   const dexConfigs = [
     { name: "", deployerFeeScale: null },
     ...dexes.filter(Boolean).filter(({ name }) => name),
@@ -141,7 +160,9 @@ export async function fetchAllMarkets(fetchImpl = fetch) {
     throw firstError?.reason ?? new Error("No Hyperliquid markets were returned");
   }
 
-  return markets.filter((market) => !market.isDelisted);
+  return markets
+    .filter((market) => !market.isDelisted)
+    .map((market) => ({ ...market, ...(annotations.get(market.id) ?? {}) }));
 }
 
 export function applyLiveMarketContext(market, context) {
