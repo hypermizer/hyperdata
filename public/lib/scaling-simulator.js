@@ -207,6 +207,9 @@ export function generateScalingLevels(settings) {
     if (!foundAdverseStop) throw new Error("Max loss is below the generated ladder's round-trip fees");
     throw new Error("Starting lot exceeds max risk");
   }
+  if (count !== requestedCount) {
+    throw new Error(`${requestedCount} levels do not fit max allocation with this starting lot; maximum is ${count}`);
+  }
   return {
     levels,
     summary: scalingPlanSummary({ direction, anchorPrice, maxRisk, maxLoss, feeBps, levels }),

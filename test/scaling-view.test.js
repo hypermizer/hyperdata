@@ -22,6 +22,9 @@ test("scaling view provides risk, lot, level, drawing, and audit controls", () =
   assert.match(html, /data-path-mode="draw"/);
   assert.match(html, /data-path-mode="inspect"/);
   assert.match(html, /id="scaling-events"/);
+  assert.match(html, /id="scaling-generation-status"/);
+  assert.match(html, /id="scaling-rebase"/);
+  assert.match(html, /MAX ALLOCATION/);
 });
 
 test("drawing surfaces are touch-safe and use live Hyperliquid marks", () => {
@@ -29,4 +32,14 @@ test("drawing surfaces are touch-safe and use live Hyperliquid marks", () => {
   assert.match(css, /\.scaling-path-chart[^}]*touch-action:\s*none/s);
   assert.match(script, /new WebSocket\(APP_CONFIG\.websocketUrl\)/);
   assert.match(script, /type:\s*"activeAssetCtx"/);
+});
+
+test("mobile scaling charts remain responsive instead of forcing a wide drawing surface", () => {
+  assert.doesNotMatch(css, /\.scaling-path-chart\s*\{[^}]*width:\s*900px/s);
+});
+
+test("regeneration preserves a custom path and the first point is a locked anchor", () => {
+  assert.match(script, /if \(!scalingState\.pathPoints\.length\) setPathPreset\("chop", false\)/);
+  assert.match(script, /index === 0[\s\S]*scaling-path-point locked/);
+  assert.match(script, /scalingSettingsAtAnchor\(scalingState\.appliedSettings, livePrice\)/);
 });

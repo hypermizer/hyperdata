@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260803-leverage-tags" />
+    <link rel="stylesheet" href="./styles.css?v=20260803-scaling-reliability-3" />
   </head>
   <body>
     <main>
@@ -365,7 +365,7 @@
                 <label><input name="direction" type="radio" value="short" /><span>SHORT</span></label>
               </div>
             </fieldset>
-            <label>MAX RISK <input name="maxRisk" type="number" min="0.01" step="0.01" value="5000" /></label>
+            <label>MAX ALLOCATION <input name="maxRisk" type="number" min="0.01" step="0.01" value="5000" /></label>
             <label>MAX LOSS
               <span class="scaling-inline-input"><input name="maxLoss" type="number" min="0.01" step="0.01" value="500" /><select name="maxLossMode" aria-label="Max loss unit"><option value="dollars">$</option><option value="percent">% RISK</option></select></span>
               <small id="scaling-max-loss-conversion">—</small>
@@ -377,9 +377,13 @@
             <label>LEVELS <input name="levelCount" type="number" min="1" max="50" step="1" value="8" /></label>
             <label>FEE BPS <input name="feeBps" type="number" min="0" max="100" step="0.1" value="0" /></label>
             <label class="scaling-range-control"><span>CHART RANGE <output id="scaling-range-output">±20%</output></span><input name="rangePct" type="range" min="2" max="100" step="1" value="20" /></label>
-            <button id="scaling-generate" type="button">REGENERATE LADDER</button>
+            <div class="scaling-form-actions">
+              <button id="scaling-generate" type="button">APPLY + REGENERATE</button>
+              <button id="scaling-rebase" type="button">REBASE TO LIVE</button>
+            </div>
           </form>
 
+          <p id="scaling-generation-status" class="scaling-generation-status" role="status">SCENARIO SETTINGS APPLIED · ANCHOR LOCKED</p>
           <p id="scaling-error" class="message" role="alert"></p>
           <div id="scaling-plan-metrics" class="paper-metrics scaling-plan-metrics" aria-live="polite"></div>
 
@@ -395,14 +399,14 @@
                 <button type="button" data-scaling-batch="size">EQUAL SIZE</button>
                 <button type="button" data-scaling-batch="front">FRONT LOAD</button>
                 <button type="button" data-scaling-batch="back">BACK LOAD</button>
-                <button type="button" data-scaling-batch="normalize">FIT RISK</button>
+                <button type="button" data-scaling-batch="normalize">FIT ALLOCATION</button>
               </div>
               <div id="scaling-level-list" class="scaling-level-list"></div>
             </section>
           </div>
 
           <section class="scaling-card scaling-path-card" aria-labelledby="scaling-path-heading">
-            <div class="scaling-card-header"><h3 id="scaling-path-heading">DRAW PRICE PATH</h3><span class="hint">DRAW LEFT TO RIGHT · DRAG A POINT TO EDIT</span></div>
+            <div class="scaling-card-header"><h3 id="scaling-path-heading">DRAW PRICE PATH</h3><span class="hint">LEFT TO RIGHT = SEQUENCE, NOT TIME · START IS LOCKED</span></div>
             <div class="scaling-path-controls" role="group" aria-label="Price path presets">
               <button type="button" data-path-mode="draw" aria-pressed="true">DRAW</button>
               <button type="button" data-path-mode="inspect" aria-pressed="false">INSPECT</button>
@@ -419,7 +423,7 @@
           <div id="scaling-result-metrics" class="paper-metrics scaling-result-metrics" aria-live="polite"></div>
           <h3 class="paper-heading">EVENT LEDGER</h3>
           <div id="scaling-events" class="paper-table-wrap"><p class="hint">DRAW A PRICE PATH TO SIMULATE.</p></div>
-          <p class="ladder-note">EXACT LEVEL FILLS, NO SLIPPAGE OR QUEUE MODEL. EACH ENTRY FILLS ONCE. MAX LOSS IS ENFORCED AGAINST ACTUALLY FILLED EXPOSURE AND INCLUDES CONFIGURED ENTRY AND EXIT FEES.</p>
+          <p class="ladder-note">EXACT LEVEL FILLS, NO SLIPPAGE OR QUEUE MODEL. EACH ENTRY FILLS ONCE. MARK P/L IS UNREALIZED; NET IF CLOSED INCLUDES THE PROJECTED EXIT FEE. MAX LOSS IS ENFORCED AGAINST ACTUALLY FILLED EXPOSURE AND INCLUDES CONFIGURED ENTRY AND EXIT FEES.</p>
         </div>
       </section>
     </main>
@@ -512,6 +516,6 @@
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>
-    <script type="module" src="./scaling.js?v=20260801-scaling"></script>
+    <script type="module" src="./scaling.js?v=20260803-scaling-reliability-3"></script>
   </body>
 </html>

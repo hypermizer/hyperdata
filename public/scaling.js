@@ -3,6 +3,13 @@ import { APP_CONFIG } from "./config.js?v=20260801-scaling";
 import { applyLiveMarketContext } from "./lib/hyperliquid.js?v=20260722-position-controls";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import {
+  generationSettingsKey,
+  lotUnitsFromDrag,
+  priceFromDrag,
+  rebasePathPoints,
+  scalingSettingsAtAnchor,
+} from "./lib/scaling-interactions.js?v=20260803-scaling-reliability-3";
+import {
   evenlySpaceScalingLevels,
   generateScalingLevels,
   scalingPlanSummary,
@@ -34,6 +41,7 @@ const scaling = {
   maxLossConversion: document.querySelector("#scaling-max-loss-conversion"),
   lotConversion: document.querySelector("#scaling-lot-conversion"),
   rangeOutput: document.querySelector("#scaling-range-output"),
+  generationStatus: document.querySelector("#scaling-generation-status"),
   error: document.querySelector("#scaling-error"),
   planMetrics: document.querySelector("#scaling-plan-metrics"),
   resultMetrics: document.querySelector("#scaling-result-metrics"),
@@ -42,6 +50,7 @@ const scaling = {
   path: document.querySelector("#scaling-path-chart"),
   events: document.querySelector("#scaling-events"),
   generate: document.querySelector("#scaling-generate"),
+  rebase: document.querySelector("#scaling-rebase"),
   addLevel: document.querySelector("#scaling-add-level"),
 };
 
@@ -50,6 +59,8 @@ const scalingState = {
   catalog: [],
   market: null,
   anchorPrice: 100,
+  appliedSettings: null,
+  generationDirty: false,
   levels: [],
   pathPoints: [],
   selectedLevelId: "",
@@ -63,6 +74,8 @@ const scalingState = {
   reconnectTimer: 0,
   renderFrame: 0,
 };
+
+const GENERATION_FIELDS = new Set(["direction", "maxRisk", "maxLoss", "maxLossMode", "startingLot", "startingLotMode", "levelCount", "feeBps"]);
 
 initializeScaling();
 
@@ -80,12 +93,14 @@ async function initializeScaling() {
 
 function bindScalingEvents() {
   scaling.pickerRoot.addEventListener("assetchange", () => selectScalingAsset(scalingPicker.value));
-  scaling.generate.addEventListener("click", regenerateScalingPlan);
+  scaling.generate.addEventListener("click", () => regenerateScalingPlan());
+  scaling.rebase.addEventListener("click", rebaseScalingPlan);
   scaling.addLevel.addEventListener("click", addScalingLevel);
   scaling.form.addEventListener("input", ({ target }) => {
     if (target.name === "rangePct") scaling.rangeOutput.value = `±${number(target.value, 0)}%`;
+    if (GENERATION_FIELDS.has(target.name)) refreshScalingSettingsDirty();
     updateScalingConversions();
-    scheduleScalingRender();
+    if (target.name === "rangePct") scheduleScalingRender();
   });
   scaling.form.addEventListener("change", ({ target }) => {
     if (target.name === "startingLotMode" || target.name === "maxLossMode") updateScalingConversions();
@@ -121,6 +136,7 @@ function selectScalingAsset(assetId) {
   scalingState.streamUpdatedAt = 0;
   scalingState.streamAsset = assetId;
   if (scalingRouteIsActive()) connectScalingStream(assetId);
+  scalingState.pathPoints = [];
   regenerateScalingPlan();
 }
 
@@ -179,42 +195,78 @@ function renderScalingQuoteStatus() {
 
 function readScalingSettings() {
   const values = new FormData(scaling.form);
-  const maxRisk = Number(values.get("maxRisk"));
-  const maxLossInput = Number(values.get("maxLoss"));
-  const maxLoss = values.get("maxLossMode") === "percent" ? maxRisk * maxLossInput / 100 : maxLossInput;
-  const startingLotInput = Number(values.get("startingLot"));
-  const startingLotUnits = values.get("startingLotMode") === "shares"
-    ? startingLotInput
-    : startingLotInput / scalingState.anchorPrice;
-  return {
+  return scalingSettingsAtAnchor({
     direction: values.get("direction"),
-    maxRisk,
-    maxLoss,
-    maxLossInput,
+    maxRisk: values.get("maxRisk"),
+    maxLossInput: values.get("maxLoss"),
     maxLossMode: values.get("maxLossMode"),
-    startingLotInput,
+    startingLotInput: values.get("startingLot"),
     startingLotMode: values.get("startingLotMode"),
-    startingLotUnits,
-    levelCount: Number(values.get("levelCount")),
-    feeBps: Number(values.get("feeBps")),
-    rangePct: Number(values.get("rangePct")),
-    anchorPrice: scalingState.anchorPrice,
+    levelCount: values.get("levelCount"),
+    feeBps: values.get("feeBps"),
+    rangePct: values.get("rangePct"),
+  }, scalingState.anchorPrice);
+}
+
+function activeScalingSettings() {
+  return {
+    ...scalingState.appliedSettings,
+    rangePct: Number(new FormData(scaling.form).get("rangePct")),
   };
 }
 
-function regenerateScalingPlan() {
+function regenerateScalingPlan(settings = readScalingSettings()) {
   try {
-    if (Number.isFinite(Number(scalingState.market?.markPrice))) scalingState.anchorPrice = Number(scalingState.market.markPrice);
-    const settings = readScalingSettings();
     const generated = generateScalingLevels(settings);
+    scalingState.anchorPrice = settings.anchorPrice;
     scalingState.levels = generated.levels;
+    scalingState.appliedSettings = { ...settings };
     scalingState.selectedLevelId = generated.levels[0]?.id ?? "";
-    setPathPreset("chop", false);
+    if (!scalingState.pathPoints.length) setPathPreset("chop", false);
     scaling.error.textContent = "";
+    refreshScalingSettingsDirty();
+    renderScalingGenerationStatus();
     renderScaling();
+    return true;
   } catch (caught) {
     scaling.error.textContent = String(caught?.message ?? caught).toUpperCase();
+    return false;
   }
+}
+
+function rebaseScalingPlan() {
+  const livePrice = Number(scalingState.market?.markPrice);
+  if (!Number.isFinite(livePrice) || livePrice <= 0) {
+    scaling.error.textContent = "A LIVE MARK IS REQUIRED TO REBASE";
+    return;
+  }
+  const previousAnchor = scalingState.anchorPrice;
+  const previousPath = scalingState.pathPoints.map((point) => ({ ...point }));
+  const rebasedSettings = scalingSettingsAtAnchor(scalingState.appliedSettings, livePrice);
+  scalingState.pathPoints = rebasePathPoints(scalingState.pathPoints, previousAnchor, livePrice);
+  if (!regenerateScalingPlan(rebasedSettings)) {
+    const error = scaling.error.textContent;
+    scalingState.anchorPrice = previousAnchor;
+    scalingState.pathPoints = previousPath;
+    renderScaling();
+    scaling.error.textContent = error;
+  }
+}
+
+function refreshScalingSettingsDirty() {
+  if (!scalingState.appliedSettings) return;
+  scalingState.generationDirty = generationSettingsKey(readScalingSettings()) !== generationSettingsKey(scalingState.appliedSettings);
+  renderScalingGenerationStatus();
+}
+
+function renderScalingGenerationStatus() {
+  if (scalingState.generationDirty) {
+    scaling.generationStatus.textContent = "CHANGES NOT APPLIED · CURRENT RESULTS STILL USE THE LAST APPLIED SETTINGS";
+    scaling.generationStatus.classList.add("is-dirty");
+    return;
+  }
+  scaling.generationStatus.textContent = `SCENARIO SETTINGS APPLIED · ANCHOR LOCKED AT ${price(scalingState.anchorPrice)}`;
+  scaling.generationStatus.classList.remove("is-dirty");
 }
 
 function updateScalingConversions() {
@@ -223,7 +275,7 @@ function updateScalingConversions() {
     const lossPercent = settings.maxRisk > 0 ? settings.maxLoss / settings.maxRisk * 100 : 0;
     scaling.maxLossConversion.textContent = settings.maxLossMode === "percent"
       ? money(settings.maxLoss)
-      : `${number(lossPercent, 2)}% OF MAX RISK`;
+      : `${number(lossPercent, 2)}% OF MAX ALLOCATION`;
     scaling.lotConversion.textContent = settings.startingLotMode === "shares"
       ? money(settings.startingLotUnits * scalingState.anchorPrice)
       : `${number(settings.startingLotUnits, 6)} SHARES`;
@@ -243,8 +295,9 @@ function scheduleScalingRender() {
 
 function renderScaling() {
   updateScalingConversions();
+  if (!scalingState.appliedSettings || !scalingState.levels.length) return;
   try {
-    const settings = readScalingSettings();
+    const settings = activeScalingSettings();
     const summary = scalingPlanSummary({ ...settings, levels: scalingState.levels });
     const bounds = scalingBounds(summary, settings.rangePct);
     renderScalingPlanMetrics(summary);
@@ -253,7 +306,7 @@ function renderScaling() {
     if (summary.remainingRisk < -1e-6) {
       scaling.error.textContent = `PLANNED ENTRIES EXCEED MAX RISK BY ${money(-summary.remainingRisk)}`;
       renderScalingPath(null, bounds);
-      renderScalingResults(null, summary);
+      renderScalingResults(null, summary, settings);
       renderScalingEvents(null);
       return;
     }
@@ -262,7 +315,7 @@ function renderScaling() {
       ? simulateScalingPath({ ...settings, levels: scalingState.levels, path: scalingState.pathPoints.map(({ price: value }) => value) })
       : null;
     renderScalingPath(result, bounds);
-    renderScalingResults(result, summary);
+    renderScalingResults(result, summary, settings);
     renderScalingEvents(result);
   } catch (caught) {
     scaling.error.textContent = String(caught?.message ?? caught).toUpperCase();
@@ -279,9 +332,9 @@ function scalingBounds(summary, requestedRangePct) {
 
 function renderScalingPlanMetrics(summary) {
   scaling.planMetrics.innerHTML = [
-    ["ANCHOR", price(summary.anchorPrice)],
-    ["PLANNED CAPITAL", money(summary.plannedNotional)],
-    ["RISK REMAINING", money(summary.remainingRisk)],
+    ["LOCKED ANCHOR", price(summary.anchorPrice)],
+    ["PLANNED VALUE", money(summary.plannedNotional)],
+    ["ALLOCATION LEFT", money(summary.remainingRisk)],
     ["TOTAL SHARES", number(summary.totalUnits, 6)],
     ["FULL-LADDER AVG", price(summary.averageEntry)],
     ["IMPLIED FULL STOP", price(summary.impliedStop)],
@@ -307,8 +360,9 @@ function renderScalingLadder(summary, bounds) {
     const width = Math.max(8, level.units / maxUnits * barWidth);
     const selected = level.id === scalingState.selectedLevelId ? " selected" : "";
     return `<g class="scaling-level ${levelClass}${selected}" data-level-id="${level.id}">
-      <line x1="${center}" y1="${y(level.price)}" x2="${center + width}" y2="${y(level.price)}" data-level-id="${level.id}" data-level-drag="units" />
-      <rect x="${center + width - 5}" y="${y(level.price) - 7}" width="10" height="14" data-level-id="${level.id}" data-level-drag="units"><title>DRAG HORIZONTALLY · ${number(level.units, 6)} SHARES</title></rect>
+      <line x1="${center}" y1="${y(level.price)}" x2="${center + width}" y2="${y(level.price)}" />
+      <rect class="scaling-level-hit" x="${center + width - 24}" y="${y(level.price) - 24}" width="48" height="48" data-level-id="${level.id}" data-level-drag="units" />
+      <rect class="scaling-level-handle" x="${center + width - 5}" y="${y(level.price) - 7}" width="10" height="14" data-level-id="${level.id}" data-level-drag="units"><title>DRAG HORIZONTALLY · ${number(level.units, 6)} SHARES</title></rect>
       <circle cx="${center}" cy="${y(level.price)}" r="7" data-level-id="${level.id}" data-level-drag="price"><title>DRAG VERTICALLY · ${price(level.price)}</title></circle>
       <text x="${center + width + 9}" y="${y(level.price) + 4}">${number(level.units, 4)}</text>
     </g>`;
@@ -360,7 +414,7 @@ function editScalingLevel(event) {
 }
 
 function addScalingLevel() {
-  const settings = readScalingSettings();
+  const settings = scalingState.appliedSettings;
   const id = `level-${Date.now().toString(36)}`;
   scalingState.levels.push({ id, price: scalingState.anchorPrice, units: settings.startingLotUnits });
   scalingState.selectedLevelId = id;
@@ -376,7 +430,7 @@ function removeScalingLevel(id) {
 
 function applyScalingBatch(action) {
   if (!scalingState.levels.length) return;
-  const settings = readScalingSettings();
+  const settings = scalingState.appliedSettings;
   const ordered = [...scalingState.levels].sort((left, right) => Math.abs(left.price - scalingState.anchorPrice) - Math.abs(right.price - scalingState.anchorPrice));
   if (action === "space" && ordered.length > 1) scalingState.levels = evenlySpaceScalingLevels(scalingState.levels, scalingState.anchorPrice);
   if (action === "size") ordered.forEach((level) => { level.units = settings.startingLotUnits; });
@@ -397,8 +451,27 @@ function startLadderDrag(event) {
   const target = event.target.closest("[data-level-drag]");
   if (!target) return;
   event.preventDefault();
+  const level = scalingState.levels.find(({ id }) => id === target.dataset.levelId);
+  if (!level) return;
+  const point = svgPoint(scaling.ladder, event);
+  const minPrice = Number(scaling.ladder.dataset.minPrice);
+  const maxPrice = Number(scaling.ladder.dataset.maxPrice);
+  const maxUnits = Math.max(Number(scaling.ladder.dataset.maxUnits), level.units * 2);
   scalingState.selectedLevelId = target.dataset.levelId;
-  scalingState.drag = { id: target.dataset.levelId, type: target.dataset.levelDrag };
+  scalingState.drag = {
+    id: target.dataset.levelId,
+    type: target.dataset.levelDrag,
+    startPointerX: point.x,
+    startPointerY: point.y,
+    startPrice: level.price,
+    startUnits: level.units,
+    minPrice,
+    maxPrice,
+    pricePerSvgY: (maxPrice - minPrice) / ((370 - 34) * 4),
+    minUnits: Math.max(maxUnits * 0.005, 1e-8),
+    maxUnits,
+    unitsPerSvgX: maxUnits / (220 * 8),
+  };
   scaling.ladder.setPointerCapture(event.pointerId);
 }
 
@@ -408,12 +481,9 @@ function moveLadderDrag(event) {
   const level = scalingState.levels.find(({ id }) => id === scalingState.drag.id);
   if (!level) return;
   if (scalingState.drag.type === "price") {
-    const min = Number(scaling.ladder.dataset.minPrice);
-    const max = Number(scaling.ladder.dataset.maxPrice);
-    level.price = Math.max(min, Math.min(max, max - (point.y - 34) / (370 - 34) * (max - min)));
+    level.price = priceFromDrag(scalingState.drag, point.y);
   } else {
-    const maxUnits = Number(scaling.ladder.dataset.maxUnits);
-    level.units = Math.max(maxUnits * 0.005, Math.min(maxUnits, (point.x - 250) / 220 * maxUnits));
+    level.units = lotUnitsFromDrag(scalingState.drag, point.x);
   }
   scheduleScalingRender();
 }
@@ -454,7 +524,9 @@ function startPathInteraction(event) {
   event.preventDefault();
   const pointNode = event.target.closest("[data-path-index]");
   if (pointNode) {
-    scalingState.pathDrag = { type: "point", index: Number(pointNode.dataset.pathIndex) };
+    const index = Number(pointNode.dataset.pathIndex);
+    if (index === 0) return;
+    scalingState.pathDrag = { type: "point", index };
   } else if (scalingState.pathMode === "inspect") {
     inspectPathAt(event);
     return;
@@ -531,7 +603,9 @@ function renderScalingPath(result, bounds) {
     const eventX = startPoint.x + (endPoint.x - startPoint.x) * Math.max(0, Math.min(1, fraction));
     return `<g class="scaling-path-event ${event.type}"><circle cx="${x(eventX)}" cy="${priceY(event.price)}" r="5"><title>${event.type.toUpperCase()} · ${price(event.price)} · ${signedMoney(event.pnl)}</title></circle></g>`;
   }).join("");
-  const points = scalingState.pathPoints.map((point, index) => `<circle class="scaling-path-point" cx="${x(point.x)}" cy="${priceY(point.price)}" r="5" data-path-index="${index}"><title>POINT ${index + 1} · ${price(point.price)}</title></circle>`).join("");
+  const points = scalingState.pathPoints.map((point, index) => index === 0
+    ? `<circle class="scaling-path-point locked" cx="${x(point.x)}" cy="${priceY(point.price)}" r="6"><title>LOCKED START · ${price(point.price)}</title></circle>`
+    : `<circle class="scaling-path-hit" cx="${x(point.x)}" cy="${priceY(point.price)}" r="32" data-path-index="${index}" /><circle class="scaling-path-point" cx="${x(point.x)}" cy="${priceY(point.price)}" r="7" data-path-index="${index}"><title>POINT ${index + 1} · ${price(point.price)}</title></circle>`).join("");
   const scrubIndex = Math.min(scalingState.scrubIndex ?? -1, scalingState.pathPoints.length - 1);
   const scrub = scrubIndex >= 0 && result?.timeline[scrubIndex]
     ? `<g class="scaling-scrub"><line x1="${x(scalingState.pathPoints[scrubIndex].x)}" y1="${priceTop}" x2="${x(scalingState.pathPoints[scrubIndex].x)}" y2="${pnlBottom}" /><text x="${x(scalingState.pathPoints[scrubIndex].x) + 7}" y="20">${price(result.timeline[scrubIndex].price)} · ${signedMoney(result.timeline[scrubIndex].pnl)} · ${number(result.timeline[scrubIndex].units, 4)} SH</text></g>`
@@ -545,18 +619,18 @@ function renderScalingPath(result, bounds) {
   scaling.path.dataset.maxPrice = bounds.max;
 }
 
-function renderScalingResults(result, summary) {
+function renderScalingResults(result, summary, settings) {
   if (!result) {
     scaling.resultMetrics.innerHTML = "";
     return;
   }
-  const settings = readScalingSettings();
   const startingLevel = [...summary.levels].sort((left, right) => Math.abs(left.price - summary.anchorPrice) - Math.abs(right.price - summary.anchorPrice))[0];
   const single = simulateComparison(settings, [startingLevel]);
   const allNowUnits = summary.plannedNotional / summary.anchorPrice;
   const allNow = simulateComparison(settings, [{ id: "all-now", price: summary.anchorPrice, units: allNowUnits }]);
   scaling.resultMetrics.innerHTML = [
-    ["ENDING P/L", signedMoney(result.ending.pnl)],
+    ["MARK P/L", signedMoney(result.ending.pnl)],
+    ["NET IF CLOSED", signedMoney(result.ending.closePnl)],
     ["ENDING SHARES", number(result.ending.units, 6)],
     ["AVERAGE ENTRY", price(result.ending.averageEntry)],
     ["CAPITAL USED", money(result.ending.deployedNotional)],
