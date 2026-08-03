@@ -19,7 +19,7 @@ import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260801-bars-news";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260803-principles";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",

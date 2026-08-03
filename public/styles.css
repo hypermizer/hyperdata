@@ -26,6 +26,21 @@ h1 img { width: 22px; height: 22px; }
 h2 { font-size: 16px; font-weight: 700; }
 h3 { font-size: 14px; font-weight: 700; }
 
+.brand-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.principles-button {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  border: 1px solid #eceff1;
+  color: #eceff1;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+}
+.principles-button[aria-selected="true"] { border-color: transparent; background: #2c8881; color: #fff; }
+
 header p, .hint { color: #a8afb7; font-size: 13px; }
 header p { margin-top: 6px; text-transform: uppercase; }
 
