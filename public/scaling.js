@@ -212,6 +212,13 @@ function readScalingSettings() {
   };
 }
 
+function activeScalingSettings() {
+  return {
+    ...scalingState.appliedSettings,
+    rangePct: Number(new FormData(scaling.form).get("rangePct")),
+  };
+}
+
 function regenerateScalingPlan() {
   try {
     const settings = readScalingSettings();
@@ -298,7 +305,7 @@ function renderScaling() {
   updateScalingConversions();
   if (!scalingState.appliedSettings || !scalingState.levels.length) return;
   try {
-    const settings = { ...scalingState.appliedSettings, rangePct: Number(new FormData(scaling.form).get("rangePct")) };
+    const settings = activeScalingSettings();
     const summary = scalingPlanSummary({ ...settings, levels: scalingState.levels });
     const bounds = scalingBounds(summary, settings.rangePct);
     renderScalingPlanMetrics(summary);
@@ -307,7 +314,7 @@ function renderScaling() {
     if (summary.remainingRisk < -1e-6) {
       scaling.error.textContent = `PLANNED ENTRIES EXCEED MAX RISK BY ${money(-summary.remainingRisk)}`;
       renderScalingPath(null, bounds);
-      renderScalingResults(null, summary);
+      renderScalingResults(null, summary, settings);
       renderScalingEvents(null);
       return;
     }
@@ -316,7 +323,7 @@ function renderScaling() {
       ? simulateScalingPath({ ...settings, levels: scalingState.levels, path: scalingState.pathPoints.map(({ price: value }) => value) })
       : null;
     renderScalingPath(result, bounds);
-    renderScalingResults(result, summary);
+    renderScalingResults(result, summary, settings);
     renderScalingEvents(result);
   } catch (caught) {
     scaling.error.textContent = String(caught?.message ?? caught).toUpperCase();
@@ -619,12 +626,11 @@ function renderScalingPath(result, bounds) {
   scaling.path.dataset.maxPrice = bounds.max;
 }
 
-function renderScalingResults(result, summary) {
+function renderScalingResults(result, summary, settings) {
   if (!result) {
     scaling.resultMetrics.innerHTML = "";
     return;
   }
-  const settings = { ...scalingState.appliedSettings, rangePct: Number(new FormData(scaling.form).get("rangePct")) };
   const startingLevel = [...summary.levels].sort((left, right) => Math.abs(left.price - summary.anchorPrice) - Math.abs(right.price - summary.anchorPrice))[0];
   const single = simulateComparison(settings, [startingLevel]);
   const allNowUnits = summary.plannedNotional / summary.anchorPrice;
