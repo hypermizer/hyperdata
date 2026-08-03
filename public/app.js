@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260801-rsi";
+import { ASSET_CATEGORY_TABS, annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260803-categories";
 import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cache";
 import {
   applyLiveMarketContext,
@@ -47,6 +47,7 @@ const state = {
   assetNewsLoadToken: 0,
   averageVolumes: new Map(),
   catalog: [],
+  category: "all",
   favoritePending: new Set(),
   markets: new Map(),
   openDot: null,
@@ -80,6 +81,7 @@ const elements = {
   assetDetailOfficialName: document.querySelector("#asset-detail-official-name"),
   assetDetailSignals: document.querySelector("#asset-detail-signals"),
   assetCompanyProfile: document.querySelector("#asset-company-profile"),
+  assetCategoryTabs: [...document.querySelectorAll("[data-asset-category]")],
   assetFilter: document.querySelector("#asset-filter"),
   assetHyperliquidLink: document.querySelector("#asset-hyperliquid-link"),
   assetIntervals: document.querySelector("#asset-intervals"),
@@ -148,6 +150,15 @@ function wireEvents() {
     state.watchedFirst = elements.watchedFirst.checked;
     renderMarkets();
   });
+  elements.assetCategoryTabs.forEach((button) => button.addEventListener("click", () => {
+    const category = button.dataset.assetCategory;
+    if (!ASSET_CATEGORY_TABS.some(({ value }) => value === category) || category === state.category) return;
+    state.category = category;
+    elements.assetCategoryTabs.forEach((categoryButton) => {
+      categoryButton.setAttribute("aria-pressed", String(categoryButton === button));
+    });
+    renderMarkets();
+  }));
   window.addEventListener("hashchange", renderRoute);
   if (!hasAuthCallbackParameters()) renderRoute();
 
@@ -385,6 +396,7 @@ function renderMarkets() {
   ]));
   const visibleMarkets = filterAndSortTradFiAssets(markets, {
     averageVolumes: state.averageVolumes,
+    category: state.category,
     now,
     priceHistories: state.priceHistories,
     query: state.query,
@@ -394,7 +406,8 @@ function renderMarkets() {
     watchedFirst: state.watchedFirst,
   });
   const watched = new Set(state.watchlist);
-  elements.assetCount.textContent = state.query.trim()
+  const isFiltered = state.query.trim() || state.category !== "all";
+  elements.assetCount.textContent = isFiltered
     ? `${visibleMarkets.length} / ${totalAssets} ASSETS`
     : `${totalAssets} ASSETS`;
   const rows = visibleMarkets
@@ -804,6 +817,8 @@ function formatFinancialValue(value, format, currency) {
 }
 
 function companySourceLabel(source) {
+  if (source === "hyperliquid+yahoo") return "PRODUCT DESCRIPTION: HYPERLIQUID · MARKET IDENTITY: YAHOO FINANCE";
+  if (source === "hyperliquid") return "PRODUCT DESCRIPTION: HYPERLIQUID";
   if (source === "yahoo+wikipedia") return "OFFICIAL NAME: YAHOO FINANCE · DESCRIPTION: WIKIPEDIA";
   if (source === "curated") return "INSTRUMENT DESCRIPTION";
   return "COMPANY PROFILE";

@@ -8,6 +8,7 @@ import {
   fetchCandles,
   fetchDexNames,
   fetchMarketsForDex,
+  fetchPerpAnnotations,
   fetchPriceHistory,
   postInfo,
   mergeLiveCandle,
@@ -56,6 +57,25 @@ test("fetchDexNames includes the default perp dex", async () => {
     jsonResponse([null, { name: "xyz" }, { name: "flx" }]),
   );
   assert.deepEqual(names, ["", "xyz", "flx"]);
+});
+
+test("official perp annotations normalize categories, names, and search keywords", async () => {
+  const annotations = await fetchPerpAnnotations(async (_url, options) => {
+    assert.deepEqual(JSON.parse(options.body), { type: "perpConciseAnnotations" });
+    return jsonResponse([
+      ["xyz:DRAM", { category: "stocks", displayName: "DRAM", keywords: ["etf", "memory"] }],
+      ["xyz:GOLD", { category: "commodities" }],
+      ["bad", null],
+    ]);
+  });
+
+  assert.deepEqual(annotations.get("xyz:DRAM"), {
+    category: "stocks", displayName: "DRAM", keywords: ["etf", "memory"],
+  });
+  assert.deepEqual(annotations.get("xyz:GOLD"), {
+    category: "commodities", displayName: "", keywords: [],
+  });
+  assert.equal(annotations.has("bad"), false);
 });
 
 test("fetchMarketsForDex combines metadata and market context", async () => {

@@ -9,21 +9,6 @@ export interface NewsItem {
   score?: number;
 }
 
-const SPECIAL_QUERIES: Record<string, string[]> = {
-  BRENTOIL: ['"Brent crude oil" price', '"Brent crude oil" OPEC', '"Brent crude oil" supply', '"Brent crude oil" geopolitical'],
-  COPPER: ['"copper price" futures', '"copper" mine supply', '"copper" demand China'],
-  DRAM: ['"DRAM memory" price', '"DRAM memory" supply demand', '"DRAM" Samsung Micron SK Hynix', '"DRAM" shortage inventory'],
-  EUR: ['euro EURUSD ECB', 'euro interest rates inflation', 'EURUSD market'],
-  GBP: ['sterling GBPUSD "Bank of England"', 'sterling interest rates inflation', 'GBPUSD market'],
-  GOLD: ['"gold price" rates', 'gold central bank demand', 'gold inflation geopolitical'],
-  JP225: ['Nikkei "Japan stocks"', 'Nikkei Bank of Japan'],
-  JPY: ['yen USDJPY "Bank of Japan"', 'yen intervention rates'],
-  KR200: ['KOSPI "South Korea stocks"', 'KOSPI economy earnings'],
-  NATGAS: ['"natural gas price" futures', 'natural gas storage supply demand'],
-  PALLADIUM: ['"palladium price" supply demand'], PLATINUM: ['"platinum price" supply demand'], SILVER: ['"silver price" supply demand rates'],
-  SP500: ['"S&P 500" market', '"S&P 500" earnings rates'], XYZ100: ['"Nasdaq 100" market', '"Nasdaq 100" earnings rates'],
-};
-
 const HIGH_INFO = ["earnings", "revenue", "guidance", "forecast", "sec", "filing", "10-k", "10-q", "8-k", "acquisition", "merger", "lawsuit", "regulation", "investigation", "contract", "partnership", "upgrade", "downgrade", "price target", "dividend", "buyback", "offering", "bankruptcy", "shortage", "recall", "approval", "tariff", "sanction"];
 const NOISE = ["should you buy", "is it too late", "prediction", "top stocks", "best stocks", "stock of the day", "why this stock", "why stock", "trending stock", "investor attention", "before betting", "could be the next", "millionaire maker", "motley fool"];
 const QUALITY_SOURCES: Record<string, number> = {
@@ -37,13 +22,45 @@ export function buildNewsQuery(asset: string): string {
   return buildNewsQueries(asset)[0];
 }
 
-export function buildNewsQueries(asset: string, displayName = ""): string[] {
+export function buildNewsQueries(asset: string, identity: AssetIdentity | string = ""): string[] {
   const symbol = bareAssetSymbol(asset);
-  if (SPECIAL_QUERIES[symbol]) return SPECIAL_QUERIES[symbol];
-  const name = displayName && displayName.toUpperCase() !== symbol ? `"${displayName}"` : `"${symbol}"`;
-  return [
-    `${name} stock`, `${name} earnings`, `${name} guidance`, `${name} SEC filing`, `${name} analyst`, `${name} acquisition`, `${name} contract`, `${name} regulation lawsuit`,
-  ];
+  const data = typeof identity === "string" ? { displayName: identity, category: "", keywords: [] as string[], instrumentType: "" } : identity;
+  const displayName = String(data.displayName || "").trim();
+  const meaningfulKeywords = (data.keywords ?? []).filter((keyword) => !["ai", "tech", "stock", "stocks"].includes(keyword.toLowerCase())).slice(0, 2);
+  const exactName = displayName && displayName.toUpperCase() !== symbol ? displayName : symbol;
+  const subject = `"${exactName}"`;
+  const contextSubject = exactName === symbol && meaningfulKeywords.length
+    ? [subject, ...meaningfulKeywords].join(" ")
+    : subject;
+  const category = String(data.category || "").toLowerCase();
+  const isEtf = String(data.instrumentType || "").toUpperCase() === "ETF" || (data.keywords ?? []).some((keyword) => keyword.toLowerCase() === "etf");
+  if (isEtf) return uniqueQueries([
+    `${subject} fund flows`, `${subject} holdings`, `${subject} ETF price`, `${contextSubject} sector outlook`, `${subject} rebalance`, `${subject} analyst`,
+  ]);
+  if (["commodity", "commodities"].includes(category)) return uniqueQueries([
+    `${subject} price`, `${subject} supply demand`, `${subject} inventory`, `${subject} futures`, `${subject} geopolitical`, `${subject} forecast`,
+  ]);
+  if (["fx", "forex", "currency"].includes(category)) return uniqueQueries([
+    `${subject} exchange rate`, `${subject} central bank`, `${subject} interest rates`, `${subject} inflation`, `${subject} economy`, `${subject} forecast`,
+  ]);
+  if (["index", "indices"].includes(category)) return uniqueQueries([
+    `${subject} market`, `${subject} earnings`, `${subject} interest rates`, `${subject} futures`, `${subject} constituents`, `${subject} outlook`,
+  ]);
+  if (["preipo", "pre-ipo"].includes(category)) return uniqueQueries([
+    `${subject} IPO`, `${subject} valuation`, `${subject} funding`, `${subject} filing`, `${subject} listing`, `${subject} company news`,
+  ]);
+  return uniqueQueries([
+    `${contextSubject} stock`, `${subject} earnings`, `${subject} guidance`, `${subject} SEC filing`, `${subject} analyst`, `${subject} acquisition`, `${subject} contract`, `${subject} regulation lawsuit`,
+  ]);
+}
+
+export function buildNewsSearchUrl(query: string): URL {
+  const url = new URL("https://www.bing.com/news/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "rss");
+  url.searchParams.set("qft", 'interval="30"');
+  url.searchParams.set("sortbydate", "1");
+  return url;
 }
 
 export function parseNewsFeed(xml: string, limit = 25): NewsItem[] {
@@ -67,7 +84,8 @@ export function parseNewsFeed(xml: string, limit = 25): NewsItem[] {
 
 export function rankAndDeduplicateNews(items: NewsItem[], identity: AssetIdentity, now = Date.now(), limit = 25): NewsItem[] {
   const symbol = identity.symbol.toLowerCase();
-  const identityTokens = tokens(`${identity.displayName} ${symbol}`).filter((token) => token.length > 1);
+  const identityTokens = tokens(`${identity.displayName} ${symbol} ${identity.keywords.join(" ")}`)
+    .filter((token) => token.length > 2 && !["stock", "stocks", "share", "shares", "etf", "market", "markets", "tech", "technology"].includes(token));
   const scored = items.flatMap((item) => {
     const title = item.title.toLowerCase();
     const titleTokens = tokens(title);
@@ -77,12 +95,12 @@ export function rankAndDeduplicateNews(items: NewsItem[], identity: AssetIdentit
     const publishedTime = new Date(item.publishedAt).getTime();
     if (publishedTime > now + 6 * 3_600_000) return [];
     const ageHours = Math.max(0, (now - publishedTime) / 3_600_000);
-    if (ageHours > 60 * 24) return [];
+    if (ageHours > 30 * 24) return [];
     const informationHits = HIGH_INFO.filter((term) => title.includes(term)).length;
     const noiseText = `${title} ${item.source.toLowerCase()}`;
     const noiseHits = NOISE.filter((term) => noiseText.includes(term)).length;
     const score = Math.round(
-      Math.max(0, 38 - Math.log2(1 + ageHours) * 7)
+      Math.max(0, 48 - Math.log2(1 + ageHours) * 9)
       + Math.min(28, relevantTokens * 6 + (exactSymbol ? 8 : 0))
       + Math.min(24, informationHits * 8)
       + sourceQuality(item.source)
@@ -99,6 +117,10 @@ export function rankAndDeduplicateNews(items: NewsItem[], identity: AssetIdentit
     if (selected.length >= limit) break;
   }
   return selected;
+}
+
+function uniqueQueries(queries: string[]): string[] {
+  return [...new Set(queries.map((query) => query.replace(/\s+/g, " ").trim()).filter(Boolean))];
 }
 
 function classifyTopic(title: string): string {

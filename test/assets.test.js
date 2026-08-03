@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ASSET_CATEGORY_TABS,
   annualizedFundingApr,
+  assetCategoryFor,
   calculateHourlyRsi,
   hydrateTradFiMarkets,
   filterAndSortTradFiAssets,
@@ -52,6 +54,30 @@ test("TradFi asset view includes active xyz markets and supports search", () => 
     filterAndSortTradFiAssets(markets).map(({ id }) => id),
     ["xyz:ORCL", "xyz:XYZ100"],
   );
+});
+
+test("asset categories distinguish ETFs from equities using official annotations", () => {
+  assert.deepEqual(ASSET_CATEGORY_TABS.map(({ value }) => value), [
+    "all", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo", "other",
+  ]);
+  assert.equal(assetCategoryFor({ category: "stocks", keywords: ["oracle", "ai"] }), "equities");
+  assert.equal(assetCategoryFor({ category: "stocks", keywords: ["memory", "ETF"] }), "etfs");
+  assert.equal(assetCategoryFor({ category: "commodities" }), "commodities");
+  assert.equal(assetCategoryFor({ category: "FX" }), "fx");
+  assert.equal(assetCategoryFor({ category: "indices" }), "indices");
+  assert.equal(assetCategoryFor({ category: "preipo" }), "pre-ipo");
+  assert.equal(assetCategoryFor({ category: "unexpected" }), "other");
+});
+
+test("TradFi asset filtering applies category and search together", () => {
+  const markets = [
+    { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz", category: "stocks", keywords: ["oracle"] },
+    { id: "xyz:DRAM", symbol: "DRAM", dexId: "xyz", category: "stocks", keywords: ["etf", "memory"] },
+    { id: "xyz:GOLD", symbol: "GOLD", dexId: "xyz", category: "commodities", keywords: ["metal"] },
+  ];
+
+  assert.deepEqual(filterAndSortTradFiAssets(markets, { category: "etfs" }).map(({ id }) => id), ["xyz:DRAM"]);
+  assert.deepEqual(filterAndSortTradFiAssets(markets, { category: "equities", query: "or" }).map(({ id }) => id), ["xyz:ORCL"]);
 });
 
 test("TradFi asset view hydrates catalog entries with the latest live market values", () => {
