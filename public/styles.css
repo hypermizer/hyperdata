@@ -507,6 +507,7 @@ input, select { min-width: 0; }
 .scaling-level.favorable line, .scaling-level.favorable rect, .scaling-level.favorable circle { fill: #38cba7; stroke: #38cba7; }
 .scaling-level.adverse line, .scaling-level.adverse rect, .scaling-level.adverse circle { fill: #f07178; stroke: #f07178; }
 .scaling-level.anchor line, .scaling-level.anchor rect, .scaling-level.anchor circle { fill: #dce2e4; stroke: #dce2e4; }
+.scaling-level rect.scaling-level-hit { fill: transparent; stroke: transparent; stroke-width: 0; }
 .scaling-level.selected circle { stroke: #fff; stroke-width: 3; }
 .scaling-level-editor { max-height: 437px; overflow: hidden; }
 .scaling-batch-controls { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; padding: 7px; border-bottom: 1px solid #34383d; }

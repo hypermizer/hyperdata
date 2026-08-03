@@ -41,4 +41,5 @@ test("mobile scaling charts remain responsive instead of forcing a wide drawing 
 test("regeneration preserves a custom path and the first point is a locked anchor", () => {
   assert.match(script, /if \(!scalingState\.pathPoints\.length\) setPathPreset\("chop", false\)/);
   assert.match(script, /index === 0[\s\S]*scaling-path-point locked/);
+  assert.match(script, /scalingSettingsAtAnchor\(scalingState\.appliedSettings, livePrice\)/);
 });

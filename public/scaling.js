@@ -2,7 +2,13 @@ import { AssetPicker } from "./asset-picker.js?v=20260720-picker";
 import { APP_CONFIG } from "./config.js?v=20260801-scaling";
 import { applyLiveMarketContext } from "./lib/hyperliquid.js?v=20260722-position-controls";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
-import { lotUnitsFromDrag, priceFromDrag } from "./lib/scaling-interactions.js?v=20260803-scaling-reliability";
+import {
+  generationSettingsKey,
+  lotUnitsFromDrag,
+  priceFromDrag,
+  rebasePathPoints,
+  scalingSettingsAtAnchor,
+} from "./lib/scaling-interactions.js?v=20260803-scaling-reliability-3";
 import {
   evenlySpaceScalingLevels,
   generateScalingLevels,
@@ -92,7 +98,7 @@ function bindScalingEvents() {
   scaling.addLevel.addEventListener("click", addScalingLevel);
   scaling.form.addEventListener("input", ({ target }) => {
     if (target.name === "rangePct") scaling.rangeOutput.value = `±${number(target.value, 0)}%`;
-    if (GENERATION_FIELDS.has(target.name)) markScalingSettingsDirty();
+    if (GENERATION_FIELDS.has(target.name)) refreshScalingSettingsDirty();
     updateScalingConversions();
     if (target.name === "rangePct") scheduleScalingRender();
   });
@@ -189,27 +195,17 @@ function renderScalingQuoteStatus() {
 
 function readScalingSettings() {
   const values = new FormData(scaling.form);
-  const maxRisk = Number(values.get("maxRisk"));
-  const maxLossInput = Number(values.get("maxLoss"));
-  const maxLoss = values.get("maxLossMode") === "percent" ? maxRisk * maxLossInput / 100 : maxLossInput;
-  const startingLotInput = Number(values.get("startingLot"));
-  const startingLotUnits = values.get("startingLotMode") === "shares"
-    ? startingLotInput
-    : startingLotInput / scalingState.anchorPrice;
-  return {
+  return scalingSettingsAtAnchor({
     direction: values.get("direction"),
-    maxRisk,
-    maxLoss,
-    maxLossInput,
+    maxRisk: values.get("maxRisk"),
+    maxLossInput: values.get("maxLoss"),
     maxLossMode: values.get("maxLossMode"),
-    startingLotInput,
+    startingLotInput: values.get("startingLot"),
     startingLotMode: values.get("startingLotMode"),
-    startingLotUnits,
-    levelCount: Number(values.get("levelCount")),
-    feeBps: Number(values.get("feeBps")),
-    rangePct: Number(values.get("rangePct")),
-    anchorPrice: scalingState.anchorPrice,
-  };
+    levelCount: values.get("levelCount"),
+    feeBps: values.get("feeBps"),
+    rangePct: values.get("rangePct"),
+  }, scalingState.anchorPrice);
 }
 
 function activeScalingSettings() {
@@ -219,16 +215,16 @@ function activeScalingSettings() {
   };
 }
 
-function regenerateScalingPlan() {
+function regenerateScalingPlan(settings = readScalingSettings()) {
   try {
-    const settings = readScalingSettings();
     const generated = generateScalingLevels(settings);
+    scalingState.anchorPrice = settings.anchorPrice;
     scalingState.levels = generated.levels;
     scalingState.appliedSettings = { ...settings };
-    scalingState.generationDirty = false;
     scalingState.selectedLevelId = generated.levels[0]?.id ?? "";
     if (!scalingState.pathPoints.length) setPathPreset("chop", false);
     scaling.error.textContent = "";
+    refreshScalingSettingsDirty();
     renderScalingGenerationStatus();
     renderScaling();
     return true;
@@ -246,13 +242,9 @@ function rebaseScalingPlan() {
   }
   const previousAnchor = scalingState.anchorPrice;
   const previousPath = scalingState.pathPoints.map((point) => ({ ...point }));
-  const ratio = livePrice / previousAnchor;
-  scalingState.anchorPrice = livePrice;
-  scalingState.pathPoints = scalingState.pathPoints.map((point, index) => ({
-    x: point.x,
-    price: index === 0 ? livePrice : point.price * ratio,
-  }));
-  if (!regenerateScalingPlan()) {
+  const rebasedSettings = scalingSettingsAtAnchor(scalingState.appliedSettings, livePrice);
+  scalingState.pathPoints = rebasePathPoints(scalingState.pathPoints, previousAnchor, livePrice);
+  if (!regenerateScalingPlan(rebasedSettings)) {
     const error = scaling.error.textContent;
     scalingState.anchorPrice = previousAnchor;
     scalingState.pathPoints = previousPath;
@@ -261,9 +253,9 @@ function rebaseScalingPlan() {
   }
 }
 
-function markScalingSettingsDirty() {
+function refreshScalingSettingsDirty() {
   if (!scalingState.appliedSettings) return;
-  scalingState.generationDirty = true;
+  scalingState.generationDirty = generationSettingsKey(readScalingSettings()) !== generationSettingsKey(scalingState.appliedSettings);
   renderScalingGenerationStatus();
 }
 
@@ -283,7 +275,7 @@ function updateScalingConversions() {
     const lossPercent = settings.maxRisk > 0 ? settings.maxLoss / settings.maxRisk * 100 : 0;
     scaling.maxLossConversion.textContent = settings.maxLossMode === "percent"
       ? money(settings.maxLoss)
-      : `${number(lossPercent, 2)}% OF MAX RISK`;
+      : `${number(lossPercent, 2)}% OF MAX ALLOCATION`;
     scaling.lotConversion.textContent = settings.startingLotMode === "shares"
       ? money(settings.startingLotUnits * scalingState.anchorPrice)
       : `${number(settings.startingLotUnits, 6)} SHARES`;
@@ -369,7 +361,8 @@ function renderScalingLadder(summary, bounds) {
     const selected = level.id === scalingState.selectedLevelId ? " selected" : "";
     return `<g class="scaling-level ${levelClass}${selected}" data-level-id="${level.id}">
       <line x1="${center}" y1="${y(level.price)}" x2="${center + width}" y2="${y(level.price)}" />
-      <rect x="${center + width - 5}" y="${y(level.price) - 7}" width="10" height="14" data-level-id="${level.id}" data-level-drag="units"><title>DRAG HORIZONTALLY · ${number(level.units, 6)} SHARES</title></rect>
+      <rect class="scaling-level-hit" x="${center + width - 24}" y="${y(level.price) - 24}" width="48" height="48" data-level-id="${level.id}" data-level-drag="units" />
+      <rect class="scaling-level-handle" x="${center + width - 5}" y="${y(level.price) - 7}" width="10" height="14" data-level-id="${level.id}" data-level-drag="units"><title>DRAG HORIZONTALLY · ${number(level.units, 6)} SHARES</title></rect>
       <circle cx="${center}" cy="${y(level.price)}" r="7" data-level-id="${level.id}" data-level-drag="price"><title>DRAG VERTICALLY · ${price(level.price)}</title></circle>
       <text x="${center + width + 9}" y="${y(level.price) + 4}">${number(level.units, 4)}</text>
     </g>`;
@@ -474,10 +467,10 @@ function startLadderDrag(event) {
     startUnits: level.units,
     minPrice,
     maxPrice,
-    pricePerSvgY: (maxPrice - minPrice) / (370 - 34),
+    pricePerSvgY: (maxPrice - minPrice) / ((370 - 34) * 4),
     minUnits: Math.max(maxUnits * 0.005, 1e-8),
     maxUnits,
-    unitsPerSvgX: maxUnits / 220,
+    unitsPerSvgX: maxUnits / (220 * 8),
   };
   scaling.ladder.setPointerCapture(event.pointerId);
 }
@@ -612,7 +605,7 @@ function renderScalingPath(result, bounds) {
   }).join("");
   const points = scalingState.pathPoints.map((point, index) => index === 0
     ? `<circle class="scaling-path-point locked" cx="${x(point.x)}" cy="${priceY(point.price)}" r="6"><title>LOCKED START · ${price(point.price)}</title></circle>`
-    : `<circle class="scaling-path-hit" cx="${x(point.x)}" cy="${priceY(point.price)}" r="13" data-path-index="${index}" /><circle class="scaling-path-point" cx="${x(point.x)}" cy="${priceY(point.price)}" r="6" data-path-index="${index}"><title>POINT ${index + 1} · ${price(point.price)}</title></circle>`).join("");
+    : `<circle class="scaling-path-hit" cx="${x(point.x)}" cy="${priceY(point.price)}" r="32" data-path-index="${index}" /><circle class="scaling-path-point" cx="${x(point.x)}" cy="${priceY(point.price)}" r="7" data-path-index="${index}"><title>POINT ${index + 1} · ${price(point.price)}</title></circle>`).join("");
   const scrubIndex = Math.min(scalingState.scrubIndex ?? -1, scalingState.pathPoints.length - 1);
   const scrub = scrubIndex >= 0 && result?.timeline[scrubIndex]
     ? `<g class="scaling-scrub"><line x1="${x(scalingState.pathPoints[scrubIndex].x)}" y1="${priceTop}" x2="${x(scalingState.pathPoints[scrubIndex].x)}" y2="${pnlBottom}" /><text x="${x(scalingState.pathPoints[scrubIndex].x) + 7}" y="20">${price(result.timeline[scrubIndex].price)} · ${signedMoney(result.timeline[scrubIndex].pnl)} · ${number(result.timeline[scrubIndex].units, 4)} SH</text></g>`
