@@ -24,6 +24,17 @@ test("generates an evenly spaced adverse ladder within max risk", () => {
   assert.ok(Math.abs(plan.summary.lossAtImpliedStop - 100) < 1e-6);
 });
 
+test("rejects a requested level count that cannot fit instead of silently reducing it", () => {
+  assert.throws(() => generateScalingLevels({
+    direction: "long",
+    anchorPrice: 100,
+    maxRisk: 500,
+    maxLoss: 100,
+    startingLotUnits: 2,
+    levelCount: 8,
+  }), /8 levels do not fit max allocation.*maximum is 2/i);
+});
+
 test("generated stops include entry and exit fees", () => {
   const plan = generateScalingLevels({
     direction: "long",

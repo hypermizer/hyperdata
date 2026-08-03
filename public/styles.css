@@ -479,8 +479,12 @@ input, select { min-width: 0; }
 .scaling-range-control { grid-column: span 2; }
 .scaling-range-control > span { display: flex; justify-content: space-between; }
 .scaling-range-control input[type="range"] { min-height: 18px; padding: 0; accent-color: #2c8881; }
+.scaling-form-actions { display: grid; grid-template-columns: 1fr; gap: 5px; }
+.scaling-form-actions button { min-height: 31px; padding: 4px 6px; font-size: 8px; }
+.scaling-generation-status { min-height: 24px; padding: 7px 9px; border: 1px solid #34383d; color: #77cdbb; font-size: 9px; }
+.scaling-generation-status.is-dirty { border-color: #8f7530; color: #f6d365; }
 .scaling-plan-metrics { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-.scaling-result-metrics { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.scaling-result-metrics { grid-template-columns: repeat(9, minmax(0, 1fr)); }
 .scaling-workspace { display: grid; grid-template-columns: minmax(0, 1.28fr) minmax(330px, .72fr); gap: 10px; margin-top: 12px; }
 .scaling-card { min-width: 0; border: 1px solid #34383d; background: #101214; }
 .scaling-card-header { display: flex; min-height: 35px; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 9px; border-bottom: 1px solid #34383d; }
@@ -497,7 +501,7 @@ input, select { min-width: 0; }
 .scaling-lot-axis { stroke: #5d656c; stroke-width: 1; }
 .scaling-level { cursor: ns-resize; }
 .scaling-level line { stroke-width: 7; stroke-linecap: square; cursor: ew-resize; }
-.scaling-level rect { cursor: ew-resize; }
+.scaling-level rect { cursor: ew-resize; stroke-width: 6; stroke-opacity: .18; }
 .scaling-level circle { stroke: #101214; stroke-width: 2; }
 .scaling-level text { fill: #cbd1d4; font-size: 9px; pointer-events: none; }
 .scaling-level.favorable line, .scaling-level.favorable rect, .scaling-level.favorable circle { fill: #38cba7; stroke: #38cba7; }
@@ -530,6 +534,8 @@ input, select { min-width: 0; }
 .scaling-path-line { fill: none; stroke: #eef2f3; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .scaling-pnl-line { fill: none; stroke: #38cba7; stroke-width: 2; }
 .scaling-path-point { fill: #101214; stroke: #eef2f3; stroke-width: 2; cursor: move; }
+.scaling-path-point.locked { fill: #eef2f3; stroke: #101214; cursor: default; }
+.scaling-path-hit { fill: transparent; stroke: none; cursor: move; }
 .scaling-path-event.fill circle { fill: #38cba7; stroke: #101214; stroke-width: 2; }
 .scaling-path-event.stop circle { fill: #ff5d6c; stroke: #fff; stroke-width: 2; }
 .scaling-empty-label { fill: #5e676e; font-size: 11px; }
@@ -688,15 +694,22 @@ input, select { min-width: 0; }
   .strats-assets { width: 100%; }
   .strats-table { width: max-content; }
   .scaling-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .scaling-form > label:first-child, .scaling-range-control, #scaling-generate { grid-column: span 2; }
+  .scaling-form > label:first-child, .scaling-range-control, .scaling-form-actions { grid-column: span 2; }
+  .scaling-form > label { font-size: 10px; }
+  .scaling-form input, .scaling-form select { min-height: 38px; font-size: 12px; }
+  .scaling-form-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scaling-form-actions button { min-height: 38px; font-size: 9px; }
   .scaling-plan-metrics, .scaling-result-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scaling-workspace { grid-template-columns: 1fr; }
   .scaling-ladder-chart { min-height: 330px; }
   .scaling-level-editor { max-height: none; }
   .scaling-level-list { max-height: 340px; }
   .scaling-batch-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .scaling-path-card { overflow-x: auto; }
-  .scaling-path-chart { width: 900px; max-width: none; min-height: 360px; }
+  .scaling-batch-controls button, .scaling-path-controls button { min-height: 36px; font-size: 9px; }
+  .scaling-level-row label, .scaling-level-row > span small, .scaling-level-row > span em { font-size: 8px; }
+  .scaling-level-row input, .scaling-level-row > span strong { font-size: 11px; }
+  .scaling-path-card { overflow: hidden; }
+  .scaling-path-chart { width: 100%; max-width: 100%; min-height: 300px; }
 }
 
 @media (hover: none) {
