@@ -96,9 +96,13 @@ input, select { min-width: 0; }
 }
 .watchlist-actions { margin: 0; margin-left: auto; flex-wrap: nowrap; }
 
-.assets-controls { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+.assets-controls { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .assets-controls input[type="search"] { width: 190px; }
-.watched-first { display: flex; min-height: 34px; align-items: center; gap: 7px; color: #a8afb7; font-size: 11px; white-space: nowrap; }
+.asset-category-tabs { display: flex; min-width: 0; align-items: center; gap: 4px; overflow-x: auto; }
+.asset-category-tabs button { min-height: 28px; padding: 0 7px; border-color: #4c535b; background: transparent; color: #a8afb7; font-size: 9px; letter-spacing: 0.03em; white-space: nowrap; }
+.asset-category-tabs button[aria-pressed="true"] { border-color: #2c8881; background: #2c8881; color: #fff; }
+.asset-control-actions { display: flex; flex: none; align-items: center; gap: 7px; margin-left: auto; }
+.watched-first { display: flex; width: 28px; min-height: 28px; align-items: center; justify-content: center; color: #a8afb7; }
 .watched-first input { width: 14px; min-height: 14px; margin: 0; accent-color: #e5c84b; }
 #watchlist-message:empty { display: none; }
 
@@ -627,8 +631,9 @@ input, select { min-width: 0; }
   .section-header { align-items: flex-start; flex-wrap: wrap; }
   .watchlist-actions { width: 100%; margin-left: 0; }
   .assets-controls { align-items: stretch; flex-wrap: wrap; }
-  .assets-controls input[type="search"] { width: 100%; }
-  .watched-first { width: 100%; }
+  .asset-category-tabs { width: 100%; }
+  .asset-control-actions { width: 100%; margin-left: 0; }
+  .assets-controls input[type="search"] { width: auto; flex: 1; }
   .inline-form { align-items: stretch; }
   .inline-form label { width: 100%; }
   .inline-form input, .inline-form select, .inline-form #alert-target { width: calc(50% - 4px); }
