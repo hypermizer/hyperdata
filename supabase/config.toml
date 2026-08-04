@@ -54,3 +54,6 @@ verify_jwt = false
 
 [functions.asset-fundamentals]
 verify_jwt = false
+
+[functions.sync-hyperliquid-account]
+verify_jwt = false

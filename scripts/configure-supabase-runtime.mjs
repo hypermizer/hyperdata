@@ -54,6 +54,7 @@ for (const [name, value] of secrets) {
   await query("select vault.create_secret($1, $2)", [value, name]);
 }
 await query("select public.configure_listener_cron()");
+await query("select public.configure_hyperliquid_account_cron()");
 const paperHealthWindowStartedAt = new Date().toISOString();
 await query("select public.configure_paper_cron($1)", [paperProcessorEnabled]);
 await query("select public.configure_paper_mutation_access($1)", [paperTradingEnabled]);
