@@ -3,13 +3,11 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { accountSyncHealth, normalizeAccountFill } from "./lib/account-trades.js?v=20260804-account-sync";
+import { accountSyncHealth, buildPositionEpisodes, formatTradeTimestamp, normalizeAccountFill } from "./lib/account-trades.js?v=20260804-position-groups";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
-const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
-  year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-});
+const TAG_OPTIONS = ["EARNINGS", "MEANREV", "YOLO"];
 const elements = {
   executedAt: document.querySelector("#trade-log-executed-at"),
   form: document.querySelector("#trade-log-form"),
@@ -24,7 +22,11 @@ const elements = {
 };
 elements.controls = [...elements.form.querySelectorAll("input, button")];
 const picker = new AssetPicker(document.querySelector("#trade-log-asset-picker"), { details: "none" });
-const state = { accountError: null, accountLoaded: false, accountSource: null, catalogState: "loading", fills: [], orders: [], pending: false, positions: [], user: null };
+const state = {
+  accountError: null, accountLoaded: false, accountSource: null, catalogState: "loading",
+  expandedPositions: new Set(), fills: [], orders: [], pending: false, positions: [],
+  positionTags: new Map(), tagPending: new Set(), user: null,
+};
 
 wire();
 initialize().catch((error) => showError(error));
@@ -34,6 +36,15 @@ function wire() {
   elements.table.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-trade-order]");
     if (button) deleteOrder(button.dataset.deleteTradeOrder);
+  });
+  elements.accountFills.addEventListener("click", (event) => {
+    const tag = event.target.closest("[data-position-tag]");
+    if (tag) {
+      togglePositionTag(tag.dataset.positionKey, tag.dataset.positionTag).catch((error) => showError(error));
+      return;
+    }
+    const toggle = event.target.closest("[data-position-toggle]");
+    if (toggle) togglePosition(toggle.dataset.positionToggle);
   });
   window.addEventListener("focus", () => {
     if (state.user && !state.pending) loadTradeData().catch((error) => showError(error));
@@ -74,6 +85,9 @@ async function setSession(session) {
   state.fills = [];
   state.orders = [];
   state.positions = [];
+  state.positionTags = new Map();
+  state.expandedPositions = new Set();
+  state.tagPending = new Set();
   if (state.user) await loadTradeData();
   else render();
 }
@@ -96,8 +110,10 @@ async function loadOrders(renderAfter = true) {
 
 async function loadAccountData(renderAfter = true) {
   const previousSuccess = state.accountSource?.last_success_at ?? null;
-  const sourceResult = await client.from("hyperliquid_account_sources")
-    .select("address,last_success_at,last_error").maybeSingle();
+  const [sourceResult, tagsResult] = await Promise.all([
+    client.from("hyperliquid_account_sources").select("address,last_success_at,last_error").maybeSingle(),
+    client.from("hyperliquid_account_position_tags").select("position_key,tags"),
+  ]);
   if (sourceResult.error) {
     state.accountError = sourceResult.error.message;
     state.accountSource = null;
@@ -105,25 +121,69 @@ async function loadAccountData(renderAfter = true) {
     return;
   }
   state.accountSource = sourceResult.data;
-  state.accountError = null;
+  state.accountError = tagsResult.error?.message ?? null;
+  if (!tagsResult.error) state.positionTags = new Map((tagsResult.data ?? []).map((row) => [row.position_key, row.tags ?? []]));
   if (state.accountLoaded && sourceResult.data?.last_success_at === previousSuccess) {
     if (renderAfter) render();
     return;
   }
   const [fillsResult, positionsResult] = await Promise.all([
     client.from("hyperliquid_account_fills")
-      .select("trade_id,asset,side,direction,size,price,closed_pnl,fee,fee_token,occurred_at,order_id,transaction_hash")
+      .select("trade_id,asset,side,direction,size,price,start_position,closed_pnl,fee,fee_token,occurred_at,order_id,transaction_hash")
       .order("occurred_at", { ascending: false }).limit(1000),
     client.from("hyperliquid_account_positions")
       .select("dex,asset,signed_size,entry_price,position_value,unrealized_pnl,margin_used,liquidation_price,leverage_type,leverage,observed_at")
       .order("asset", { ascending: true }),
   ]);
-  const error = fillsResult.error ?? positionsResult.error;
+  const error = tagsResult.error ?? fillsResult.error ?? positionsResult.error;
   state.accountError = error?.message ?? null;
   state.fills = fillsResult.error ? [] : (fillsResult.data ?? []).map(normalizeAccountFill);
   state.positions = positionsResult.error ? [] : positionsResult.data ?? [];
   state.accountLoaded = !error;
   if (renderAfter) render();
+}
+
+function togglePosition(positionKey) {
+  if (state.expandedPositions.has(positionKey)) state.expandedPositions.delete(positionKey);
+  else state.expandedPositions.add(positionKey);
+  renderAccountData();
+}
+
+async function togglePositionTag(positionKey, tag) {
+  if (!state.user || !state.accountSource?.address || !TAG_OPTIONS.includes(tag) || state.tagPending.has(positionKey)) return;
+  const episode = buildPositionEpisodes(state.fills).find((candidate) => candidate.positionKey === positionKey);
+  if (!episode) return;
+  const previous = [...(state.positionTags.get(positionKey) ?? [])];
+  const next = previous.includes(tag) ? previous.filter((value) => value !== tag) : [...previous, tag];
+  state.positionTags.set(positionKey, next);
+  state.tagPending.add(positionKey);
+  renderAccountData();
+  try {
+    let result;
+    if (next.length) {
+      result = await client.from("hyperliquid_account_position_tags").upsert({
+        user_id: state.user.id,
+        account_address: state.accountSource.address,
+        position_key: positionKey,
+        asset: episode.asset,
+        direction: episode.direction,
+        tags: next,
+      }, { onConflict: "user_id,account_address,position_key" });
+    } else {
+      result = await client.from("hyperliquid_account_position_tags").delete()
+        .eq("user_id", state.user.id)
+        .eq("account_address", state.accountSource.address)
+        .eq("position_key", positionKey);
+    }
+    if (result.error) throw result.error;
+    setMessage(`${episode.label} TAGS UPDATED`, "success");
+  } catch (error) {
+    state.positionTags.set(positionKey, previous);
+    throw error;
+  } finally {
+    state.tagPending.delete(positionKey);
+    renderAccountData();
+  }
 }
 
 async function addOrder(event) {
@@ -230,14 +290,38 @@ function renderAccountData() {
   elements.accountHealth.textContent = health.label;
   elements.accountHealth.dataset.tone = health.tone;
   elements.accountAddress.textContent = state.accountSource?.address ?? "ACCOUNT SOURCE NOT CONFIGURED";
-  elements.accountFillCount.textContent = `${state.fills.length}${state.fills.length === 1000 ? "+" : ""} SHOWN`;
-  elements.accountFills.innerHTML = state.fills.length ? renderFillTable(state.fills) : `<p class="hint">NO FILLS INGESTED YET.</p>`;
+  const episodes = buildPositionEpisodes(state.fills);
+  elements.accountFillCount.textContent = `${episodes.length} POSITIONS · ${state.fills.length}${state.fills.length === 1000 ? "+" : ""} FILLS`;
+  elements.accountFills.innerHTML = episodes.length ? renderFillTable(episodes) : `<p class="hint">NO FILLS INGESTED YET.</p>`;
   elements.accountPositions.innerHTML = state.positions.length ? renderPositionTable(state.positions) : `<p class="hint">NO OPEN POSITIONS.</p>`;
 }
 
-function renderFillTable(fills) {
-  const rows = fills.map((fill) => `<tr><td>${escapeHtml(formatDate(fill.occurredAt))}</td><td>${escapeHtml(displayAssetSymbol({ id: fill.asset }))}</td><td class="trade-side ${fill.side}">${fill.side.toUpperCase()}</td><td>${escapeHtml(fill.direction.toUpperCase())}</td><td>${formatQuantity(fill.size)}</td><td>${formatPrice(fill.price)}</td><td>${formatMoney(fill.value)}</td><td>${formatMoney(fill.closedPnl)}</td><td>${formatMoney(fill.fee)}</td></tr>`).join("");
-  return `<table class="paper-table"><thead><tr><th>TIME</th><th>ASSET</th><th>SIDE</th><th>ACTION</th><th>SIZE</th><th>PRICE</th><th>VALUE</th><th>CLOSED PNL</th><th>FEE</th></tr></thead><tbody>${rows}</tbody></table>`;
+function renderFillTable(episodes) {
+  const rows = episodes.map((episode) => {
+    const expanded = state.expandedPositions.has(episode.positionKey);
+    const fillRows = episode.fills.map((fill, index) => `<tr class="trade-position-fill"${expanded ? "" : " hidden"}>
+      <td><span class="trade-fill-index">TRADE ${index + 1}</span></td>
+      <td>${escapeHtml(formatDate(fill.occurredAt))}</td>
+      <td class="trade-side ${fill.side}">${escapeHtml(fill.direction.toUpperCase())}</td>
+      <td>${formatQuantity(fill.size)}</td><td>${formatPrice(fill.price)}</td><td>${formatMoney(fill.value)}</td>
+      <td>${formatMoney(fill.closedPnl)}</td><td>${formatMoney(fill.fee)}</td><td></td>
+    </tr>`).join("");
+    return `<tr class="trade-position-root ${episode.direction}">
+      <td><button type="button" class="trade-position-toggle" data-position-toggle="${escapeHtml(episode.positionKey)}" aria-expanded="${expanded}"><span aria-hidden="true">${expanded ? "−" : "+"}</span>${escapeHtml(episode.label)}</button></td>
+      <td>${escapeHtml(formatDate(episode.openedAt))}</td>
+      <td>${episode.fills.length} ${episode.fills.length === 1 ? "TRADE" : "TRADES"} · ${episode.status.toUpperCase()}${episode.partialHistory ? " · EARLIER ENTRY" : ""}</td>
+      <td>${formatQuantity(episode.currentSize)}</td><td>—</td><td>—</td>
+      <td>${formatMoney(episode.closedPnl)}</td><td>${formatMoney(episode.fees)}</td>
+      <td>${renderPositionTags(episode)}</td>
+    </tr>${fillRows}`;
+  }).join("");
+  return `<table class="paper-table trade-position-table"><thead><tr><th>POSITION</th><th>OPENED</th><th>STATE</th><th>OPEN SIZE</th><th>PRICE</th><th>VALUE</th><th>CLOSED PNL</th><th>FEES</th><th>TAGS</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPositionTags(episode) {
+  const selected = state.positionTags.get(episode.positionKey) ?? [];
+  const disabled = state.tagPending.has(episode.positionKey);
+  return `<div class="trade-position-tags">${TAG_OPTIONS.map((tag) => `<button type="button" data-position-key="${escapeHtml(episode.positionKey)}" data-position-tag="${tag}" aria-pressed="${selected.includes(tag)}"${disabled ? " disabled" : ""}>${tag}</button>`).join("")}</div>`;
 }
 
 function renderPositionTable(positions) {
@@ -284,7 +368,7 @@ function showError(error) {
 }
 
 function formatDate(value) {
-  return DATE_FORMATTER.format(new Date(value));
+  return formatTradeTimestamp(value);
 }
 
 function formatQuantity(value) {
