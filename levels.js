@@ -17,7 +17,7 @@ const elements = {
 
 const picker = new AssetPicker(elements.pickerRoot, { details: "none" });
 const client = createWatchlistClient(APP_CONFIG);
-const state = { catalog: [], market: null, candles: [], result: null, selectedLevel: 0, loadToken: 0, stream: null, reconnectTimer: 0, analyzedEnd: 0, user: null, preferenceTimer: 0 };
+const state = { catalog: [], market: null, candles: [], result: null, selectedLevel: 0, loadToken: 0, stream: null, reconnectTimer: 0, connectTimer: 0, analyzedEnd: 0, user: null, preferenceTimer: 0 };
 const historyCache = new Map();
 
 initialize();
@@ -42,7 +42,7 @@ function bindEvents() {
   elements.pickerRoot.addEventListener("assetchange", () => selectAsset(picker.value));
   elements.form.addEventListener("submit", (event) => { event.preventDefault(); loadHistory(true); });
   elements.form.addEventListener("change", ({ target }) => {
-    if (["sessionMode", "visibleLevels"].includes(target.name) && state.candles.length) analyzeAndRender();
+    if (["riskDollars", "sessionMode", "visibleLevels"].includes(target.name) && state.candles.length) analyzeAndRender();
     schedulePreferenceSave();
   });
   elements.form.addEventListener("input", ({ target }) => { if (target.name === "riskDollars") schedulePreferenceSave(); });
@@ -83,7 +83,7 @@ function applyPreference(preference) {
 
 function schedulePreferenceSave() {
   window.clearTimeout(state.preferenceTimer);
-  state.preferenceTimer = window.setTimeout(savePreference, 500);
+  state.preferenceTimer = window.setTimeout(() => savePreference().catch(showError), 500);
 }
 
 async function savePreference() {
@@ -101,8 +101,7 @@ function selectAsset(assetId) {
   state.market = market;
   state.candles = []; state.result = null; state.analyzedEnd = 0; state.selectedLevel = 0;
   schedulePreferenceSave();
-  if (routeIsActive()) connectStream();
-  loadHistory();
+  if (routeIsActive()) { connectStream(); loadHistory(); }
 }
 
 async function loadHistory(force = false) {
@@ -218,12 +217,17 @@ function renderChart(allBars, levels) {
 
 function connectStream() {
   window.clearTimeout(state.reconnectTimer);
+  window.clearTimeout(state.connectTimer);
   state.stream?.close();
   if (!state.market || !routeIsActive()) return;
   const assetId = state.market.id;
   const stream = new WebSocket(APP_CONFIG.websocketUrl);
   state.stream = stream;
-  stream.addEventListener("open", () => stream.send(JSON.stringify({ method: "subscribe", subscription: { type: "candle", coin: assetId, interval: "5m" } })));
+  state.connectTimer = window.setTimeout(() => { if (stream.readyState === WebSocket.CONNECTING) stream.close(); }, 10_000);
+  stream.addEventListener("open", () => {
+    window.clearTimeout(state.connectTimer);
+    stream.send(JSON.stringify({ method: "subscribe", subscription: { type: "candle", coin: assetId, interval: "5m" } }));
+  });
   stream.addEventListener("message", ({ data }) => {
     if (state.stream !== stream) return;
     let message; try { message = JSON.parse(data); } catch { return; }
@@ -236,6 +240,7 @@ function connectStream() {
     else if (state.result) renderChart([...completed, ...(live ? [live] : [])], state.result.levels.slice(0, readSettings().visibleLevels));
   });
   stream.addEventListener("close", () => {
+    window.clearTimeout(state.connectTimer);
     if (state.stream !== stream || !routeIsActive()) return;
     state.reconnectTimer = window.setTimeout(connectStream, 3_000);
   });
@@ -243,8 +248,13 @@ function connectStream() {
 }
 
 function syncStream() {
-  if (routeIsActive()) connectStream();
-  else { window.clearTimeout(state.reconnectTimer); state.stream?.close(); state.stream = null; }
+  if (routeIsActive()) {
+    connectStream();
+    if (!state.candles.length) loadHistory();
+  } else {
+    window.clearTimeout(state.reconnectTimer); window.clearTimeout(state.connectTimer);
+    state.stream?.close(); state.stream = null;
+  }
 }
 
 function routeIsActive() { return window.location.hash === "#/tools/levels"; }
