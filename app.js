@@ -19,7 +19,7 @@ import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260803-principles";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260804-trade-log";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -105,6 +105,8 @@ const elements = {
   settingsDialog: document.querySelector("#watchlist-settings"),
   tabs: [...document.querySelectorAll("[data-tab]")],
   views: [...document.querySelectorAll("main > section[role=tabpanel]")],
+  analysisTabs: [...document.querySelectorAll("[data-analysis-tab]")],
+  analysisPanels: [...document.querySelectorAll("[data-analysis-panel]")],
   paperTabs: [...document.querySelectorAll("[data-paper-tab]")],
   paperPanels: [...document.querySelectorAll("[data-paper-panel]")],
   toolsTabs: [...document.querySelectorAll("[data-tools-tab]")],
@@ -555,7 +557,7 @@ function renderAlertFields() {
 }
 
 function renderRoute() {
-  const { view, asset, assetView, interval, paperView, toolsView } = parseRoute(window.location.hash);
+  const { view, asset, assetView, interval, analysisView, paperView, toolsView } = parseRoute(window.location.hash);
   const selectedTab = view === "asset" ? "watchlist" : view;
   elements.tabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selectedTab));
@@ -568,6 +570,12 @@ function renderRoute() {
   });
   elements.paperPanels.forEach((panel) => {
     panel.hidden = panel.dataset.paperPanel !== paperView;
+  });
+  elements.analysisTabs.forEach((tab) => {
+    tab.setAttribute("aria-selected", String(tab.dataset.analysisTab === analysisView));
+  });
+  elements.analysisPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.analysisPanel !== analysisView;
   });
   elements.toolsTabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.toolsTab === toolsView));
@@ -583,7 +591,11 @@ function renderRoute() {
     updateCandleSubscription(null, null);
     destroyAssetChart();
   }
-  const canonical = view === "asset" ? routeFor("asset", asset, assetView, interval) : routeFor(view, paperView, toolsView);
+  const canonical = view === "asset"
+    ? routeFor("asset", asset, assetView, interval)
+    : view === "analysis"
+      ? routeFor("analysis", analysisView)
+      : routeFor(view, paperView, toolsView);
   if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
 }
 
