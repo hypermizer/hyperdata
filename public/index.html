@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260804-trade-log" />
+    <link rel="stylesheet" href="./styles.css?v=20260804-trade-csv" />
   </head>
   <body>
     <main>
@@ -173,6 +173,11 @@
         </div>
 
         <div id="trade-log-panel" role="tabpanel" aria-labelledby="trade-log-tab" data-analysis-panel="trade-log">
+          <div class="trade-csv-upload">
+            <input id="trade-csv-input" type="file" accept=".csv,text/csv" hidden />
+            <button id="trade-csv-upload" type="button">UPLOAD FULL CSV</button>
+            <span id="trade-csv-status" class="hint">SIGN IN TO LOAD</span>
+          </div>
           <form id="trade-log-form" class="trade-log-form">
             <label>ASSET
               <div id="trade-log-asset-picker" class="asset-picker" data-picker-details="none">
@@ -494,7 +499,7 @@
     <script type="module" src="./app.js?v=20260804-trade-log"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
-    <script type="module" src="./trade-log.js?v=20260804-trade-log"></script>
+    <script type="module" src="./trade-log.js?v=20260804-trade-csv"></script>
     <script type="module" src="./scaling.js?v=20260801-scaling"></script>
   </body>
 </html>
