@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260803-principles" />
+    <link rel="stylesheet" href="./styles.css?v=20260804-trade-log" />
   </head>
   <body>
     <main>
@@ -22,9 +22,8 @@
             <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">ASSETS</a>
             <a id="alerts-tab" href="#/alerts" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</a>
             <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
-            <a id="analysis-tab" href="#/analysis" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
+            <a id="analysis-tab" href="#/analysis/trade-log" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
             <a id="paper-tab" href="#/paper/home" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</a>
-            <a id="strats-tab" href="#/strats" role="tab" aria-selected="false" aria-controls="strats-view" data-tab="strats">Strats</a>
             <a id="tools-tab" href="#/tools/scaling" role="tab" aria-selected="false" aria-controls="tools-view" data-tab="tools">Tools</a>
           </div>
           <div class="account-actions">
@@ -167,7 +166,38 @@
         </div>
       </section>
 
-      <section id="analysis-view" role="tabpanel" aria-labelledby="analysis-tab" hidden></section>
+      <section id="analysis-view" role="tabpanel" aria-labelledby="analysis-tab" hidden>
+        <div class="section-header"><h2>ANALYSIS</h2><span id="trade-log-status" class="hint">SIGN IN TO LOAD</span></div>
+        <div class="paper-subtabs analysis-subtabs" role="tablist" aria-label="Analysis views">
+          <a id="trade-log-tab" href="#/analysis/trade-log" role="tab" aria-selected="true" aria-controls="trade-log-panel" data-analysis-tab="trade-log">TRADE LOG</a>
+        </div>
+
+        <div id="trade-log-panel" role="tabpanel" aria-labelledby="trade-log-tab" data-analysis-panel="trade-log">
+          <form id="trade-log-form" class="trade-log-form">
+            <label>ASSET
+              <div id="trade-log-asset-picker" class="asset-picker" data-picker-details="none">
+                <input id="trade-log-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="trade-log-asset-list" required />
+                <input data-asset-value name="asset" type="hidden" />
+                <div id="trade-log-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+              </div>
+            </label>
+            <fieldset class="paper-ticket-fieldset">
+              <legend>SIDE</legend>
+              <div class="paper-segmented trade-log-side">
+                <label><input name="side" type="radio" value="buy" checked /><span>BUY</span></label>
+                <label><input name="side" type="radio" value="sell" /><span>SELL</span></label>
+              </div>
+            </fieldset>
+            <label>SHARES <input name="shares" type="number" min="0" step="any" inputmode="decimal" placeholder="0" required /></label>
+            <label>EXECUTION PRICE <input name="price" type="number" min="0" step="any" inputmode="decimal" placeholder="0.00" required /></label>
+            <label>EXECUTED AT <input id="trade-log-executed-at" name="executedAt" type="datetime-local" step="60" required /></label>
+            <label>NOTE <input name="note" maxlength="500" autocomplete="off" placeholder="OPTIONAL" /></label>
+            <button type="submit">ADD ORDER</button>
+          </form>
+          <p id="trade-log-message" class="message" role="alert"></p>
+          <div id="trade-log-table" class="paper-table-wrap trade-log-table"><p class="hint">SIGN IN TO LOAD ORDERS.</p></div>
+        </div>
+      </section>
 
       <section id="paper-view" role="tabpanel" aria-labelledby="paper-tab" hidden>
         <div class="paper-toolbar">
@@ -299,52 +329,6 @@
         </div>
       </section>
 
-      <section id="strats-view" role="tabpanel" aria-labelledby="strats-tab" hidden>
-        <div class="strats-toolbar"><h2>STRATS</h2><span id="strats-status" class="hint">SIGN IN TO LOAD</span></div>
-        <p id="strats-rule" class="strats-rule">WILDER RSI(14) · 5M + 1H · CURRENT ÷ PRIOR-100 AVERAGE · SHORT ≥ 1.90 · LONG ≤ 0.10 · -10% / +20% NET RETURN ON INITIAL MARGIN</p>
-
-        <form id="strats-definition-form" class="strats-form">
-          <label>NEW STRATEGY <input name="name" maxlength="80" value="DUAL RSI MEAN REVERSION" required /></label>
-          <label>ALLOCATION % <input name="marginAllocationPct" type="number" min="1" max="100" step="1" value="10" required /></label>
-          <button type="submit">CREATE</button>
-        </form>
-
-        <form id="strats-revision-form" class="strats-form">
-          <label>STRATEGY <select id="strats-revision-definition" name="definitionId" required></select></label>
-          <label>REVISION BACKTEST ALLOCATION % <input name="marginAllocationPct" type="number" min="1" max="100" step="1" value="10" required /></label>
-          <button type="submit">CREATE REVISION</button>
-        </form>
-
-        <form id="strats-assignment-form" class="strats-form">
-          <label>STRATEGY <select id="strats-definition" name="definitionId" required></select></label>
-          <label>ACCOUNT <select id="strats-account" name="accountId" required></select></label>
-          <label>ASSET
-            <div id="strats-asset-picker" class="asset-picker" data-picker-details="none">
-              <input id="strats-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="strats-asset-list" required />
-              <input data-asset-value name="asset" type="hidden" />
-              <div id="strats-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
-            </div>
-          </label>
-          <label>ALLOCATION % <input name="marginAllocationPct" type="number" min="1" max="100" step="1" value="10" required /></label>
-          <button type="submit">ASSIGN PAUSED</button>
-        </form>
-
-        <h3 class="paper-heading">ASSIGNMENTS</h3>
-        <div id="strats-assignments" class="paper-table-wrap"><p class="hint">NONE</p></div>
-
-        <form id="strats-backtest-form" class="strats-form strats-backtest-form">
-          <label>REVISION <select id="strats-revision" name="revisionId" required></select></label>
-          <label>START <input id="strats-start" name="start" type="date" required /></label>
-          <label>END <input id="strats-end" name="end" type="date" required /></label>
-          <label>CAPITAL <input name="initialCapital" type="number" min="1" max="1000000000" step="1" value="5000" required /></label>
-          <fieldset class="strats-assets"><legend>ASSETS</legend><label><input type="checkbox" name="assets" value="xyz:DRAM" checked /> DRAM</label><label><input type="checkbox" name="assets" value="xyz:XYZ100" checked /> XYZ100</label><label><input type="checkbox" name="assets" value="BTC" checked /> BTC</label></fieldset>
-          <button type="submit">RUN BACKTEST</button>
-        </form>
-        <h3 class="paper-heading">BACKTESTS</h3>
-        <div id="strats-backtests" class="paper-table-wrap"><p class="hint">NONE</p></div>
-        <p id="strats-message" class="message" role="alert"></p>
-      </section>
-
       <section id="tools-view" role="tabpanel" aria-labelledby="tools-tab" hidden>
         <div class="section-header"><h2>TOOLS</h2><span class="hint">ANALYSIS ONLY</span></div>
         <div class="paper-subtabs tools-subtabs" role="tablist" aria-label="Tools">
@@ -429,12 +413,6 @@
       </section>
     </main>
 
-    <dialog id="strats-pause-dialog" class="settings-dialog" aria-labelledby="strats-pause-title">
-      <div class="settings-header"><h2 id="strats-pause-title">PAUSE STRATEGY</h2><button class="icon-button" type="button" data-close-strats-pause aria-label="Close">×</button></div>
-      <p class="strats-dialog-copy">THIS ASSIGNMENT HAS AN OPEN POSITION.</p>
-      <div class="dialog-actions"><button type="button" data-strats-pause-mode="keep_exit_management">KEEP EXIT MANAGEMENT</button><button type="button" data-strats-pause-mode="close_and_pause">CLOSE AND PAUSE</button></div>
-    </dialog>
-
     <dialog id="paper-account-dialog" class="settings-dialog" aria-labelledby="paper-account-dialog-title">
       <div class="settings-header">
         <h2 id="paper-account-dialog-title">New paper account</h2>
@@ -513,10 +491,10 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20260803-principles"></script>
+    <script type="module" src="./app.js?v=20260804-trade-log"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
-    <script type="module" src="./strats.js?v=20260728-persistent-auth"></script>
+    <script type="module" src="./trade-log.js?v=20260804-trade-log"></script>
     <script type="module" src="./scaling.js?v=20260801-scaling"></script>
   </body>
 </html>
