@@ -3,6 +3,7 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
+import { prepareTradeCsv } from "./lib/trade-csv.js?v=20260804-trade-csv";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -13,24 +14,32 @@ const elements = {
   executedAt: document.querySelector("#trade-log-executed-at"),
   form: document.querySelector("#trade-log-form"),
   message: document.querySelector("#trade-log-message"),
+  csvInput: document.querySelector("#trade-csv-input"),
+  csvStatus: document.querySelector("#trade-csv-status"),
+  csvUpload: document.querySelector("#trade-csv-upload"),
   status: document.querySelector("#trade-log-status"),
   table: document.querySelector("#trade-log-table"),
 };
 elements.controls = [...elements.form.querySelectorAll("input, button")];
 const picker = new AssetPicker(document.querySelector("#trade-log-asset-picker"), { details: "none" });
-const state = { catalogState: "loading", orders: [], pending: false, user: null };
+const state = { catalogState: "loading", csvError: false, csvUpload: null, orders: [], pending: false, user: null };
 
 wire();
 initialize().catch((error) => showError(error));
 
 function wire() {
   elements.form.addEventListener("submit", addOrder);
+  elements.csvUpload.addEventListener("click", () => {
+    elements.csvInput.value = "";
+    elements.csvInput.click();
+  });
+  elements.csvInput.addEventListener("change", uploadCsv);
   elements.table.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-trade-order]");
     if (button) deleteOrder(button.dataset.deleteTradeOrder);
   });
   window.addEventListener("focus", () => {
-    if (state.user && !state.pending) loadOrders().catch((error) => showError(error));
+    if (state.user && !state.pending) loadTradeData().catch((error) => showError(error));
   });
 }
 
@@ -59,12 +68,19 @@ async function initialize() {
 
 async function setSession(session) {
   state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null;
+  state.csvError = false;
+  state.csvUpload = null;
   state.orders = [];
-  if (state.user) await loadOrders();
+  if (state.user) await loadTradeData();
   else render();
 }
 
-async function loadOrders() {
+async function loadTradeData() {
+  await Promise.all([loadOrders(false), loadCsvUpload(false)]);
+  render();
+}
+
+async function loadOrders(renderAfter = true) {
   const { data, error } = await client
     .from("trade_log_orders")
     .select("id,asset,side,shares,price,executed_at,note,created_at")
@@ -72,7 +88,46 @@ async function loadOrders() {
     .order("created_at", { ascending: true });
   if (error) throw error;
   state.orders = data ?? [];
-  render();
+  if (renderAfter) render();
+}
+
+async function loadCsvUpload(renderAfter = true) {
+  const { data, error } = await client
+    .from("trade_csv_uploads")
+    .select("file_name,file_size,content_sha256,uploaded_at")
+    .maybeSingle();
+  state.csvError = Boolean(error);
+  state.csvUpload = error ? null : data;
+  if (renderAfter) render();
+}
+
+async function uploadCsv() {
+  const [file] = elements.csvInput.files ?? [];
+  if (!file || !state.user || state.pending) return;
+  try {
+    setPending(true);
+    const prepared = await prepareTradeCsv(file);
+    if (prepared.contentSha256 === state.csvUpload?.content_sha256) {
+      setMessage("THIS FULL CSV IS ALREADY UPLOADED");
+      return;
+    }
+    const { error } = await client.from("trade_csv_uploads").upsert({
+      user_id: state.user.id,
+      file_name: prepared.fileName,
+      file_size: prepared.fileSize,
+      content_sha256: prepared.contentSha256,
+      content: prepared.content,
+      uploaded_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+    if (error) throw error;
+    await loadCsvUpload();
+    setMessage("FULL CSV UPLOADED", "success");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setPending(false);
+    elements.csvInput.value = "";
+  }
 }
 
 async function addOrder(event) {
@@ -149,11 +204,13 @@ function render() {
     elements.table.innerHTML = `<p class="message">${escapeHtml(error.message)}</p>`;
     elements.controls.forEach((control) => { control.disabled = true; });
     picker.setDisabled(true);
+    renderCsvUpload();
     return;
   }
   const enabled = Boolean(state.user) && state.catalogState === "ready" && !state.pending;
   elements.controls.forEach((control) => { control.disabled = !enabled; });
   picker.setDisabled(!enabled);
+  renderCsvUpload();
   if (!state.user) {
     elements.status.textContent = client ? "SIGN IN TO LOAD" : "STORAGE UNAVAILABLE";
     elements.table.innerHTML = `<p class="hint">SIGN IN TO LOAD ORDERS.</p>`;
@@ -164,6 +221,23 @@ function render() {
   const catalogStatus = state.catalogState === "error" ? " · ASSET LIST ERROR" : "";
   elements.status.textContent = `${ledger.length} ${ledger.length === 1 ? "ORDER" : "ORDERS"} · ${openPositions} OPEN${catalogStatus}`;
   elements.table.innerHTML = ledger.length ? renderTable([...ledger].reverse()) : `<p class="hint">NO ORDERS YET.</p>`;
+}
+
+function renderCsvUpload() {
+  const enabled = Boolean(state.user) && !state.pending;
+  elements.csvUpload.disabled = !enabled;
+  elements.csvInput.disabled = !enabled;
+  if (!state.user) {
+    elements.csvStatus.textContent = client ? "SIGN IN TO UPLOAD" : "STORAGE UNAVAILABLE";
+  } else if (state.pending) {
+    elements.csvStatus.textContent = "WORKING…";
+  } else if (state.csvError) {
+    elements.csvStatus.textContent = "CSV STORAGE UNAVAILABLE";
+  } else if (!state.csvUpload) {
+    elements.csvStatus.textContent = "NO CSV UPLOADED · 10 MB MAX";
+  } else {
+    elements.csvStatus.textContent = `LATEST · ${state.csvUpload.file_name} · ${formatFileSize(state.csvUpload.file_size)} · ${formatDate(state.csvUpload.uploaded_at)}`;
+  }
 }
 
 function renderTable(ledger) {
@@ -218,6 +292,13 @@ function formatPrice(value) {
 
 function formatMoney(value) {
   return `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatFileSize(value) {
+  const bytes = Number(value);
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function escapeHtml(value) {
