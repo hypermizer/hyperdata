@@ -25,20 +25,6 @@ async function upsertChunks(service: SupabaseClient, table: string, rows: Record
   }
 }
 
-async function replacePositions(service: SupabaseClient, source: AccountSyncSource, positions: Record<string, unknown>[]) {
-  await upsertChunks(service, "hyperliquid_account_positions", positions, "account_address,dex,asset");
-  const { data: existing, error } = await service.from("hyperliquid_account_positions")
-    .select("dex,asset").eq("user_id", source.user_id).eq("account_address", source.address);
-  if (error) throw new Error(`hyperliquid_account_positions: ${error.message}`);
-  const currentKeys = new Set(positions.map((position) => `${position.dex}\u0000${position.asset}`));
-  for (const stale of existing ?? []) {
-    if (currentKeys.has(`${stale.dex}\u0000${stale.asset}`)) continue;
-    const deletion = await service.from("hyperliquid_account_positions").delete()
-      .eq("user_id", source.user_id).eq("account_address", source.address).eq("dex", stale.dex).eq("asset", stale.asset);
-    if (deletion.error) throw new Error(`hyperliquid_account_positions: ${deletion.error.message}`);
-  }
-}
-
 export async function syncSource(service: SupabaseClient, source: AccountSyncSource, now = Date.now()) {
   try {
     const [fillsWindow, fundingWindow, ledgerWindow, positions] = await Promise.all([
@@ -48,12 +34,16 @@ export async function syncSource(service: SupabaseClient, source: AccountSyncSou
       fetchPositions(source.user_id, source.address, now, fetchInfo),
     ]);
     const fills = fillsWindow.items.map((item) => normalizeFill(source.user_id, source.address, item));
-    const funding = await Promise.all(fundingWindow.items.map((item) => normalizeFunding(source.user_id, source.address, item)));
-    const ledger = await Promise.all(ledgerWindow.items.map((item) => normalizeLedger(source.user_id, source.address, item)));
+    const funding = fundingWindow.items.map((item) => normalizeFunding(source.user_id, source.address, item));
+    const ledger = ledgerWindow.items.map((item) => normalizeLedger(source.user_id, source.address, item));
     await upsertChunks(service, "hyperliquid_account_fills", fills, "account_address,trade_id");
     await upsertChunks(service, "hyperliquid_account_funding", funding, "account_address,event_key");
     await upsertChunks(service, "hyperliquid_account_ledger", ledger, "account_address,event_key");
-    await replacePositions(service, source, positions);
+    const positionResult = await service.rpc("replace_hyperliquid_account_positions", {
+      p_user_id: source.user_id, p_address: source.address,
+      p_observed_at: new Date(now).toISOString(), p_positions: positions,
+    });
+    if (positionResult.error) throw new Error(`hyperliquid_account_positions: ${positionResult.error.message}`);
     const { error } = await service.rpc("finish_hyperliquid_account_sync", {
       p_user_id: source.user_id, p_succeeded: true,
       p_fills_cursor_ms: fillsWindow.cursorMs, p_funding_cursor_ms: fundingWindow.cursorMs,

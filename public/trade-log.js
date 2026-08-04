@@ -24,7 +24,7 @@ const elements = {
 };
 elements.controls = [...elements.form.querySelectorAll("input, button")];
 const picker = new AssetPicker(document.querySelector("#trade-log-asset-picker"), { details: "none" });
-const state = { accountError: null, accountSource: null, catalogState: "loading", fills: [], orders: [], pending: false, positions: [], user: null };
+const state = { accountError: null, accountLoaded: false, accountSource: null, catalogState: "loading", fills: [], orders: [], pending: false, positions: [], user: null };
 
 wire();
 initialize().catch((error) => showError(error));
@@ -69,6 +69,7 @@ async function initialize() {
 async function setSession(session) {
   state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null;
   state.accountError = null;
+  state.accountLoaded = false;
   state.accountSource = null;
   state.fills = [];
   state.orders = [];
@@ -94,8 +95,22 @@ async function loadOrders(renderAfter = true) {
 }
 
 async function loadAccountData(renderAfter = true) {
-  const [sourceResult, fillsResult, positionsResult] = await Promise.all([
-    client.from("hyperliquid_account_sources").select("address,last_attempt_at,last_success_at,last_error").maybeSingle(),
+  const previousSuccess = state.accountSource?.last_success_at ?? null;
+  const sourceResult = await client.from("hyperliquid_account_sources")
+    .select("address,last_success_at,last_error").maybeSingle();
+  if (sourceResult.error) {
+    state.accountError = sourceResult.error.message;
+    state.accountSource = null;
+    if (renderAfter) render();
+    return;
+  }
+  state.accountSource = sourceResult.data;
+  state.accountError = null;
+  if (state.accountLoaded && sourceResult.data?.last_success_at === previousSuccess) {
+    if (renderAfter) render();
+    return;
+  }
+  const [fillsResult, positionsResult] = await Promise.all([
     client.from("hyperliquid_account_fills")
       .select("trade_id,asset,side,direction,size,price,closed_pnl,fee,fee_token,occurred_at,order_id,transaction_hash")
       .order("occurred_at", { ascending: false }).limit(1000),
@@ -103,11 +118,11 @@ async function loadAccountData(renderAfter = true) {
       .select("dex,asset,signed_size,entry_price,position_value,unrealized_pnl,margin_used,liquidation_price,leverage_type,leverage,observed_at")
       .order("asset", { ascending: true }),
   ]);
-  const error = sourceResult.error ?? fillsResult.error ?? positionsResult.error;
+  const error = fillsResult.error ?? positionsResult.error;
   state.accountError = error?.message ?? null;
-  state.accountSource = sourceResult.error ? null : sourceResult.data;
   state.fills = fillsResult.error ? [] : (fillsResult.data ?? []).map(normalizeAccountFill);
   state.positions = positionsResult.error ? [] : positionsResult.data ?? [];
+  state.accountLoaded = !error;
   if (renderAfter) render();
 }
 

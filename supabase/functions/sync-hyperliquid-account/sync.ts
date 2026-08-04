@@ -60,7 +60,7 @@ export function normalizeFill(userId: string, address: string, input: unknown) {
   };
 }
 
-export async function normalizeFunding(userId: string, address: string, input: unknown) {
+export function normalizeFunding(userId: string, address: string, input: unknown) {
   const raw = record(input, "funding event");
   const delta = record(raw.delta, "funding delta");
   const eventTime = timestamp(raw.time);
@@ -76,7 +76,7 @@ export async function normalizeFunding(userId: string, address: string, input: u
   };
 }
 
-export async function normalizeLedger(userId: string, address: string, input: unknown) {
+export function normalizeLedger(userId: string, address: string, input: unknown) {
   const raw = record(input, "ledger event");
   const delta = record(raw.delta, "ledger delta");
   const eventTime = timestamp(raw.time);

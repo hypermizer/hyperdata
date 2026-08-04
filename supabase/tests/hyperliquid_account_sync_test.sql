@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(18);
+select plan(22);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 values
@@ -32,11 +32,19 @@ select throws_ok($$insert into public.hyperliquid_account_fills (user_id, accoun
 insert into public.hyperliquid_account_positions
   (user_id, account_address, dex, asset, signed_size, entry_price, position_value, unrealized_pnl, margin_used, liquidation_price, leverage_type, leverage, raw, observed_at)
 values ('00000000-0000-0000-0000-000000000081', '0x003b9e3e0cfd28ba45a3723e393c5443c92792ac', 'xyz', 'xyz:DRAM', -2, 51.5, 103, 2, 4, 70, 'cross', 25, '{}', now());
+select lives_ok($$select public.replace_hyperliquid_account_positions(
+  '00000000-0000-0000-0000-000000000081',
+  '0x003b9e3e0cfd28ba45a3723e393c5443c92792ac',
+  '2026-08-04T17:20:00Z',
+  '[{"dex":"xyz","asset":"xyz:PLTR","signed_size":"-3","entry_price":"100","position_value":"300","unrealized_pnl":"5","margin_used":"12","liquidation_price":"130","leverage_type":"cross","leverage":25,"raw":{"position":{"coin":"PLTR"}}}]'::jsonb
+)$$, 'position snapshots replace atomically');
+select is((select count(*)::integer from public.hyperliquid_account_positions), 1, 'replacement removes stale positions');
+select is((select asset from public.hyperliquid_account_positions), 'xyz:PLTR', 'replacement inserts the current position');
 
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000081","email":"jasonblick@zohomail.com","role":"authenticated"}', true);
 select is((select count(*)::integer from public.hyperliquid_account_fills), 1, 'owner reads only their fills');
-select is((select asset from public.hyperliquid_account_positions), 'xyz:DRAM', 'owner reads current positions');
+select is((select asset from public.hyperliquid_account_positions), 'xyz:PLTR', 'owner reads current positions');
 select throws_ok($$delete from public.hyperliquid_account_fills$$, '42501', null, 'client cannot delete authoritative fills');
 
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000082","email":"other@example.com","role":"authenticated"}', true);
@@ -52,6 +60,7 @@ select ok((select last_success_at is not null and lease_until is null from publi
 
 select function_privs_are('public', 'claim_hyperliquid_account_source', array['integer'], 'authenticated', array[]::text[], 'client cannot claim sync work');
 select function_privs_are('public', 'finish_hyperliquid_account_sync', array['uuid','boolean','bigint','bigint','bigint','text'], 'authenticated', array[]::text[], 'client cannot finish sync work');
+select function_privs_are('public', 'replace_hyperliquid_account_positions', array['uuid','text','timestamp with time zone','jsonb'], 'authenticated', array[]::text[], 'client cannot replace position snapshots');
 select function_privs_are('public', 'configure_hyperliquid_account_cron', array[]::text[], 'service_role', array['EXECUTE'], 'service configures account cron');
 
 select * from finish();
