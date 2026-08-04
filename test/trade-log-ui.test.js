@@ -10,6 +10,9 @@ test("analysis exposes a routed trade log table and order entry form", () => {
   assert.match(html, /id="trade-log-table"/);
   assert.match(html, /name="side"[^>]*value="buy"/);
   assert.match(html, /name="side"[^>]*value="sell"/);
+  assert.match(html, /id="trade-csv-input"[^>]*accept="\.csv,text\/csv"/);
+  assert.match(html, /id="trade-csv-upload"[^>]*>UPLOAD FULL CSV</);
+  assert.match(html, /id="trade-csv-status"/);
 });
 
 test("the strategy product surface and runtime are removed", () => {
