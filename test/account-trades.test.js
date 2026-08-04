@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountSyncHealth, buildPositionEpisodes, formatTradeTimestamp, normalizeAccountFill } from "../public/lib/account-trades.js";
+import { accountSyncHealth, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "../public/lib/account-trades.js";
 
 test("normalizes authoritative Hyperliquid fills for the trade log", () => {
   assert.deepEqual(normalizeAccountFill({
@@ -68,6 +68,25 @@ test("splits a direction-flipping fill between the closing and opening roots", (
 
 test("formats trade times without seconds", () => {
   assert.equal(formatTradeTimestamp("2026-08-04T17:13:59Z", "UTC"), "08/04/26 5:13PM");
+});
+
+test("loads every fill in deterministic bounded pages", async () => {
+  const calls = [];
+  const result = await fetchAllAccountFills(async (from, to) => {
+    calls.push([from, to]);
+    return { data: from === 0 ? [{ trade_id: "1" }, { trade_id: "2" }] : [{ trade_id: "3" }], error: null };
+  }, 2);
+
+  assert.deepEqual(calls, [[0, 1], [2, 3]]);
+  assert.deepEqual(result, { data: [{ trade_id: "1" }, { trade_id: "2" }, { trade_id: "3" }], error: null });
+});
+
+test("stops fill pagination on the first failed page", async () => {
+  const failure = new Error("query failed");
+  const result = await fetchAllAccountFills(async (from) => (
+    from === 0 ? { data: [{ trade_id: "1" }], error: null } : { data: null, error: failure }
+  ), 1);
+  assert.deepEqual(result, { data: null, error: failure });
 });
 
 test("sync health distinguishes current, stale, never-run, and failed sources", () => {

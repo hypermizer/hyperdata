@@ -24,6 +24,8 @@ test("account fills render as expandable position roots with persistent tags", (
   assert.match(script, /data-position-tag/);
   assert.match(script, /hyperliquid_account_position_tags/);
   assert.match(script, /EARNINGS.*MEANREV.*YOLO/s);
+  assert.match(script, /tagVersion/);
+  assert.match(script, /snapshotVersion === state\.tagVersion/);
   assert.match(styles, /trade-position-root/);
   assert.match(styles, /trade-position-fill/);
 });

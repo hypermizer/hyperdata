@@ -3,7 +3,7 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { accountSyncHealth, buildPositionEpisodes, formatTradeTimestamp, normalizeAccountFill } from "./lib/account-trades.js?v=20260804-position-groups";
+import { accountSyncHealth, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "./lib/account-trades.js?v=20260804-position-groups";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -25,7 +25,7 @@ const picker = new AssetPicker(document.querySelector("#trade-log-asset-picker")
 const state = {
   accountError: null, accountLoaded: false, accountSource: null, catalogState: "loading",
   expandedPositions: new Set(), fills: [], orders: [], pending: false, positions: [],
-  positionTags: new Map(), tagPending: new Set(), user: null,
+  positionTags: new Map(), tagPending: new Set(), tagVersion: 0, user: null,
 };
 
 wire();
@@ -47,10 +47,10 @@ function wire() {
     if (toggle) togglePosition(toggle.dataset.positionToggle);
   });
   window.addEventListener("focus", () => {
-    if (state.user && !state.pending) loadTradeData().catch((error) => showError(error));
+    if (state.user && !state.pending && !state.tagPending.size) loadTradeData().catch((error) => showError(error));
   });
   window.setInterval(() => {
-    if (state.user && !state.pending && !document.hidden) loadAccountData().catch((error) => showError(error));
+    if (state.user && !state.pending && !state.tagPending.size && !document.hidden) loadAccountData().catch((error) => showError(error));
   }, 15_000);
 }
 
@@ -88,6 +88,7 @@ async function setSession(session) {
   state.positionTags = new Map();
   state.expandedPositions = new Set();
   state.tagPending = new Set();
+  state.tagVersion += 1;
   if (state.user) await loadTradeData();
   else render();
 }
@@ -110,6 +111,7 @@ async function loadOrders(renderAfter = true) {
 
 async function loadAccountData(renderAfter = true) {
   const previousSuccess = state.accountSource?.last_success_at ?? null;
+  const snapshotVersion = state.tagVersion;
   const [sourceResult, tagsResult] = await Promise.all([
     client.from("hyperliquid_account_sources").select("address,last_success_at,last_error").maybeSingle(),
     client.from("hyperliquid_account_position_tags").select("position_key,tags"),
@@ -121,21 +123,26 @@ async function loadAccountData(renderAfter = true) {
     return;
   }
   state.accountSource = sourceResult.data;
-  state.accountError = tagsResult.error?.message ?? null;
-  if (!tagsResult.error) state.positionTags = new Map((tagsResult.data ?? []).map((row) => [row.position_key, row.tags ?? []]));
+  const tagError = snapshotVersion === state.tagVersion ? tagsResult.error : null;
+  state.accountError = tagError?.message ?? null;
+  if (!tagsResult.error && snapshotVersion === state.tagVersion) {
+    state.positionTags = new Map((tagsResult.data ?? []).map((row) => [row.position_key, row.tags ?? []]));
+  }
   if (state.accountLoaded && sourceResult.data?.last_success_at === previousSuccess) {
     if (renderAfter) render();
     return;
   }
   const [fillsResult, positionsResult] = await Promise.all([
-    client.from("hyperliquid_account_fills")
+    fetchAllAccountFills((from, to) => client.from("hyperliquid_account_fills")
       .select("trade_id,asset,side,direction,size,price,start_position,closed_pnl,fee,fee_token,occurred_at,order_id,transaction_hash")
-      .order("occurred_at", { ascending: false }).limit(1000),
+      .order("occurred_at", { ascending: false })
+      .order("trade_id", { ascending: false })
+      .range(from, to)),
     client.from("hyperliquid_account_positions")
       .select("dex,asset,signed_size,entry_price,position_value,unrealized_pnl,margin_used,liquidation_price,leverage_type,leverage,observed_at")
       .order("asset", { ascending: true }),
   ]);
-  const error = tagsResult.error ?? fillsResult.error ?? positionsResult.error;
+  const error = tagError ?? fillsResult.error ?? positionsResult.error;
   state.accountError = error?.message ?? null;
   state.fills = fillsResult.error ? [] : (fillsResult.data ?? []).map(normalizeAccountFill);
   state.positions = positionsResult.error ? [] : positionsResult.data ?? [];
@@ -155,6 +162,7 @@ async function togglePositionTag(positionKey, tag) {
   if (!episode) return;
   const previous = [...(state.positionTags.get(positionKey) ?? [])];
   const next = previous.includes(tag) ? previous.filter((value) => value !== tag) : [...previous, tag];
+  state.tagVersion += 1;
   state.positionTags.set(positionKey, next);
   state.tagPending.add(positionKey);
   renderAccountData();
@@ -291,7 +299,7 @@ function renderAccountData() {
   elements.accountHealth.dataset.tone = health.tone;
   elements.accountAddress.textContent = state.accountSource?.address ?? "ACCOUNT SOURCE NOT CONFIGURED";
   const episodes = buildPositionEpisodes(state.fills);
-  elements.accountFillCount.textContent = `${episodes.length} POSITIONS · ${state.fills.length}${state.fills.length === 1000 ? "+" : ""} FILLS`;
+  elements.accountFillCount.textContent = `${episodes.length} POSITIONS · ${state.fills.length} FILLS`;
   elements.accountFills.innerHTML = episodes.length ? renderFillTable(episodes) : `<p class="hint">NO FILLS INGESTED YET.</p>`;
   elements.accountPositions.innerHTML = state.positions.length ? renderPositionTable(state.positions) : `<p class="hint">NO OPEN POSITIONS.</p>`;
 }
