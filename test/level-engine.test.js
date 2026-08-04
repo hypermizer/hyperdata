@@ -57,6 +57,7 @@ test("New York VWAP uses the latest completed trading session outside market hou
     { time: saturday, open: 199, high: 201, low: 199, close: 200, volume: 10 },
   ];
   assert.equal(sessionVwap(bars, { mode: "new_york_rth" }), 100);
+  assert.equal(sessionVwap([{ ...bars[0], volume: 0 }, bars[1]], { mode: "new_york_rth" }), 100);
 });
 
 test("clusters nearby candidates and exposes score components", () => {

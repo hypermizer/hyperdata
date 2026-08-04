@@ -21,5 +21,7 @@ test("level workspace uses closed-bar analysis, a candle stream, exports, and pr
   assert.match(script, /analyzeLevels/);
   assert.match(script, /downloadCsv/);
   assert.match(script, /level_tool_preferences/);
+  assert.match(script, /if \(routeIsActive\(\)\) \{ connectStream\(\); loadHistory\(\); \}/);
+  assert.match(script, /WebSocket\.CONNECTING/);
   assert.match(css, /\.levels-chart/);
 });

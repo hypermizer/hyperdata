@@ -129,7 +129,8 @@ export function sessionVwap(bars, { mode = "utc" } = {}) {
   const finalKey = eligible.length ? groupSessionKey(eligible.at(-1).time, mode) : null;
   const session = eligible.filter((bar) => groupSessionKey(bar.time, mode) === finalKey);
   const volume = session.reduce((sum, bar) => sum + bar.volume, 0);
-  if (!session.length || volume <= 0) return bars.at(-1).close;
+  if (!session.length) return bars.at(-1).close;
+  if (volume <= 0) return session.at(-1).close;
   return session.reduce((sum, bar) => sum + ((bar.high + bar.low + bar.close) / 3) * bar.volume, 0) / volume;
 }
 
@@ -178,7 +179,15 @@ function priorCandidates(bars, daily, candidates, vwap, dailyAtr, sessionMode) {
     addCandidate(candidates, daily.at(-2).high, "prior_daily_high", 2.4);
     addCandidate(candidates, daily.at(-2).low, "prior_daily_low", 2.4);
   }
-  const priorWeek = daily.slice(-10, -5);
+  const weekGroups = new Map();
+  for (const bar of daily) {
+    const date = new Date(`${bar.sessionKey}T12:00:00Z`);
+    const daysToFriday = (5 - date.getUTCDay() + 7) % 7;
+    date.setUTCDate(date.getUTCDate() + daysToFriday);
+    const weekKey = date.toISOString().slice(0, 10);
+    weekGroups.set(weekKey, [...(weekGroups.get(weekKey) ?? []), bar]);
+  }
+  const priorWeek = [...weekGroups.values()].at(-2) ?? [];
   if (priorWeek.length) {
     addCandidate(candidates, Math.max(...priorWeek.map(({ high }) => high)), "prior_week_high", 3.7);
     addCandidate(candidates, Math.min(...priorWeek.map(({ low }) => low)), "prior_week_low", 3.7);
