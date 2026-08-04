@@ -342,6 +342,36 @@
         <div class="section-header"><h2>TOOLS</h2><span class="hint">ANALYSIS ONLY</span></div>
         <div class="paper-subtabs tools-subtabs" role="tablist" aria-label="Tools">
           <a id="scaling-tab" href="#/tools/scaling" role="tab" aria-selected="true" aria-controls="scaling-panel" data-tools-tab="scaling">SCALING</a>
+          <a id="levels-tab" href="#/tools/levels" role="tab" aria-selected="false" aria-controls="levels-panel" data-tools-tab="levels">LEVELS</a>
+        </div>
+
+        <div id="levels-panel" role="tabpanel" aria-labelledby="levels-tab" data-tools-panel="levels" hidden>
+          <p class="tool-intro">RANK MULTI-TIMEFRAME SUPPORT AND RESISTANCE ZONES FROM HYPERLIQUID 5-MINUTE BARS. LEVELS ARE CONTEXT; SETUPS REQUIRE CONFIRMATION.</p>
+          <form id="levels-form" class="levels-form">
+            <label>ASSET
+              <div id="levels-asset-picker" class="asset-picker" data-picker-details="none">
+                <input id="levels-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="levels-asset-list" />
+                <input data-asset-value name="asset" type="hidden" />
+                <div id="levels-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
+              </div>
+            </label>
+            <label>RISK DOLLARS <input name="riskDollars" type="number" min="0" step="1" value="500" /></label>
+            <label>SESSION <select name="sessionMode"><option value="auto">AUTO</option><option value="new_york_rth">NEW YORK RTH</option><option value="utc">UTC 24H</option></select></label>
+            <label>VISIBLE LEVELS <select name="visibleLevels"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
+            <button id="levels-refresh" type="submit">REFRESH</button>
+          </form>
+          <p id="levels-status" class="message levels-status" role="status">SELECTING ASSET…</p>
+          <div id="levels-summary" class="paper-metrics levels-summary" aria-live="polite"></div>
+          <section class="levels-card">
+            <div class="scaling-card-header"><h3>LEVEL MAP</h3><span id="levels-chart-note" class="hint">COMPLETED 5M BARS</span></div>
+            <svg id="levels-chart" class="levels-chart" viewBox="0 0 960 420" role="img" aria-label="Price candles with ranked support and resistance zones"></svg>
+          </section>
+          <div class="levels-grid">
+            <section class="levels-card"><div class="scaling-card-header"><h3>RANKED ZONES</h3><button id="levels-download-levels" type="button">CSV</button></div><div id="levels-table" class="paper-table-wrap"></div></section>
+            <section class="levels-card"><div class="scaling-card-header"><h3>CONDITIONAL SETUPS</h3><button id="levels-download-setups" type="button">CSV</button></div><div id="levels-setups" class="paper-table-wrap"></div></section>
+          </div>
+          <section class="levels-card levels-score-card"><div class="scaling-card-header"><h3>SCORE EXPLAINER</h3><span class="hint">SELECT A ZONE ROW</span></div><div id="levels-score-detail" class="levels-score-detail"></div></section>
+          <p class="ladder-note">HYPERLIQUID PERPETUAL VENUE VOLUME. PROFILE IS APPROXIMATED FROM BAR TYPICAL PRICE, NOT TICK-LEVEL VOLUME-AT-PRICE. LIVE CANDLES UPDATE THE MAP, BUT LEVELS RECOMPUTE ONLY AFTER A 5-MINUTE BAR CLOSES.</p>
         </div>
 
         <div id="scaling-panel" role="tabpanel" aria-labelledby="scaling-tab" data-tools-panel="scaling" hidden>
@@ -505,5 +535,6 @@
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./trade-log.js?v=20260804-position-groups"></script>
     <script type="module" src="./scaling.js?v=20260801-scaling"></script>
+    <script type="module" src="./levels.js?v=20260804-level-engine"></script>
   </body>
 </html>
