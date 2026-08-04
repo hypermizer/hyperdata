@@ -12,8 +12,150 @@ export function normalizeAccountFill(row) {
     size, price, value: size * price,
     closedPnl: finite(row.closed_pnl ?? 0, "closed pnl"), fee: finite(row.fee ?? 0, "fee"),
     feeToken: row.fee_token ? String(row.fee_token) : "", occurredAt: String(row.occurred_at),
+    startPosition: row.start_position == null ? null : finite(row.start_position, "start position"),
     orderId: String(row.order_id), transactionHash: row.transaction_hash ? String(row.transaction_hash) : "",
   };
+}
+
+export async function fetchAllAccountFills(fetchPage, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const result = await fetchPage(from, from + pageSize - 1);
+    if (result.error) return { data: null, error: result.error };
+    const page = result.data ?? [];
+    rows.push(...page);
+    if (page.length < pageSize) return { data: rows, error: null };
+  }
+}
+
+const POSITION_EPSILON = 1e-12;
+
+function positionSign(value) {
+  if (Math.abs(value) <= POSITION_EPSILON) return 0;
+  return value > 0 ? 1 : -1;
+}
+
+function directionName(sign) {
+  return sign > 0 ? "long" : "short";
+}
+
+function assetName(asset) {
+  return String(asset).split(":").at(-1).toUpperCase();
+}
+
+function startEpisode(fill, sign, partialHistory = false) {
+  const direction = directionName(sign);
+  return {
+    positionKey: `${fill.asset}|${direction}|${fill.tradeId}`,
+    asset: fill.asset,
+    direction,
+    label: `${direction.toUpperCase()} ${assetName(fill.asset)}`,
+    openedAt: fill.occurredAt,
+    updatedAt: fill.occurredAt,
+    closedAt: null,
+    status: "open",
+    currentSize: 0,
+    closedPnl: 0,
+    fees: 0,
+    partialHistory,
+    fills: [],
+  };
+}
+
+function addFill(episode, fill, endPosition) {
+  episode.fills.push(fill);
+  episode.updatedAt = fill.occurredAt;
+  episode.currentSize = Math.abs(endPosition);
+  episode.closedPnl += fill.closedPnl;
+  episode.fees += fill.fee;
+  if (positionSign(endPosition) === 0) {
+    episode.status = "closed";
+    episode.closedAt = fill.occurredAt;
+  }
+}
+
+function splitFill(fill, size, totalSize, splitPart) {
+  const ratio = totalSize ? size / totalSize : 0;
+  return {
+    ...fill,
+    size,
+    value: size * fill.price,
+    fee: fill.fee * ratio,
+    closedPnl: splitPart === "close" ? fill.closedPnl : 0,
+    splitPart,
+  };
+}
+
+export function buildPositionEpisodes(fills) {
+  const ordered = [...fills].sort((left, right) => {
+    const time = Date.parse(left.occurredAt) - Date.parse(right.occurredAt);
+    return time || String(left.tradeId).localeCompare(String(right.tradeId), undefined, { numeric: true });
+  });
+  const episodes = [];
+  const activeByAsset = new Map();
+  const trackedPosition = new Map();
+
+  for (const fill of ordered) {
+    const inferredStart = trackedPosition.get(fill.asset) ?? 0;
+    const start = fill.startPosition ?? inferredStart;
+    const delta = (fill.side === "buy" ? 1 : -1) * fill.size;
+    const end = start + delta;
+    const startSign = positionSign(start);
+    const endSign = positionSign(end);
+    let active = activeByAsset.get(fill.asset);
+
+    if (active && startSign && active.direction !== directionName(startSign)) {
+      active.status = "incomplete";
+      active = null;
+      activeByAsset.delete(fill.asset);
+    }
+
+    if (!active && startSign) {
+      active = startEpisode(fill, startSign, true);
+      episodes.push(active);
+      activeByAsset.set(fill.asset, active);
+    }
+
+    if (startSign && endSign && startSign !== endSign) {
+      const closingSize = Math.abs(start);
+      const openingSize = Math.abs(end);
+      addFill(active, splitFill(fill, closingSize, fill.size, "close"), 0);
+      activeByAsset.delete(fill.asset);
+      const next = startEpisode(fill, endSign);
+      addFill(next, splitFill(fill, openingSize, fill.size, "open"), end);
+      episodes.push(next);
+      activeByAsset.set(fill.asset, next);
+      trackedPosition.set(fill.asset, end);
+      continue;
+    }
+
+    if (!active && endSign) {
+      active = startEpisode(fill, endSign);
+      episodes.push(active);
+      activeByAsset.set(fill.asset, active);
+    }
+
+    if (active) {
+      addFill(active, fill, end);
+      if (!endSign) activeByAsset.delete(fill.asset);
+    }
+    trackedPosition.set(fill.asset, end);
+  }
+
+  const creationOrder = new Map(episodes.map((episode, index) => [episode, index]));
+  return episodes.sort((left, right) => (
+    Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+    || creationOrder.get(right) - creationOrder.get(left)
+  ));
+}
+
+export function formatTradeTimestamp(value, timeZone) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit", day: "2-digit", year: "2-digit", hour: "numeric", minute: "2-digit", hour12: true,
+    ...(timeZone ? { timeZone } : {}),
+  }).format(date).replace(",", "").replace(/\s+(AM|PM)$/, "$1");
 }
 
 function elapsedLabel(milliseconds) {
