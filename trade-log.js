@@ -3,7 +3,7 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { prepareTradeCsv } from "./lib/trade-csv.js?v=20260804-trade-csv";
+import { accountSyncHealth, normalizeAccountFill } from "./lib/account-trades.js?v=20260804-account-sync";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -14,26 +14,23 @@ const elements = {
   executedAt: document.querySelector("#trade-log-executed-at"),
   form: document.querySelector("#trade-log-form"),
   message: document.querySelector("#trade-log-message"),
-  csvInput: document.querySelector("#trade-csv-input"),
-  csvStatus: document.querySelector("#trade-csv-status"),
-  csvUpload: document.querySelector("#trade-csv-upload"),
+  accountAddress: document.querySelector("#trade-account-address"),
+  accountFillCount: document.querySelector("#trade-account-fill-count"),
+  accountFills: document.querySelector("#trade-account-fills"),
+  accountHealth: document.querySelector("#trade-account-health"),
+  accountPositions: document.querySelector("#trade-account-positions"),
   status: document.querySelector("#trade-log-status"),
   table: document.querySelector("#trade-log-table"),
 };
 elements.controls = [...elements.form.querySelectorAll("input, button")];
 const picker = new AssetPicker(document.querySelector("#trade-log-asset-picker"), { details: "none" });
-const state = { catalogState: "loading", csvError: false, csvUpload: null, orders: [], pending: false, user: null };
+const state = { accountError: null, accountSource: null, catalogState: "loading", fills: [], orders: [], pending: false, positions: [], user: null };
 
 wire();
 initialize().catch((error) => showError(error));
 
 function wire() {
   elements.form.addEventListener("submit", addOrder);
-  elements.csvUpload.addEventListener("click", () => {
-    elements.csvInput.value = "";
-    elements.csvInput.click();
-  });
-  elements.csvInput.addEventListener("change", uploadCsv);
   elements.table.addEventListener("click", (event) => {
     const button = event.target.closest("[data-delete-trade-order]");
     if (button) deleteOrder(button.dataset.deleteTradeOrder);
@@ -41,6 +38,9 @@ function wire() {
   window.addEventListener("focus", () => {
     if (state.user && !state.pending) loadTradeData().catch((error) => showError(error));
   });
+  window.setInterval(() => {
+    if (state.user && !state.pending && !document.hidden) loadAccountData().catch((error) => showError(error));
+  }, 15_000);
 }
 
 async function initialize() {
@@ -68,15 +68,17 @@ async function initialize() {
 
 async function setSession(session) {
   state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null;
-  state.csvError = false;
-  state.csvUpload = null;
+  state.accountError = null;
+  state.accountSource = null;
+  state.fills = [];
   state.orders = [];
+  state.positions = [];
   if (state.user) await loadTradeData();
   else render();
 }
 
 async function loadTradeData() {
-  await Promise.all([loadOrders(false), loadCsvUpload(false)]);
+  await Promise.all([loadOrders(false), loadAccountData(false)]);
   render();
 }
 
@@ -91,43 +93,22 @@ async function loadOrders(renderAfter = true) {
   if (renderAfter) render();
 }
 
-async function loadCsvUpload(renderAfter = true) {
-  const { data, error } = await client
-    .from("trade_csv_uploads")
-    .select("file_name,file_size,content_sha256,uploaded_at")
-    .maybeSingle();
-  state.csvError = Boolean(error);
-  state.csvUpload = error ? null : data;
+async function loadAccountData(renderAfter = true) {
+  const [sourceResult, fillsResult, positionsResult] = await Promise.all([
+    client.from("hyperliquid_account_sources").select("address,last_attempt_at,last_success_at,last_error").maybeSingle(),
+    client.from("hyperliquid_account_fills")
+      .select("trade_id,asset,side,direction,size,price,closed_pnl,fee,fee_token,occurred_at,order_id,transaction_hash")
+      .order("occurred_at", { ascending: false }).limit(1000),
+    client.from("hyperliquid_account_positions")
+      .select("dex,asset,signed_size,entry_price,position_value,unrealized_pnl,margin_used,liquidation_price,leverage_type,leverage,observed_at")
+      .order("asset", { ascending: true }),
+  ]);
+  const error = sourceResult.error ?? fillsResult.error ?? positionsResult.error;
+  state.accountError = error?.message ?? null;
+  state.accountSource = sourceResult.error ? null : sourceResult.data;
+  state.fills = fillsResult.error ? [] : (fillsResult.data ?? []).map(normalizeAccountFill);
+  state.positions = positionsResult.error ? [] : positionsResult.data ?? [];
   if (renderAfter) render();
-}
-
-async function uploadCsv() {
-  const [file] = elements.csvInput.files ?? [];
-  if (!file || !state.user || state.pending) return;
-  try {
-    setPending(true);
-    const prepared = await prepareTradeCsv(file);
-    if (prepared.contentSha256 === state.csvUpload?.content_sha256) {
-      setMessage("THIS FULL CSV IS ALREADY UPLOADED");
-      return;
-    }
-    const { error } = await client.from("trade_csv_uploads").upsert({
-      user_id: state.user.id,
-      file_name: prepared.fileName,
-      file_size: prepared.fileSize,
-      content_sha256: prepared.contentSha256,
-      content: prepared.content,
-      uploaded_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
-    if (error) throw error;
-    await loadCsvUpload();
-    setMessage("FULL CSV UPLOADED", "success");
-  } catch (error) {
-    showError(error);
-  } finally {
-    setPending(false);
-    elements.csvInput.value = "";
-  }
 }
 
 async function addOrder(event) {
@@ -204,40 +185,49 @@ function render() {
     elements.table.innerHTML = `<p class="message">${escapeHtml(error.message)}</p>`;
     elements.controls.forEach((control) => { control.disabled = true; });
     picker.setDisabled(true);
-    renderCsvUpload();
+    renderAccountData();
     return;
   }
   const enabled = Boolean(state.user) && state.catalogState === "ready" && !state.pending;
   elements.controls.forEach((control) => { control.disabled = !enabled; });
   picker.setDisabled(!enabled);
-  renderCsvUpload();
+  renderAccountData();
   if (!state.user) {
     elements.status.textContent = client ? "SIGN IN TO LOAD" : "STORAGE UNAVAILABLE";
     elements.table.innerHTML = `<p class="hint">SIGN IN TO LOAD ORDERS.</p>`;
     return;
   }
-  const latestByAsset = new Map(ledger.map((row) => [row.asset, row]));
-  const openPositions = [...latestByAsset.values()].filter(({ sharesAfter }) => sharesAfter > 0).length;
   const catalogStatus = state.catalogState === "error" ? " · ASSET LIST ERROR" : "";
-  elements.status.textContent = `${ledger.length} ${ledger.length === 1 ? "ORDER" : "ORDERS"} · ${openPositions} OPEN${catalogStatus}`;
+  elements.status.textContent = `${state.fills.length} FILLS · ${state.positions.length} LIVE POSITIONS · ${ledger.length} MANUAL ORDERS${catalogStatus}`;
   elements.table.innerHTML = ledger.length ? renderTable([...ledger].reverse()) : `<p class="hint">NO ORDERS YET.</p>`;
 }
 
-function renderCsvUpload() {
-  const enabled = Boolean(state.user) && !state.pending;
-  elements.csvUpload.disabled = !enabled;
-  elements.csvInput.disabled = !enabled;
+function renderAccountData() {
   if (!state.user) {
-    elements.csvStatus.textContent = client ? "SIGN IN TO UPLOAD" : "STORAGE UNAVAILABLE";
-  } else if (state.pending) {
-    elements.csvStatus.textContent = "WORKING…";
-  } else if (state.csvError) {
-    elements.csvStatus.textContent = "CSV STORAGE UNAVAILABLE";
-  } else if (!state.csvUpload) {
-    elements.csvStatus.textContent = "NO CSV UPLOADED · 10 MB MAX";
-  } else {
-    elements.csvStatus.textContent = `LATEST · ${state.csvUpload.file_name} · ${formatFileSize(state.csvUpload.file_size)} · ${formatDate(state.csvUpload.uploaded_at)}`;
+    elements.accountHealth.textContent = client ? "SIGN IN TO LOAD" : "STORAGE UNAVAILABLE";
+    elements.accountFills.innerHTML = `<p class="hint">SIGN IN TO LOAD FILLS.</p>`;
+    elements.accountPositions.innerHTML = `<p class="hint">SIGN IN TO LOAD POSITIONS.</p>`;
+    return;
   }
+  const health = state.accountError
+    ? { label: `SYNC DATA ERROR · ${state.accountError.toUpperCase()}`, tone: "error" }
+    : accountSyncHealth(state.accountSource);
+  elements.accountHealth.textContent = health.label;
+  elements.accountHealth.dataset.tone = health.tone;
+  elements.accountAddress.textContent = state.accountSource?.address ?? "ACCOUNT SOURCE NOT CONFIGURED";
+  elements.accountFillCount.textContent = `${state.fills.length}${state.fills.length === 1000 ? "+" : ""} SHOWN`;
+  elements.accountFills.innerHTML = state.fills.length ? renderFillTable(state.fills) : `<p class="hint">NO FILLS INGESTED YET.</p>`;
+  elements.accountPositions.innerHTML = state.positions.length ? renderPositionTable(state.positions) : `<p class="hint">NO OPEN POSITIONS.</p>`;
+}
+
+function renderFillTable(fills) {
+  const rows = fills.map((fill) => `<tr><td>${escapeHtml(formatDate(fill.occurredAt))}</td><td>${escapeHtml(displayAssetSymbol({ id: fill.asset }))}</td><td class="trade-side ${fill.side}">${fill.side.toUpperCase()}</td><td>${escapeHtml(fill.direction.toUpperCase())}</td><td>${formatQuantity(fill.size)}</td><td>${formatPrice(fill.price)}</td><td>${formatMoney(fill.value)}</td><td>${formatMoney(fill.closedPnl)}</td><td>${formatMoney(fill.fee)}</td></tr>`).join("");
+  return `<table class="paper-table"><thead><tr><th>TIME</th><th>ASSET</th><th>SIDE</th><th>ACTION</th><th>SIZE</th><th>PRICE</th><th>VALUE</th><th>CLOSED PNL</th><th>FEE</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPositionTable(positions) {
+  const rows = positions.map((position) => `<tr><td>${escapeHtml(displayAssetSymbol({ id: position.asset }))}</td><td>${formatQuantity(position.signed_size)}</td><td>${formatPrice(position.entry_price)}</td><td>${formatMoney(position.position_value)}</td><td>${formatMoney(position.unrealized_pnl)}</td><td>${formatMoney(position.margin_used)}</td><td>${position.liquidation_price == null ? "—" : formatPrice(position.liquidation_price)}</td><td>${escapeHtml(`${position.leverage ?? "—"}X ${position.leverage_type ?? ""}`.trim().toUpperCase())}</td><td>${escapeHtml(formatDate(position.observed_at))}</td></tr>`).join("");
+  return `<table class="paper-table"><thead><tr><th>ASSET</th><th>SIZE</th><th>ENTRY</th><th>VALUE</th><th>UNREALIZED PNL</th><th>MARGIN</th><th>LIQUIDATION</th><th>LEVERAGE</th><th>OBSERVED</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderTable(ledger) {
@@ -292,13 +282,6 @@ function formatPrice(value) {
 
 function formatMoney(value) {
   return `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatFileSize(value) {
-  const bytes = Number(value);
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function escapeHtml(value) {

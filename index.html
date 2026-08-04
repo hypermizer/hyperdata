@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260804-trade-csv" />
+    <link rel="stylesheet" href="./styles.css?v=20260804-account-sync" />
   </head>
   <body>
     <main>
@@ -173,11 +173,15 @@
         </div>
 
         <div id="trade-log-panel" role="tabpanel" aria-labelledby="trade-log-tab" data-analysis-panel="trade-log">
-          <div class="trade-csv-upload">
-            <input id="trade-csv-input" type="file" accept=".csv,text/csv" hidden />
-            <button id="trade-csv-upload" type="button">UPLOAD FULL CSV</button>
-            <span id="trade-csv-status" class="hint">SIGN IN TO LOAD</span>
+          <div class="trade-account-sync">
+            <span id="trade-account-address" class="mono">0x003b…92ac</span>
+            <span id="trade-account-health" class="hint">SIGN IN TO LOAD</span>
           </div>
+          <div class="paper-section-heading"><h3 class="paper-heading">LIVE POSITIONS</h3></div>
+          <div id="trade-account-positions" class="paper-table-wrap trade-log-table"><p class="hint">SIGN IN TO LOAD POSITIONS.</p></div>
+          <div class="paper-section-heading"><h3 class="paper-heading">HYPERLIQUID FILLS</h3><span id="trade-account-fill-count" class="hint">—</span></div>
+          <div id="trade-account-fills" class="paper-table-wrap trade-log-table"><p class="hint">SIGN IN TO LOAD FILLS.</p></div>
+          <div class="paper-section-heading trade-manual-heading"><h3 class="paper-heading">MANUAL ORDERS</h3></div>
           <form id="trade-log-form" class="trade-log-form">
             <label>ASSET
               <div id="trade-log-asset-picker" class="asset-picker" data-picker-details="none">
@@ -496,10 +500,10 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20260804-trade-log"></script>
+    <script type="module" src="./app.js?v=20260804-account-sync"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
-    <script type="module" src="./trade-log.js?v=20260804-trade-csv"></script>
+    <script type="module" src="./trade-log.js?v=20260804-account-sync"></script>
     <script type="module" src="./scaling.js?v=20260801-scaling"></script>
   </body>
 </html>

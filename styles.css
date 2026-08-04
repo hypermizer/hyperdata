@@ -454,9 +454,12 @@ input, select { min-width: 0; }
 @keyframes audio-level { from { height: 4px; } to { height: 25px; } }
 
 .analysis-subtabs { margin-top: 0; }
-.trade-csv-upload { display: flex; min-height: 30px; align-items: center; gap: 9px; margin-top: 14px; }
-.trade-csv-upload button { min-height: 30px; padding: 0 10px; font-size: 10px; }
-.trade-csv-upload .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trade-account-sync { display: flex; min-height: 30px; align-items: center; justify-content: space-between; gap: 9px; margin-top: 14px; border-bottom: 1px solid #34383d; }
+.trade-account-sync .mono { overflow: hidden; color: #c7cdd3; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.trade-account-sync [data-tone="live"] { color: #46d6b8; }
+.trade-account-sync [data-tone="warning"] { color: #e4b860; }
+.trade-account-sync [data-tone="error"] { color: #ff928a; }
+.trade-manual-heading { margin-top: 18px; }
 .trade-log-form {
   display: grid;
   grid-template-columns: minmax(135px, 1.2fr) 110px 100px 130px 190px auto;
@@ -710,8 +713,6 @@ input, select { min-width: 0; }
   .trade-log-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .trade-log-form > label:first-child, .trade-log-form > label:last-of-type, .trade-log-form > button { grid-column: 1 / -1; }
   .trade-log-form > button { grid-row: auto; }
-  .trade-csv-upload { align-items: flex-start; flex-direction: column; }
-  .trade-csv-upload .hint { width: 100%; white-space: normal; }
   .scaling-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scaling-form > label:first-child, .scaling-range-control, #scaling-generate { grid-column: span 2; }
   .scaling-plan-metrics, .scaling-result-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
