@@ -54,7 +54,33 @@ for (const [name, value] of secrets) {
   await query("select vault.create_secret($1, $2)", [value, name]);
 }
 await query("select public.configure_listener_cron()");
+const accountHealthWindowStartedAt = new Date().toISOString();
 await query("select public.configure_hyperliquid_account_cron()");
+let accountHealth = null;
+for (let attempt = 0; attempt < 20; attempt += 1) {
+  const result = await query(`
+    select source.address, source.fills_cursor_ms, source.last_success_at, source.last_error,
+      (select count(*)::integer from public.hyperliquid_account_fills fill
+        where fill.user_id = source.user_id and fill.account_address = source.address) as fill_count
+    from public.hyperliquid_account_sources source
+    where source.active
+    order by source.created_at
+    limit 1
+  `);
+  accountHealth = (Array.isArray(result) ? result : result.result ?? [])[0] ?? null;
+  const completedInWindow = accountHealth?.last_success_at &&
+    Date.parse(accountHealth.last_success_at) >= Date.parse(accountHealthWindowStartedAt);
+  if (completedInWindow && !accountHealth.last_error && accountHealth.fills_cursor_ms !== null && Number(accountHealth.fill_count) > 0) break;
+  await wait(5_000);
+}
+const accountSyncHealthy = accountHealth?.last_success_at &&
+  Date.parse(accountHealth.last_success_at) >= Date.parse(accountHealthWindowStartedAt) &&
+  !accountHealth.last_error && accountHealth.fills_cursor_ms !== null && Number(accountHealth.fill_count) > 0;
+if (!accountSyncHealthy) {
+  await query("select cron.unschedule(jobid) from cron.job where jobname = 'hyperdata-sync-account'");
+  throw new Error(`Account sync did not complete a healthy production run: ${JSON.stringify(accountHealth)}`);
+}
+console.log(`Account sync health verified: ${Number(accountHealth.fill_count)} fill(s), cursor ${accountHealth.fills_cursor_ms}`);
 const paperHealthWindowStartedAt = new Date().toISOString();
 await query("select public.configure_paper_cron($1)", [paperProcessorEnabled]);
 await query("select public.configure_paper_mutation_access($1)", [paperTradingEnabled]);
