@@ -11,6 +11,7 @@ test("site routes resolve top-level and nested utility views", () => {
   assert.deepEqual(parseRoute("#/paper"), { view: "paper", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
   assert.deepEqual(parseRoute("#/tools/exposure-ladder"), { view: "tools", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
   assert.deepEqual(parseRoute("#/tools/scaling"), { view: "tools", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
+  assert.deepEqual(parseRoute("#/tools/levels"), { view: "tools", analysisView: "trade-log", paperView: "home", toolsView: "levels" });
 });
 
 test("asset routes preserve the canonical Hyperliquid asset id", () => {
