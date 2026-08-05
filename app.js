@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { ASSET_CATEGORY_TABS, annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort } from "./lib/assets.js?v=20260805-new-assets";
+import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort } from "./lib/assets.js?v=20260805-daily-volatility";
 import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cache";
 import {
   applyLiveMarketContext,
@@ -397,9 +397,14 @@ function renderMarkets() {
     market.id,
     calculateHourlyRsi(state.priceHistories.get(market.id) ?? [], market.markPrice, now),
   ]));
+  const dailyVolatilityValues = new Map(markets.map((market) => [
+    market.id,
+    calculateDailyVolatility(state.priceHistories.get(market.id) ?? [], market.markPrice, now),
+  ]));
   const visibleMarkets = filterAndSortTradFiAssets(markets, {
     averageVolumes: state.averageVolumes,
     category: state.category,
+    dailyVolatilityValues,
     firstSeenAt: state.firstSeenAt,
     now,
     priceHistories: state.priceHistories,
@@ -424,12 +429,13 @@ function renderMarkets() {
       const isWatched = watched.has(market.id);
       const favoritePending = state.favoritePending.has(market.id);
       const rsi = rsiValues.get(market.id);
+      const dailyVolatility = dailyVolatilityValues.get(market.id);
       const watchLabel = `${isWatched ? "Remove" : "Add"} ${displayAssetName(market.id)} ${isWatched ? "from" : "to"} watched assets`;
-      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a><span class="asset-leverage-tag" title="Maximum leverage">${formatMaxLeverage(market.maxLeverage)}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatPercent(annualizedFundingApr(market.funding))}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a><span class="asset-leverage-tag" title="Maximum leverage">${formatMaxLeverage(market.maxLeverage)}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="20-day standard deviation of daily log returns, including the live mark">${formatVolatility(dailyVolatility)}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatFundingApr(market.funding)}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
-  const body = rows || `<tr><td class="asset-cell" colspan="9">NO MATCHING ASSETS</td></tr>`;
-  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSignalHeaders()}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("RSI", "rsi", "", "Wilder RSI(14) on one-hour closes")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
+  const body = rows || `<tr><td class="asset-cell" colspan="10">NO MATCHING ASSETS</td></tr>`;
+  elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSignalHeaders()}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("D VOL", "daily-volatility", "", "20-day realized volatility")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("RSI", "rsi", "", "Wilder RSI(14) on one-hour closes")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
   state.marketRenderedAt = now;
 }
 
@@ -633,7 +639,7 @@ function renderAssetDetail(asset, assetView = "overview", interval = "1h") {
     ["24H +/-", formatPercent(market.changePercent)],
     ["24H VOL", formatUsdCompact(market.volume24h)],
     ["AVG VOL", formatUsdCompact(state.averageVolumes.get(asset))],
-    ["APR", formatPercent(annualizedFundingApr(market.funding))],
+    ["APR", formatFundingApr(market.funding)],
     ["RSI", formatRsi(rsi)],
     ["OI", formatCompact(market.openInterest)],
   ];
@@ -1032,6 +1038,10 @@ function formatPercent(value) {
 
 function formatRsi(value) {
   return Number.isFinite(value) ? value.toFixed(1) : "—";
+}
+
+function formatVolatility(value) {
+  return Number.isFinite(value) ? `${value.toFixed(1)}%` : "—";
 }
 
 function formatUsdCompact(value) {
