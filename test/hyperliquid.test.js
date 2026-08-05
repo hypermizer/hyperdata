@@ -167,7 +167,7 @@ test("fetchAverageDailyVolume estimates trailing daily notional volume from cand
   assert.equal(result, 5800 / 3);
 });
 
-test("fetchPriceHistory requests compact hourly and five-minute snapshots", async () => {
+test("fetchPriceHistory requests volatility-capable hourly and five-minute snapshots", async () => {
   const now = Date.UTC(2026, 6, 17, 12);
   const requests = [];
   const points = await fetchPriceHistory(
@@ -186,7 +186,7 @@ test("fetchPriceHistory requests compact hourly and five-minute snapshots", asyn
       req: {
         coin: "xyz:ORCL",
         interval: "1h",
-        startTime: now - (7 * 24 * 60 * 60 * 1000) - (60 * 60 * 1000),
+        startTime: now - (30 * 24 * 60 * 60 * 1000) - (60 * 60 * 1000),
         endTime: now,
       },
     },

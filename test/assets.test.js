@@ -4,9 +4,11 @@ import {
   ASSET_CATEGORY_TABS,
   annualizedFundingApr,
   assetCategoryFor,
+  calculateDailyVolatility,
   calculateHourlyRsi,
   hydrateTradFiMarkets,
   filterAndSortTradFiAssets,
+  formatFundingApr,
   formatMaxLeverage,
   nextColumnSort,
   resolveAsset,
@@ -48,6 +50,12 @@ test("funding APR annualizes Hyperliquid's hourly funding rate", () => {
   assert.equal(annualizedFundingApr(null), null);
 });
 
+test("funding APR renders as a compact whole percentage", () => {
+  assert.equal(formatFundingApr(0.0001), "+88%");
+  assert.equal(formatFundingApr(-0.00005), "−44%");
+  assert.equal(formatFundingApr(null), "—");
+});
+
 test("TradFi asset view includes active xyz markets and supports search", () => {
   const markets = [
     ...catalog,
@@ -66,7 +74,7 @@ test("TradFi asset view includes active xyz markets and supports search", () => 
 
 test("asset categories distinguish ETFs from equities using official annotations", () => {
   assert.deepEqual(ASSET_CATEGORY_TABS.map(({ value }) => value), [
-    "all", "new", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo",
+    "all", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo", "new",
   ]);
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["oracle", "ai"] }), "equities");
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["memory", "ETF"] }), "etfs");
@@ -75,6 +83,19 @@ test("asset categories distinguish ETFs from equities using official annotations
   assert.equal(assetCategoryFor({ category: "indices" }), "indices");
   assert.equal(assetCategoryFor({ category: "preipo" }), "pre-ipo");
   assert.equal(assetCategoryFor({ category: "unexpected" }), "other");
+});
+
+test("daily volatility is the sample deviation of rolling daily log returns", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.UTC(2026, 7, 5, 12);
+  const logs = [0, 0.01, 0, 0.01];
+  const points = logs.map((logPrice, index) => ({
+    time: Math.floor(now / day) * day - (logs.length - index) * day + day - 1,
+    price: Math.exp(logPrice),
+  }));
+
+  assert.ok(Math.abs(calculateDailyVolatility(points, 1, now, 4) - 1.154700538) < 0.000001);
+  assert.equal(calculateDailyVolatility(points.slice(1), 1, now, 4), null);
 });
 
 test("TradFi asset filtering applies category and search together", () => {
@@ -160,6 +181,10 @@ test("TradFi asset view sorts metrics with unavailable values last", () => {
     sort: "rsi-desc",
     rsiValues: new Map([["xyz:ALPHA", 62], ["xyz:BETA", 38]]),
   }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+    sort: "daily-volatility-desc",
+    dailyVolatilityValues: new Map([["xyz:ALPHA", 1.2], ["xyz:BETA", 2.4]]),
+  }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
 });
 
 test("column sorting starts high-to-low and toggles direction", () => {
