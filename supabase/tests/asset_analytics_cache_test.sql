@@ -1,12 +1,13 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(4);
+select plan(5);
 
 insert into public.asset_analytics_cache (asset, average_daily_volume, price_history)
 values ('xyz:ORCL', 1000, '[{"time":1,"price":100}]'::jsonb);
 
 set local role anon;
 select is((select count(*)::integer from public.asset_analytics_cache), 1, 'anonymous browsers can read public market analytics');
+select ok((select first_seen_at is not null from public.asset_analytics_cache where asset = 'xyz:ORCL'), 'new analytics rows record when the asset was first observed');
 select throws_ok(
   $$insert into public.asset_analytics_cache (asset) values ('xyz:BAD')$$,
   '42501', null, 'anonymous browsers cannot write market analytics'

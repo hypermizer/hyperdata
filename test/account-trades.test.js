@@ -172,6 +172,8 @@ test("summarizes only completed positions and classifies results after fees", ()
     losingTrades: 1,
     averageGain: 10,
     averageLoss: -5,
+    averageGainPercent: 10,
+    averageLossPercent: -5,
   });
 });
 

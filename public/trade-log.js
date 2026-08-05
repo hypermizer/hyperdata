@@ -3,7 +3,7 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, episodeExecutionMetrics, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill, summarizeTradePerformance } from "./lib/account-trades.js?v=20260805-performance-metrics";
+import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, episodeExecutionMetrics, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill, summarizeTradePerformance } from "./lib/account-trades.js?v=20260805-performance-percentages";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -325,8 +325,8 @@ function renderTradePerformance(episodes) {
   const summary = summarizeTradePerformance(episodes);
   elements.accountStats.innerHTML = `<div><small>WINNING TRADES</small><strong>${summary.winningTrades}</strong></div>
     <div><small>LOSING TRADES</small><strong>${summary.losingTrades}</strong></div>
-    <div><small>AVG GAIN</small><strong class="positive">${formatMoney(summary.averageGain)}</strong></div>
-    <div><small>AVG LOSS</small><strong class="negative">${formatMoney(summary.averageLoss)}</strong></div>`;
+    <div><small>AVG GAIN</small><strong class="positive">${formatMoney(summary.averageGain)}</strong><span class="trade-performance-percent positive">${formatPerformancePercent(summary.averageGainPercent)}</span></div>
+    <div><small>AVG LOSS</small><strong class="negative">${formatMoney(summary.averageLoss)}</strong><span class="trade-performance-percent negative">${formatPerformancePercent(summary.averageLossPercent)}</span></div>`;
 }
 
 function countSubmittedOrders(fills) {
@@ -433,6 +433,12 @@ function formatPrice(value) {
 function formatMoney(value) {
   const number = numericValue(value);
   return number === null ? "—" : `${number < 0 ? "−" : ""}$${Math.abs(number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatPerformancePercent(value) {
+  const number = numericValue(value);
+  if (number === null) return "—";
+  return `${number > 0 ? "+" : number < 0 ? "−" : ""}${Math.abs(number).toFixed(2)}%`;
 }
 
 function numericValue(value) {
