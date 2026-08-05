@@ -74,7 +74,7 @@ function addFill(episode, fill, endPosition) {
   }
 }
 
-function splitFill(fill, size, totalSize, splitPart) {
+function splitFill(fill, size, totalSize, splitPart, direction) {
   const ratio = totalSize ? size / totalSize : 0;
   return {
     ...fill,
@@ -82,15 +82,93 @@ function splitFill(fill, size, totalSize, splitPart) {
     value: size * fill.price,
     fee: fill.fee * ratio,
     closedPnl: splitPart === "close" ? fill.closedPnl : 0,
+    direction,
     splitPart,
   };
 }
 
-export function buildPositionEpisodes(fills) {
-  const ordered = [...fills].sort((left, right) => {
-    const time = Date.parse(left.occurredAt) - Date.parse(right.occurredAt);
-    return time || String(left.tradeId).localeCompare(String(right.tradeId), undefined, { numeric: true });
+function orderKey(fill) {
+  return `${fill.asset}|${fill.orderId}`;
+}
+
+function enrichOrderTotals(fills) {
+  const totals = new Map();
+  for (const fill of fills) {
+    const key = orderKey(fill);
+    const total = totals.get(key) ?? { size: 0, value: 0, fee: 0, closedPnl: 0, fillCount: 0 };
+    total.size += fill.size;
+    total.value += fill.value;
+    total.fee += fill.fee;
+    total.closedPnl += fill.closedPnl;
+    total.fillCount += 1;
+    totals.set(key, total);
+  }
+  return fills.map((fill) => {
+    const total = totals.get(orderKey(fill));
+    return {
+      ...fill,
+      orderSize: total.size,
+      orderValue: total.value,
+      orderPrice: total.size ? total.value / total.size : fill.price,
+      orderFee: total.fee,
+      orderClosedPnl: total.closedPnl,
+      orderFillCount: total.fillCount,
+    };
   });
+}
+
+function compareFillSequence(left, right) {
+  const time = Date.parse(left.occurredAt) - Date.parse(right.occurredAt);
+  if (time) return time;
+  const asset = left.asset.localeCompare(right.asset);
+  if (asset) return asset;
+  if (left.startPosition !== null && right.startPosition !== null) {
+    const leftEnd = left.startPosition + (left.side === "buy" ? left.size : -left.size);
+    const rightEnd = right.startPosition + (right.side === "buy" ? right.size : -right.size);
+    if (Math.abs(leftEnd - right.startPosition) <= POSITION_EPSILON) return -1;
+    if (Math.abs(rightEnd - left.startPosition) <= POSITION_EPSILON) return 1;
+  }
+  if (left.side === right.side && left.startPosition !== null && right.startPosition !== null) {
+    const position = left.side === "buy"
+      ? left.startPosition - right.startPosition
+      : right.startPosition - left.startPosition;
+    if (Math.abs(position) > POSITION_EPSILON) return position;
+  }
+  const order = String(left.orderId).localeCompare(String(right.orderId), undefined, { numeric: true });
+  return order || String(left.tradeId).localeCompare(String(right.tradeId), undefined, { numeric: true });
+}
+
+export function aggregateEpisodeOrders(episode) {
+  const orders = new Map();
+  for (const fill of episode?.fills ?? []) {
+    const key = orderKey(fill);
+    const order = orders.get(key) ?? {
+      orderId: fill.orderId,
+      occurredAt: fill.occurredAt,
+      side: fill.side,
+      directions: new Set(),
+      size: fill.orderSize ?? 0,
+      episodeSize: 0,
+      price: fill.orderPrice ?? 0,
+      value: fill.orderValue ?? 0,
+      closedPnl: 0,
+      fee: 0,
+      fillCount: fill.orderFillCount ?? 0,
+    };
+    order.directions.add(fill.direction);
+    order.episodeSize += fill.size;
+    order.closedPnl += fill.closedPnl;
+    order.fee += fill.fee;
+    orders.set(key, order);
+  }
+  return [...orders.values()].map(({ directions, ...order }) => ({
+    ...order,
+    direction: directions.size === 1 ? [...directions][0] : "Mixed",
+  }));
+}
+
+export function buildPositionEpisodes(fills) {
+  const ordered = enrichOrderTotals(fills).sort(compareFillSequence);
   const episodes = [];
   const activeByAsset = new Map();
   const trackedPosition = new Map();
@@ -119,10 +197,10 @@ export function buildPositionEpisodes(fills) {
     if (startSign && endSign && startSign !== endSign) {
       const closingSize = Math.abs(start);
       const openingSize = Math.abs(end);
-      addFill(active, splitFill(fill, closingSize, fill.size, "close"), 0);
+      addFill(active, splitFill(fill, closingSize, fill.size, "close", `Close ${directionName(startSign)}`), 0);
       activeByAsset.delete(fill.asset);
       const next = startEpisode(fill, endSign);
-      addFill(next, splitFill(fill, openingSize, fill.size, "open"), end);
+      addFill(next, splitFill(fill, openingSize, fill.size, "open", `Open ${directionName(endSign)}`), end);
       episodes.push(next);
       activeByAsset.set(fill.asset, next);
       trackedPosition.set(fill.asset, end);

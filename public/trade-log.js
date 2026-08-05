@@ -3,7 +3,7 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { accountSyncHealth, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "./lib/account-trades.js?v=20260804-position-groups";
+import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "./lib/account-trades.js?v=20260805-order-rows";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -25,7 +25,7 @@ const picker = new AssetPicker(document.querySelector("#trade-log-asset-picker")
 const state = {
   accountError: null, accountLoaded: false, accountSource: null, catalogState: "loading",
   expandedPositions: new Set(), fills: [], orders: [], pending: false, positions: [],
-  positionTags: new Map(), tagPending: new Set(), tagVersion: 0, user: null,
+  positionTags: new Map(), tagEditorPositionKey: "", tagPending: new Set(), tagVersion: 0, user: null,
 };
 
 wire();
@@ -43,8 +43,21 @@ function wire() {
       togglePositionTag(tag.dataset.positionKey, tag.dataset.positionTag).catch((error) => showError(error));
       return;
     }
-    const toggle = event.target.closest("[data-position-toggle]");
-    if (toggle) togglePosition(toggle.dataset.positionToggle);
+    const editor = event.target.closest("[data-position-tag-editor]");
+    if (editor) {
+      state.tagEditorPositionKey = state.tagEditorPositionKey === editor.dataset.positionTagEditor ? "" : editor.dataset.positionTagEditor;
+      renderAccountData();
+      return;
+    }
+    const row = event.target.closest("[data-position-toggle]");
+    if (row) togglePosition(row.dataset.positionToggle);
+  });
+  elements.accountFills.addEventListener("keydown", (event) => {
+    if (event.target.closest("button, a, input, select, textarea")) return;
+    const row = event.target.closest("[data-position-toggle]");
+    if (!row || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    togglePosition(row.dataset.positionToggle);
   });
   window.addEventListener("focus", () => {
     if (state.user && !state.pending && !state.tagPending.size) loadTradeData().catch((error) => showError(error));
@@ -86,6 +99,7 @@ async function setSession(session) {
   state.orders = [];
   state.positions = [];
   state.positionTags = new Map();
+  state.tagEditorPositionKey = "";
   state.expandedPositions = new Set();
   state.tagPending = new Set();
   state.tagVersion += 1;
@@ -281,7 +295,7 @@ function render() {
     return;
   }
   const catalogStatus = state.catalogState === "error" ? " · ASSET LIST ERROR" : "";
-  elements.status.textContent = `${state.fills.length} FILLS · ${state.positions.length} LIVE POSITIONS · ${ledger.length} MANUAL ORDERS${catalogStatus}`;
+  elements.status.textContent = `${countSubmittedOrders(state.fills)} EXCHANGE ORDERS · ${state.positions.length} LIVE POSITIONS · ${ledger.length} MANUAL ORDERS${catalogStatus}`;
   elements.table.innerHTML = ledger.length ? renderTable([...ledger].reverse()) : `<p class="hint">NO ORDERS YET.</p>`;
 }
 
@@ -299,37 +313,51 @@ function renderAccountData() {
   elements.accountHealth.dataset.tone = health.tone;
   elements.accountAddress.textContent = state.accountSource?.address ?? "ACCOUNT SOURCE NOT CONFIGURED";
   const episodes = buildPositionEpisodes(state.fills);
-  elements.accountFillCount.textContent = `${episodes.length} POSITIONS · ${state.fills.length} FILLS`;
+  elements.accountFillCount.textContent = `${episodes.length} POSITIONS · ${countSubmittedOrders(state.fills)} ORDERS`;
   elements.accountFills.innerHTML = episodes.length ? renderFillTable(episodes) : `<p class="hint">NO FILLS INGESTED YET.</p>`;
   elements.accountPositions.innerHTML = state.positions.length ? renderPositionTable(state.positions) : `<p class="hint">NO OPEN POSITIONS.</p>`;
+}
+
+function countSubmittedOrders(fills) {
+  return new Set(fills.map((fill) => `${fill.asset}|${fill.orderId}`)).size;
 }
 
 function renderFillTable(episodes) {
   const rows = episodes.map((episode) => {
     const expanded = state.expandedPositions.has(episode.positionKey);
-    const fillRows = episode.fills.map((fill, index) => `<tr class="trade-position-fill"${expanded ? "" : " hidden"}>
-      <td><span class="trade-fill-index">TRADE ${index + 1}</span></td>
-      <td>${escapeHtml(formatDate(fill.occurredAt))}</td>
-      <td class="trade-side ${fill.side}">${escapeHtml(fill.direction.toUpperCase())}</td>
-      <td>${formatQuantity(fill.size)}</td><td>${formatPrice(fill.price)}</td><td>${formatMoney(fill.value)}</td>
-      <td>${formatMoney(fill.closedPnl)}</td><td>${formatMoney(fill.fee)}</td><td></td>
+    const orders = aggregateEpisodeOrders(episode);
+    const orderRows = orders.map((order, index) => `<tr class="trade-position-fill"${expanded ? "" : " hidden"}>
+      <td><span class="trade-order-label"><strong>ORDER ${index + 1}</strong>${order.fillCount > 1 ? `<small>${order.fillCount} FILLS COMBINED</small>` : ""}</span></td>
+      <td>${escapeHtml(formatDate(order.occurredAt))}</td>
+      <td class="trade-side ${order.side}">${escapeHtml(order.direction.toUpperCase())}</td>
+      <td>${formatQuantity(order.size)}${Math.abs(order.episodeSize - order.size) > 1e-12 ? `<small class="trade-order-allocation">${formatQuantity(order.episodeSize)} IN POSITION</small>` : ""}</td>
+      <td>${formatPrice(order.price)}</td><td>${formatMoney(order.value)}</td>
+      <td>${formatMoney(order.closedPnl)}</td><td>${formatMoney(order.fee)}</td><td></td>
     </tr>`).join("");
-    return `<tr class="trade-position-root ${episode.direction}">
-      <td><button type="button" class="trade-position-toggle" data-position-toggle="${escapeHtml(episode.positionKey)}" aria-expanded="${expanded}"><span aria-hidden="true">${expanded ? "−" : "+"}</span>${escapeHtml(episode.label)}</button></td>
+    const editorOpen = state.tagEditorPositionKey === episode.positionKey;
+    const tagEditor = editorOpen ? `<tr class="trade-position-tag-editor-row"><td colspan="9">${renderPositionTagEditor(episode)}</td></tr>` : "";
+    return `<tr class="trade-position-root ${episode.direction}" data-position-toggle="${escapeHtml(episode.positionKey)}" tabindex="0" role="button" aria-expanded="${expanded}">
+      <td><strong class="trade-position-name">${escapeHtml(episode.label)}</strong></td>
       <td>${escapeHtml(formatDate(episode.openedAt))}</td>
-      <td>${episode.fills.length} ${episode.fills.length === 1 ? "TRADE" : "TRADES"} · ${episode.status.toUpperCase()}${episode.partialHistory ? " · EARLIER ENTRY" : ""}</td>
+      <td>${orders.length} ${orders.length === 1 ? "ORDER" : "ORDERS"} · ${episode.status.toUpperCase()}${episode.partialHistory ? " · EARLIER ENTRY" : ""}</td>
       <td>${formatQuantity(episode.currentSize)}</td><td>—</td><td>—</td>
       <td>${formatMoney(episode.closedPnl)}</td><td>${formatMoney(episode.fees)}</td>
       <td>${renderPositionTags(episode)}</td>
-    </tr>${fillRows}`;
+    </tr>${tagEditor}${orderRows}`;
   }).join("");
-  return `<table class="paper-table trade-position-table"><thead><tr><th>POSITION</th><th>OPENED</th><th>STATE</th><th>OPEN SIZE</th><th>PRICE</th><th>VALUE</th><th>CLOSED PNL</th><th>FEES</th><th>TAGS</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="paper-table trade-position-table"><thead><tr><th>POSITION / ORDER</th><th>TIME</th><th>ACTIVITY</th><th>SHARES</th><th>AVG PRICE</th><th>NOTIONAL</th><th>REALIZED PNL</th><th>FEES</th><th>TAGS</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPositionTags(episode) {
   const selected = state.positionTags.get(episode.positionKey) ?? [];
   const disabled = state.tagPending.has(episode.positionKey);
-  return `<div class="trade-position-tags">${TAG_OPTIONS.map((tag) => `<button type="button" data-position-key="${escapeHtml(episode.positionKey)}" data-position-tag="${tag}" aria-pressed="${selected.includes(tag)}"${disabled ? " disabled" : ""}>${tag}</button>`).join("")}</div>`;
+  return `<div class="trade-position-tags">${selected.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}<button type="button" data-position-tag-editor="${escapeHtml(episode.positionKey)}" aria-expanded="${state.tagEditorPositionKey === episode.positionKey}"${disabled ? " disabled" : ""}>TAG</button></div>`;
+}
+
+function renderPositionTagEditor(episode) {
+  const selected = state.positionTags.get(episode.positionKey) ?? [];
+  const disabled = state.tagPending.has(episode.positionKey);
+  return `<div class="trade-position-tag-editor"><strong>TAG ${escapeHtml(episode.label)}</strong>${TAG_OPTIONS.map((tag) => `<button type="button" data-position-key="${escapeHtml(episode.positionKey)}" data-position-tag="${tag}" aria-pressed="${selected.includes(tag)}"${disabled ? " disabled" : ""}>${tag}</button>`).join("")}</div>`;
 }
 
 function renderPositionTable(positions) {
