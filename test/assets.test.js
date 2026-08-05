@@ -10,6 +10,7 @@ import {
   filterAndSortTradFiAssets,
   formatFundingApr,
   formatMaxLeverage,
+  unseenNewAssetIds,
   nextColumnSort,
   resolveAsset,
   searchAssets,
@@ -143,6 +144,29 @@ test("NEW includes the seven-day boundary and rejects future timestamps", () => 
   assert.deepEqual(filterAndSortTradFiAssets(markets, {
     category: "new", firstSeenAt, now,
   }).map(({ id }) => id), ["xyz:BOUNDARY"]);
+});
+
+test("NEW activity includes only current listings that have not been acknowledged", () => {
+  const now = Date.UTC(2026, 7, 5, 12);
+  const markets = [
+    { id: "xyz:SEEN", dexId: "xyz" },
+    { id: "xyz:UNSEEN", dexId: "xyz" },
+    { id: "xyz:OLD", dexId: "xyz" },
+  ];
+  const firstSeenAt = new Map([
+    ["xyz:SEEN", new Date(now - 24 * 60 * 60 * 1000).toISOString()],
+    ["xyz:UNSEEN", new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString()],
+    ["xyz:OLD", new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString()],
+  ]);
+
+  assert.deepEqual(
+    unseenNewAssetIds(markets, firstSeenAt, new Set(["xyz:SEEN"]), now),
+    ["xyz:UNSEEN"],
+  );
+  assert.deepEqual(
+    unseenNewAssetIds(markets, firstSeenAt, new Set(["xyz:SEEN", "xyz:UNSEEN"]), now),
+    [],
+  );
 });
 
 test("TradFi asset view hydrates catalog entries with the latest live market values", () => {
