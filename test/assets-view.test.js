@@ -11,10 +11,15 @@ test("assets controls omit the legacy sorting dropdown", () => {
 });
 
 test("asset controls put category tabs left and icon-only watched/search controls right", () => {
-  assert.match(html, /class="asset-category-tabs"[\s\S]*data-asset-category="all"[\s\S]*data-asset-category="new"[\s\S]*data-asset-category="equities"[\s\S]*data-asset-category="etfs"[\s\S]*data-asset-category="commodities"[\s\S]*data-asset-category="fx"[\s\S]*data-asset-category="indices"[\s\S]*data-asset-category="pre-ipo"/);
+  assert.match(html, /class="asset-category-tabs"[\s\S]*data-asset-category="all"[\s\S]*data-asset-category="equities"[\s\S]*data-asset-category="etfs"[\s\S]*data-asset-category="commodities"[\s\S]*data-asset-category="fx"[\s\S]*data-asset-category="indices"[\s\S]*data-asset-category="pre-ipo"[\s\S]*data-asset-category="new"/);
   assert.doesNotMatch(html, /data-asset-category="other"/);
   assert.match(html, /class="asset-control-actions"[\s\S]*class="watched-first"[^>]*aria-label="Watched assets first"[\s\S]*id="watched-first"[\s\S]*id="asset-filter"/);
   assert.doesNotMatch(html, /WATCHED FIRST/);
+});
+
+test("assets table exposes compact APR and sortable daily volatility", () => {
+  assert.match(app, /formatFundingApr\(market\.funding\)/);
+  assert.match(app, /renderSortHeader\("D VOL", "daily-volatility"/);
 });
 
 test("the NEW category has a smooth reduced-motion-safe activity pulse", () => {

@@ -29,6 +29,7 @@ const PRICE_CHANGE_WINDOWS = [
   { label: "10m", milliseconds: 10 * 60 * 1000 },
   { label: "5m", milliseconds: FIVE_MINUTES_MS },
 ];
+const VOLATILITY_HISTORY_MS = 30 * 24 * ONE_HOUR_MS;
 
 export async function postInfo(payload, fetchImpl = fetch, timeoutMs = 15_000) {
   const controller = new AbortController();
@@ -208,7 +209,7 @@ export async function fetchPriceHistory(asset, fetchImpl = fetch, now = Date.now
       req: {
         coin: asset,
         interval: "1h",
-        startTime: endTime - PRICE_CHANGE_WINDOWS[0].milliseconds - ONE_HOUR_MS,
+        startTime: endTime - VOLATILITY_HISTORY_MS - ONE_HOUR_MS,
         endTime,
       },
     }, fetchImpl),
