@@ -3,7 +3,7 @@ import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "./lib/account-trades.js?v=20260805-order-rows";
+import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, episodeExecutionMetrics, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill, summarizeTradePerformance } from "./lib/account-trades.js?v=20260805-performance-metrics";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";
 
 const client = createWatchlistClient(APP_CONFIG);
@@ -16,6 +16,7 @@ const elements = {
   accountFillCount: document.querySelector("#trade-account-fill-count"),
   accountFills: document.querySelector("#trade-account-fills"),
   accountHealth: document.querySelector("#trade-account-health"),
+  accountStats: document.querySelector("#trade-account-stats"),
   accountPositions: document.querySelector("#trade-account-positions"),
   status: document.querySelector("#trade-log-status"),
   table: document.querySelector("#trade-log-table"),
@@ -304,6 +305,7 @@ function renderAccountData() {
     elements.accountHealth.textContent = client ? "SIGN IN TO LOAD" : "STORAGE UNAVAILABLE";
     elements.accountFills.innerHTML = `<p class="hint">SIGN IN TO LOAD FILLS.</p>`;
     elements.accountPositions.innerHTML = `<p class="hint">SIGN IN TO LOAD POSITIONS.</p>`;
+    renderTradePerformance([]);
     return;
   }
   const health = state.accountError
@@ -313,9 +315,18 @@ function renderAccountData() {
   elements.accountHealth.dataset.tone = health.tone;
   elements.accountAddress.textContent = state.accountSource?.address ?? "ACCOUNT SOURCE NOT CONFIGURED";
   const episodes = buildPositionEpisodes(state.fills);
+  renderTradePerformance(episodes);
   elements.accountFillCount.textContent = `${episodes.length} POSITIONS · ${countSubmittedOrders(state.fills)} ORDERS`;
   elements.accountFills.innerHTML = episodes.length ? renderFillTable(episodes) : `<p class="hint">NO FILLS INGESTED YET.</p>`;
   elements.accountPositions.innerHTML = state.positions.length ? renderPositionTable(state.positions) : `<p class="hint">NO OPEN POSITIONS.</p>`;
+}
+
+function renderTradePerformance(episodes) {
+  const summary = summarizeTradePerformance(episodes);
+  elements.accountStats.innerHTML = `<div><small>WINNING TRADES</small><strong>${summary.winningTrades}</strong></div>
+    <div><small>LOSING TRADES</small><strong>${summary.losingTrades}</strong></div>
+    <div><small>AVG GAIN</small><strong class="positive">${formatMoney(summary.averageGain)}</strong></div>
+    <div><small>AVG LOSS</small><strong class="negative">${formatMoney(summary.averageLoss)}</strong></div>`;
 }
 
 function countSubmittedOrders(fills) {
@@ -326,6 +337,7 @@ function renderFillTable(episodes) {
   const rows = episodes.map((episode) => {
     const expanded = state.expandedPositions.has(episode.positionKey);
     const orders = aggregateEpisodeOrders(episode);
+    const metrics = episodeExecutionMetrics(episode);
     const orderRows = orders.map((order, index) => `<tr class="trade-position-fill"${expanded ? "" : " hidden"}>
       <td><span class="trade-order-label"><strong>ORDER ${index + 1}</strong>${order.fillCount > 1 ? `<small>${order.fillCount} FILLS COMBINED</small>` : ""}</span></td>
       <td>${escapeHtml(formatDate(order.occurredAt))}</td>
@@ -340,12 +352,13 @@ function renderFillTable(episodes) {
       <td><strong class="trade-position-name">${escapeHtml(episode.label)}</strong></td>
       <td>${escapeHtml(formatDate(episode.openedAt))}</td>
       <td>${orders.length} ${orders.length === 1 ? "ORDER" : "ORDERS"} · ${episode.status.toUpperCase()}${episode.partialHistory ? " · EARLIER ENTRY" : ""}</td>
-      <td>${formatQuantity(episode.currentSize)}</td><td>—</td><td>—</td>
+      <td>${formatQuantity(episode.status === "open" ? episode.currentSize : metrics.shares)}<small class="trade-order-allocation">${episode.status === "open" ? `${formatQuantity(metrics.shares)} ENTERED` : "TOTAL ENTERED"}</small></td>
+      <td>${formatPrice(metrics.averagePrice)}</td><td>${formatMoney(metrics.notional)}</td>
       <td>${formatMoney(episode.closedPnl)}</td><td>${formatMoney(episode.fees)}</td>
       <td>${renderPositionTags(episode)}</td>
     </tr>${tagEditor}${orderRows}`;
   }).join("");
-  return `<table class="paper-table trade-position-table"><thead><tr><th>POSITION / ORDER</th><th>TIME</th><th>ACTIVITY</th><th>SHARES</th><th>AVG PRICE</th><th>NOTIONAL</th><th>REALIZED PNL</th><th>FEES</th><th>TAGS</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table class="paper-table trade-position-table"><thead><tr><th>POSITION / ORDER</th><th>TIME</th><th>ACTIVITY</th><th>SHARES</th><th title="Share-weighted average entry price">AVG PRICE</th><th title="Total entry notional">NOTIONAL</th><th>REALIZED PNL</th><th>FEES</th><th>TAGS</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPositionTags(episode) {
@@ -408,15 +421,24 @@ function formatDate(value) {
 }
 
 function formatQuantity(value) {
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 8 });
+  const number = numericValue(value);
+  return number === null ? "—" : number.toLocaleString(undefined, { maximumFractionDigits: 8 });
 }
 
 function formatPrice(value) {
-  return `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}`;
+  const number = numericValue(value);
+  return number === null ? "—" : `$${number.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}`;
 }
 
 function formatMoney(value) {
-  return `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const number = numericValue(value);
+  return number === null ? "—" : `${number < 0 ? "−" : ""}$${Math.abs(number).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function numericValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function escapeHtml(value) {

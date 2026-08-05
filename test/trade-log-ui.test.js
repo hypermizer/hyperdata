@@ -15,12 +15,15 @@ test("analysis exposes continuous account fills, positions, and manual order ent
   assert.match(html, /id="trade-account-health"/);
   assert.match(html, /id="trade-account-fills"/);
   assert.match(html, /id="trade-account-positions"/);
+  assert.match(html, /id="trade-account-stats"/);
   assert.doesNotMatch(html, /UPLOAD FULL CSV/);
 });
 
 test("account fills render as expandable position roots with persistent tags", () => {
   assert.match(script, /buildPositionEpisodes/);
   assert.match(script, /aggregateEpisodeOrders/);
+  assert.match(script, /episodeExecutionMetrics/);
+  assert.match(script, /summarizeTradePerformance/);
   assert.match(script, /data-position-toggle/);
   assert.match(script, /role="button" aria-expanded/);
   assert.match(script, /closest\("button, a, input, select, textarea"\)/);
@@ -36,6 +39,7 @@ test("account fills render as expandable position roots with persistent tags", (
   assert.match(styles, /trade-position-fill/);
   assert.match(styles, /trade-position-tag-editor/);
   assert.match(styles, /min-width:\s*940px/);
+  assert.match(styles, /trade-performance-stats/);
 });
 
 test("the strategy product surface and runtime are removed", () => {

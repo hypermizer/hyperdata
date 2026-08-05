@@ -167,6 +167,40 @@ export function aggregateEpisodeOrders(episode) {
   }));
 }
 
+export function episodeExecutionMetrics(episode) {
+  const entries = (episode?.fills ?? []).filter((fill) => (
+    fill.splitPart === "open"
+    || (episode.direction === "long" ? fill.side === "buy" : fill.side === "sell")
+  ));
+  const totals = entries.reduce((result, fill) => {
+    result.shares += fill.size;
+    result.notional += fill.value;
+    return result;
+  }, { shares: 0, notional: 0 });
+  return {
+    shares: totals.shares,
+    averagePrice: totals.shares ? totals.notional / totals.shares : null,
+    notional: totals.shares ? totals.notional : null,
+  };
+}
+
+export function summarizeTradePerformance(episodes) {
+  const completed = (episodes ?? [])
+    .filter((episode) => episode.status === "closed" && !episode.partialHistory)
+    .map((episode) => episode.closedPnl - episode.fees);
+  const gains = completed.filter((pnl) => pnl > POSITION_EPSILON);
+  const losses = completed.filter((pnl) => pnl < -POSITION_EPSILON);
+  const average = (values) => values.length
+    ? values.reduce((total, value) => total + value, 0) / values.length
+    : 0;
+  return {
+    winningTrades: gains.length,
+    losingTrades: losses.length,
+    averageGain: average(gains),
+    averageLoss: average(losses),
+  };
+}
+
 export function buildPositionEpisodes(fills) {
   const ordered = enrichOrderTotals(fills).sort(compareFillSequence);
   const episodes = [];
