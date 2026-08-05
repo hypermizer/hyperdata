@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountSyncHealth, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "../public/lib/account-trades.js";
+import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "../public/lib/account-trades.js";
 
 test("normalizes authoritative Hyperliquid fills for the trade log", () => {
   assert.deepEqual(normalizeAccountFill({
@@ -61,9 +61,73 @@ test("splits a direction-flipping fill between the closing and opening roots", (
   assert.equal(episodes.length, 2);
   assert.equal(episodes[0].label, "SHORT PLTR");
   assert.equal(episodes[0].fills[0].size, 3);
+  assert.equal(episodes[0].fills[0].direction, "Open short");
   assert.equal(episodes[1].label, "LONG PLTR");
   assert.equal(episodes[1].fills[1].size, 2);
+  assert.equal(episodes[1].fills[1].direction, "Close long");
   assert.equal(episodes[1].status, "closed");
+
+  const shortOrder = aggregateEpisodeOrders(episodes[0])[0];
+  const longCloseOrder = aggregateEpisodeOrders(episodes[1]).at(-1);
+  assert.deepEqual(
+    [shortOrder.size, shortOrder.episodeSize, shortOrder.direction],
+    [5, 3, "Open short"],
+  );
+  assert.deepEqual(
+    [longCloseOrder.size, longCloseOrder.episodeSize, longCloseOrder.direction],
+    [5, 2, "Close long"],
+  );
+});
+
+test("same-timestamp fill fragments follow start-position sequence instead of trade id", () => {
+  const closeTime = "2026-08-05T16:00:44.406Z";
+  const episodes = buildPositionEpisodes([
+    fill("1", "xyz:DRAM", "sell", "171.1", "0", "2026-08-05T15:10:43.959Z"),
+    fill("107173365102331", "xyz:DRAM", "buy", "54.2", "-171.1", closeTime, { direction: "Close Short" }),
+    fill("220600984158807", "xyz:DRAM", "buy", "23.7", "-116.9", closeTime, { direction: "Close Short" }),
+    fill("345028357064587", "xyz:DRAM", "buy", "1.8", "-93.2", closeTime, { direction: "Close Short" }),
+    fill("1076203989373845", "xyz:DRAM", "buy", "54.2", "-91.4", closeTime, { direction: "Close Short" }),
+    fill("826988671707453", "xyz:DRAM", "buy", "29.2", "-37.2", closeTime, { direction: "Close Short" }),
+    fill("1071885684946000", "xyz:DRAM", "buy", "8", "-8", closeTime, { direction: "Close Short" }),
+    fill("9", "xyz:DRAM", "sell", "20", "0", "2026-08-05T16:01:09.199Z"),
+    fill("10", "xyz:DRAM", "sell", "20", "-20", "2026-08-05T16:08:59.933Z"),
+  ]);
+
+  assert.equal(episodes[0].status, "open");
+  assert.equal(episodes[0].currentSize, 40);
+  assert.deepEqual(episodes[0].fills.map(({ direction }) => direction), ["Open Short", "Open Short"]);
+  assert.equal(episodes[1].status, "closed");
+  assert.equal(episodes[1].currentSize, 0);
+});
+
+test("same-timestamp opposite-side orders follow their position chain", () => {
+  const time = "2026-08-05T16:00:44.406Z";
+  const episodes = buildPositionEpisodes([
+    fill("1", "xyz:DRAM", "sell", "10", "0", "2026-08-05T16:00:00Z"),
+    { ...fill("2", "xyz:DRAM", "sell", "3", "-5", time), orderId: "20" },
+    { ...fill("9", "xyz:DRAM", "buy", "5", "-10", time, { direction: "Close Short" }), orderId: "10" },
+  ]);
+
+  assert.equal(episodes.length, 1);
+  assert.equal(episodes[0].status, "open");
+  assert.equal(episodes[0].currentSize, 8);
+  assert.deepEqual(episodes[0].fills.map(({ startPosition }) => startPosition), [0, -10, -5]);
+});
+
+test("aggregates exchange fill fragments into one submitted-order row", () => {
+  const orderTime = "2026-08-05T16:08:59.933Z";
+  const episode = buildPositionEpisodes([
+    fill("1", "xyz:DRAM", "sell", "1.8", "0", orderTime, { price: "54.609" }),
+    { ...fill("2", "xyz:DRAM", "sell", "2.9", "-1.8", orderTime, { price: "54.605" }), orderId: "1" },
+    { ...fill("3", "xyz:DRAM", "sell", "15.3", "-4.7", orderTime, { price: "54.604" }), orderId: "1" },
+  ])[0];
+  const orders = aggregateEpisodeOrders(episode);
+
+  assert.equal(orders.length, 1);
+  assert.equal(orders[0].size, 20);
+  assert.equal(orders[0].fillCount, 3);
+  assert.equal(orders[0].direction, "Open Short");
+  assert.ok(Math.abs(orders[0].price - 54.604595) < 1e-8);
 });
 
 test("formats trade times without seconds", () => {

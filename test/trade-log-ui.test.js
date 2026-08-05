@@ -20,14 +20,22 @@ test("analysis exposes continuous account fills, positions, and manual order ent
 
 test("account fills render as expandable position roots with persistent tags", () => {
   assert.match(script, /buildPositionEpisodes/);
+  assert.match(script, /aggregateEpisodeOrders/);
   assert.match(script, /data-position-toggle/);
+  assert.match(script, /role="button" aria-expanded/);
+  assert.match(script, /closest\("button, a, input, select, textarea"\)/);
+  assert.doesNotMatch(script, /trade-position-toggle/);
   assert.match(script, /data-position-tag/);
+  assert.match(script, /data-position-tag-editor/);
   assert.match(script, /hyperliquid_account_position_tags/);
   assert.match(script, /EARNINGS.*MEANREV.*YOLO/s);
+  assert.match(script, /FILLS COMBINED/);
   assert.match(script, /tagVersion/);
   assert.match(script, /snapshotVersion === state\.tagVersion/);
   assert.match(styles, /trade-position-root/);
   assert.match(styles, /trade-position-fill/);
+  assert.match(styles, /trade-position-tag-editor/);
+  assert.match(styles, /min-width:\s*940px/);
 });
 
 test("the strategy product surface and runtime are removed", () => {
