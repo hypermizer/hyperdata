@@ -40,6 +40,11 @@ h3 { font-size: 14px; font-weight: 700; }
   text-decoration: none;
 }
 .principles-button[aria-selected="true"] { border-color: transparent; background: #2c8881; color: #fff; }
+.principles-header { margin-bottom: 14px; }
+.principles-list { border-top: 1px solid #34383d; }
+.principle-item { padding: 18px 0; border-bottom: 1px solid #34383d; }
+.principle-item h3 { color: #eceff1; font-size: 15px; letter-spacing: 0.035em; }
+.principle-item p { max-width: 680px; margin-top: 7px; color: #8f979e; font-size: 10px; line-height: 1.55; letter-spacing: 0.025em; }
 
 header p, .hint { color: #a8afb7; font-size: 13px; }
 header p { margin-top: 6px; text-transform: uppercase; }
