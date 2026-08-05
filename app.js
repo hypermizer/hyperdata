@@ -3,7 +3,7 @@ import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort } from "./lib/assets.js?v=20260805-daily-volatility";
-import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cache";
+import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
@@ -994,13 +994,7 @@ function scheduleMarketRender() {
 }
 
 function recordLivePrice(asset, price, now = Date.now()) {
-  if (!Number.isFinite(price) || price <= 0) return;
-  const bucket = Math.floor(now / 300_000) * 300_000;
-  const points = state.priceHistories.get(asset) ?? [];
-  const recent = points.filter((point) => point.time >= now - (8 * 24 * 60 * 60 * 1000));
-  if (recent.at(-1)?.time >= bucket) recent[recent.length - 1] = { time: bucket, price };
-  else recent.push({ time: bucket, price });
-  state.priceHistories.set(asset, recent);
+  state.priceHistories.set(asset, recordLivePricePoint(state.priceHistories.get(asset), price, now));
 }
 
 function formatDotDetail({ label, referencePrice, changePercent }) {
