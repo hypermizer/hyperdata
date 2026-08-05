@@ -26,6 +26,10 @@ test("the NEW category has a smooth reduced-motion-safe activity pulse", () => {
   assert.match(css, /asset-category-tabs[^}]*has-new-assets/);
   assert.match(css, /@keyframes\s+new-asset-pulse/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
+  assert.match(app, /unseenNewAssetIds/);
+  assert.match(app, /data-acknowledge-new-asset/);
+  assert.match(app, /function renderNewAssetAcknowledgement[\s\S]*state\.category !== "new"/);
+  assert.match(css, /\.new-asset-acknowledgement/);
 });
 
 test("asset stars are positioned outside the name flow", () => {

@@ -27,6 +27,13 @@ export function isNewAsset(asset, firstSeenAt = new Map(), now = Date.now()) {
     && firstSeen >= Number(now) - NEW_ASSET_WINDOW_MS;
 }
 
+export function unseenNewAssetIds(markets, firstSeenAt = new Map(), acknowledged = new Set(), now = Date.now()) {
+  const acknowledgedIds = acknowledged instanceof Set ? acknowledged : new Set(acknowledged);
+  return (Array.isArray(markets) ? markets : [])
+    .filter((market) => isNewAsset(market, firstSeenAt, now) && !acknowledgedIds.has(market.id))
+    .map((market) => market.id);
+}
+
 export function assetCategoryFor(asset) {
   const category = String(asset?.category ?? "").toLowerCase();
   const keywords = Array.isArray(asset?.keywords)

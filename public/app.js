@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort } from "./lib/assets.js?v=20260805-daily-volatility";
+import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort, unseenNewAssetIds } from "./lib/assets.js?v=20260805-new-acknowledgements";
 import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
 import {
   applyLiveMarketContext,
@@ -45,6 +45,8 @@ const state = {
   assetFundamentalsPending: new Set(),
   assetNewsAsset: null,
   assetNewsLoadToken: 0,
+  acknowledgedNewAssets: new Set(),
+  acknowledgementPending: new Set(),
   averageVolumes: new Map(),
   catalog: [],
   category: "all",
@@ -177,6 +179,11 @@ function wireEvents() {
       await toggleWatchedAsset(favoriteButton.dataset.watchAsset);
       return;
     }
+    const acknowledgementButton = event.target.closest("[data-acknowledge-new-asset]");
+    if (acknowledgementButton) {
+      await acknowledgeNewAsset(acknowledgementButton.dataset.acknowledgeNewAsset);
+      return;
+    }
     handleSignalClick(event);
   });
   elements.assetDetailSignals.addEventListener("click", handleSignalClick);
@@ -251,9 +258,10 @@ async function setSession(session) {
   }
   if (state.user) {
     state.accountMessage = "";
-    await Promise.all([loadCloudWatchlist(), loadAlerts()]);
+    await Promise.all([loadCloudWatchlist(), loadNewAssetAcknowledgements(), loadAlerts()]);
   } else {
     state.watchlist = [...APP_CONFIG.initialWatchlist].filter((id) => state.markets.size === 0 || state.markets.has(id));
+    state.acknowledgedNewAssets = new Set();
     await loadAlerts();
   }
   if (state.markets.size) {
@@ -298,6 +306,14 @@ async function loadCloudWatchlist() {
   if (error) throw error;
   state.watchlist = data.map((item) => item.asset);
   dispatchWatchlist();
+}
+
+async function loadNewAssetAcknowledgements() {
+  const { data, error } = await state.supabase
+    .from("new_asset_acknowledgements")
+    .select("asset");
+  if (error) throw error;
+  state.acknowledgedNewAssets = new Set(data.map((item) => item.asset));
 }
 
 function dispatchWatchlist() {
@@ -348,6 +364,30 @@ async function toggleWatchedAsset(asset) {
     setWatchlistMessage(error.message);
   } finally {
     state.favoritePending.delete(asset);
+    renderMarkets();
+  }
+}
+
+async function acknowledgeNewAsset(asset) {
+  if (state.acknowledgedNewAssets.has(asset) || state.acknowledgementPending.has(asset)) return;
+  if (!state.user) {
+    setWatchlistMessage("Sign in to save seen assets.");
+    return;
+  }
+  state.acknowledgementPending.add(asset);
+  state.acknowledgedNewAssets.add(asset);
+  renderMarkets();
+  try {
+    const { error } = await state.supabase
+      .from("new_asset_acknowledgements")
+      .upsert({ user_id: state.user.id, asset }, { onConflict: "user_id,asset" });
+    if (error) throw error;
+    setWatchlistMessage(`${displayAssetName(asset)} marked as seen.`);
+  } catch (error) {
+    state.acknowledgedNewAssets.delete(asset);
+    setWatchlistMessage(error.message);
+  } finally {
+    state.acknowledgementPending.delete(asset);
     renderMarkets();
   }
 }
@@ -416,9 +456,10 @@ function renderMarkets() {
   });
   const watched = new Set(state.watchlist);
   const newAssetCount = markets.filter((market) => isNewAsset(market, state.firstSeenAt, now)).length;
+  const unseenNewAssets = unseenNewAssetIds(markets, state.firstSeenAt, state.acknowledgedNewAssets, now);
   const newCategoryButton = elements.assetCategoryTabs.find((button) => button.dataset.assetCategory === "new");
-  newCategoryButton?.classList.toggle("has-new-assets", newAssetCount > 0);
-  if (newCategoryButton) newCategoryButton.title = `${newAssetCount} ASSET${newAssetCount === 1 ? "" : "S"} ADDED IN THE LAST 7 DAYS`;
+  newCategoryButton?.classList.toggle("has-new-assets", unseenNewAssets.length > 0);
+  if (newCategoryButton) newCategoryButton.title = `${newAssetCount} ASSET${newAssetCount === 1 ? "" : "S"} ADDED IN THE LAST 7 DAYS · ${unseenNewAssets.length} UNSEEN`;
   const isFiltered = state.query.trim() || state.category !== "all";
   elements.assetCount.textContent = isFiltered
     ? `${visibleMarkets.length} / ${totalAssets} ASSETS`
@@ -430,13 +471,24 @@ function renderMarkets() {
       const favoritePending = state.favoritePending.has(market.id);
       const rsi = rsiValues.get(market.id);
       const dailyVolatility = dailyVolatilityValues.get(market.id);
+      const acknowledgement = renderNewAssetAcknowledgement(market);
       const watchLabel = `${isWatched ? "Remove" : "Add"} ${displayAssetName(market.id)} ${isWatched ? "from" : "to"} watched assets`;
-      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a><span class="asset-leverage-tag" title="Maximum leverage">${formatMaxLeverage(market.maxLeverage)}</span></span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="20-day standard deviation of daily log returns, including the live mark">${formatVolatility(dailyVolatility)}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatFundingApr(market.funding)}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
+      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a><span class="asset-leverage-tag" title="Maximum leverage">${formatMaxLeverage(market.maxLeverage)}</span>${acknowledgement}</span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="20-day standard deviation of daily log returns, including the live mark">${formatVolatility(dailyVolatility)}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatFundingApr(market.funding)}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric">${formatCompact(market.openInterest)}</td></tr>`;
     })
     .join("");
   const body = rows || `<tr><td class="asset-cell" colspan="10">NO MATCHING ASSETS</td></tr>`;
   elements.marketList.innerHTML = `<table class="market-table"><thead><tr>${renderSortHeader("ASSET", "asset", "asset-cell")}${renderSignalHeaders()}${renderSortHeader("MARK", "mark")}${renderSortHeader("24H +/-", "change-24h")}${renderSortHeader("24H VOL", "volume")}${renderSortHeader("AVG VOL", "avg-volume")}${renderSortHeader("D VOL", "daily-volatility", "", "20-day realized volatility")}${renderSortHeader("APR", "apr", "", "Annualized current hourly funding rate")}${renderSortHeader("RSI", "rsi", "", "Wilder RSI(14) on one-hour closes")}${renderSortHeader("OI", "open-interest")}</tr></thead><tbody>${body}</tbody></table>`;
   state.marketRenderedAt = now;
+}
+
+function renderNewAssetAcknowledgement(market) {
+  if (state.category !== "new") return "";
+  const isAcknowledged = state.acknowledgedNewAssets.has(market.id);
+  const label = isAcknowledged
+    ? `${displayAssetName(market.id)} seen`
+    : `Mark ${displayAssetName(market.id)} as seen`;
+  const disabled = isAcknowledged || state.acknowledgementPending.has(market.id);
+  return `<button class="new-asset-acknowledgement" type="button" data-acknowledge-new-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(label)}" aria-pressed="${isAcknowledged}" title="${isAcknowledged ? "Seen" : "Mark as seen"}" ${disabled ? "disabled" : ""}>✓</button>`;
 }
 
 function renderPriceSignals(market) {
