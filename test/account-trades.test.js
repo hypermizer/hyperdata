@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill } from "../public/lib/account-trades.js";
+import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, episodeExecutionMetrics, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill, summarizeTradePerformance } from "../public/lib/account-trades.js";
 
 test("normalizes authoritative Hyperliquid fills for the trade log", () => {
   assert.deepEqual(normalizeAccountFill({
@@ -75,12 +75,14 @@ test("splits a direction-flipping fill between the closing and opening roots", (
   );
   assert.equal(shortOrder.closedPnl, 0);
   assert.equal(shortOrder.fee, 0.3);
+  assert.deepEqual(episodeExecutionMetrics(episodes[0]), { shares: 3, averagePrice: 100, notional: 300 });
   assert.deepEqual(
     [longCloseOrder.size, longCloseOrder.episodeSize, longCloseOrder.direction],
     [5, 2, "Close long"],
   );
   assert.equal(longCloseOrder.closedPnl, 10);
   assert.equal(longCloseOrder.fee, 0.2);
+  assert.deepEqual(episodeExecutionMetrics(episodes[1]), { shares: 2, averagePrice: 100, notional: 200 });
 });
 
 test("same-timestamp fill fragments follow start-position sequence instead of trade id", () => {
@@ -132,6 +134,45 @@ test("aggregates exchange fill fragments into one submitted-order row", () => {
   assert.equal(orders[0].fillCount, 3);
   assert.equal(orders[0].direction, "Open Short");
   assert.ok(Math.abs(orders[0].price - 54.604595) < 1e-8);
+});
+
+test("calculates position-row metrics from entry fills without double-counting exits", () => {
+  const episode = buildPositionEpisodes([
+    fill("1", "xyz:DRAM", "sell", "2", "0", "2026-08-05T10:00:00Z", { price: "50", fee: "0.2" }),
+    fill("2", "xyz:DRAM", "sell", "3", "-2", "2026-08-05T10:01:00Z", { price: "52", fee: "0.3" }),
+    fill("3", "xyz:DRAM", "buy", "5", "-5", "2026-08-05T11:00:00Z", { price: "48", fee: "0.5", closedPnl: "16" }),
+  ])[0];
+
+  assert.deepEqual(episodeExecutionMetrics(episode), {
+    shares: 5,
+    averagePrice: 51.2,
+    notional: 256,
+  });
+});
+
+test("summarizes only completed positions and classifies results after fees", () => {
+  const winning = buildPositionEpisodes([
+    fill("1", "xyz:DRAM", "buy", "1", "0", "2026-08-05T10:00:00Z", { fee: "1" }),
+    fill("2", "xyz:DRAM", "sell", "1", "1", "2026-08-05T11:00:00Z", { fee: "1", closedPnl: "12" }),
+  ])[0];
+  const losing = buildPositionEpisodes([
+    fill("3", "xyz:PLTR", "sell", "1", "0", "2026-08-05T12:00:00Z", { fee: "0.5" }),
+    fill("4", "xyz:PLTR", "buy", "1", "-1", "2026-08-05T13:00:00Z", { fee: "0.5", closedPnl: "-4" }),
+  ])[0];
+  const open = buildPositionEpisodes([
+    fill("5", "BTC", "buy", "0.1", "0", "2026-08-05T14:00:00Z", { fee: "0.25", closedPnl: "30" }),
+  ])[0];
+  const partial = buildPositionEpisodes([
+    fill("6", "xyz:XYZ100", "buy", "1", "-1", "2026-08-05T15:00:00Z", { fee: "0.5", closedPnl: "20", direction: "Close Short" }),
+  ])[0];
+
+  assert.deepEqual(episodeExecutionMetrics(partial), { shares: 0, averagePrice: null, notional: null });
+  assert.deepEqual(summarizeTradePerformance([winning, losing, open, partial]), {
+    winningTrades: 1,
+    losingTrades: 1,
+    averageGain: 10,
+    averageLoss: -5,
+  });
 });
 
 test("formats trade times without seconds", () => {

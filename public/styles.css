@@ -459,6 +459,14 @@ input, select { min-width: 0; }
 .trade-account-sync [data-tone="live"] { color: #46d6b8; }
 .trade-account-sync [data-tone="warning"] { color: #e4b860; }
 .trade-account-sync [data-tone="error"] { color: #ff928a; }
+.trade-performance-heading { margin-top: 14px; }
+.trade-performance-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #34383d; background: #101214; }
+.trade-performance-stats div { display: grid; min-height: 58px; align-content: center; gap: 4px; padding: 8px 12px; border-right: 1px solid #34383d; }
+.trade-performance-stats div:last-child { border-right: 0; }
+.trade-performance-stats small { color: #788087; font-size: 8px; }
+.trade-performance-stats strong { color: #e7ebee; font-size: 15px; font-variant-numeric: tabular-nums; }
+.trade-performance-stats .positive { color: #7fe89a; }
+.trade-performance-stats .negative { color: #ff928a; }
 .trade-manual-heading { margin-top: 18px; }
 .trade-log-form {
   display: grid;
@@ -488,6 +496,7 @@ input, select { min-width: 0; }
 .trade-position-root.long .trade-position-name { color: #7fe89a; }
 .trade-position-root.short .trade-position-name { color: #ff928a; }
 .trade-position-name { font-size: 11px; white-space: nowrap; }
+.trade-position-table td { font-variant-numeric: tabular-nums; }
 .trade-position-fill td { height: 42px; background: #101214; color: #c2c8cc; }
 .trade-position-fill td:first-child { padding-left: 16px; }
 .trade-order-label, .trade-order-allocation { display: block; }
@@ -501,6 +510,12 @@ input, select { min-width: 0; }
 .trade-position-tag-editor strong { margin-right: 5px; color: #aab1b8; font-size: 8px; }
 .trade-position-tag-editor button { width: auto; min-width: 62px; min-height: 24px; padding: 2px 7px; font-size: 8px; }
 .trade-position-tag-editor button[aria-pressed="true"] { border-color: #d7b64a; background: #d7b64a; color: #101214; }
+
+@media (max-width: 620px) {
+  .trade-performance-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trade-performance-stats div:nth-child(2) { border-right: 0; }
+  .trade-performance-stats div:nth-child(-n+2) { border-bottom: 1px solid #34383d; }
+}
 
 .tools-subtabs { margin-top: 0; }
 .tool-intro { max-width: 850px; margin-top: 14px; color: #a8afb7; font-size: 10px; line-height: 1.55; }
