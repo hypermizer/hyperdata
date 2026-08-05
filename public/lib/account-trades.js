@@ -151,12 +151,14 @@ export function aggregateEpisodeOrders(episode) {
       episodeSize: 0,
       price: fill.orderPrice ?? 0,
       value: fill.orderValue ?? 0,
-      closedPnl: fill.orderClosedPnl ?? 0,
-      fee: fill.orderFee ?? 0,
+      closedPnl: 0,
+      fee: 0,
       fillCount: fill.orderFillCount ?? 0,
     };
     order.directions.add(fill.direction);
     order.episodeSize += fill.size;
+    order.closedPnl += fill.closedPnl;
+    order.fee += fill.fee;
     orders.set(key, order);
   }
   return [...orders.values()].map(({ directions, ...order }) => ({

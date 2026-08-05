@@ -73,10 +73,14 @@ test("splits a direction-flipping fill between the closing and opening roots", (
     [shortOrder.size, shortOrder.episodeSize, shortOrder.direction],
     [5, 3, "Open short"],
   );
+  assert.equal(shortOrder.closedPnl, 0);
+  assert.equal(shortOrder.fee, 0.3);
   assert.deepEqual(
     [longCloseOrder.size, longCloseOrder.episodeSize, longCloseOrder.direction],
     [5, 2, "Close long"],
   );
+  assert.equal(longCloseOrder.closedPnl, 10);
+  assert.equal(longCloseOrder.fee, 0.2);
 });
 
 test("same-timestamp fill fragments follow start-position sequence instead of trade id", () => {
