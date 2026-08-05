@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyAssetAnalyticsRows } from "../public/lib/asset-analytics.js";
+import { applyAssetAnalyticsRows, recordLivePricePoint } from "../public/lib/asset-analytics.js";
 
 test("a bulk analytics response hydrates every asset without replacing newer live points", () => {
   const averageVolumes = new Map();
@@ -34,4 +34,21 @@ test("bulk analytics ignores malformed values", () => {
   ], { averageVolumes, priceHistories }), 1);
   assert.equal(averageVolumes.has("xyz:ORCL"), false);
   assert.deepEqual(priceHistories.get("xyz:ORCL"), []);
+});
+
+test("a live price tick retains enough history for 20-session volatility", () => {
+  const now = Date.UTC(2026, 7, 5, 21, 23);
+  const points = Array.from({ length: 31 }, (_, day) => ({
+    time: now - ((30 - day) * 24 * 60 * 60 * 1000),
+    price: 100 + day,
+  }));
+
+  const updated = recordLivePricePoint(points, 131, now);
+
+  assert.equal(updated.length, 31);
+  assert.equal(updated[0].time, points[0].time);
+  assert.deepEqual(updated.at(-1), {
+    time: Math.floor(now / 300_000) * 300_000,
+    price: 131,
+  });
 });
