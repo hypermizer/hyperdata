@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { ASSET_CATEGORY_TABS, annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, formatMaxLeverage, hydrateTradFiMarkets, nextColumnSort } from "./lib/assets.js?v=20260803-leverage-tags";
+import { ASSET_CATEGORY_TABS, annualizedFundingApr, calculateHourlyRsi, filterAndSortTradFiAssets, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort } from "./lib/assets.js?v=20260805-new-assets";
 import { applyAssetAnalyticsRows } from "./lib/asset-analytics.js?v=20260801-cache";
 import {
   applyLiveMarketContext,
@@ -49,6 +49,7 @@ const state = {
   catalog: [],
   category: "all",
   favoritePending: new Set(),
+  firstSeenAt: new Map(),
   markets: new Map(),
   openDot: null,
   priceHistories: new Map(),
@@ -355,7 +356,7 @@ async function loadCachedAssetAnalytics() {
   if (!state.supabase) return 0;
   const { data, error } = await state.supabase
     .from("asset_analytics_cache")
-    .select("asset,average_daily_volume,price_history");
+    .select("asset,average_daily_volume,price_history,first_seen_at");
   if (error) return 0;
   const applied = applyAssetAnalyticsRows(data, state);
   if (applied && state.catalog.length) scheduleMarketRender();
@@ -399,6 +400,7 @@ function renderMarkets() {
   const visibleMarkets = filterAndSortTradFiAssets(markets, {
     averageVolumes: state.averageVolumes,
     category: state.category,
+    firstSeenAt: state.firstSeenAt,
     now,
     priceHistories: state.priceHistories,
     query: state.query,
@@ -408,6 +410,10 @@ function renderMarkets() {
     watchedFirst: state.watchedFirst,
   });
   const watched = new Set(state.watchlist);
+  const newAssetCount = markets.filter((market) => isNewAsset(market, state.firstSeenAt, now)).length;
+  const newCategoryButton = elements.assetCategoryTabs.find((button) => button.dataset.assetCategory === "new");
+  newCategoryButton?.classList.toggle("has-new-assets", newAssetCount > 0);
+  if (newCategoryButton) newCategoryButton.title = `${newAssetCount} ASSET${newAssetCount === 1 ? "" : "S"} ADDED IN THE LAST 7 DAYS`;
   const isFiltered = state.query.trim() || state.category !== "all";
   elements.assetCount.textContent = isFiltered
     ? `${visibleMarkets.length} / ${totalAssets} ASSETS`

@@ -40,6 +40,8 @@ test("account fills render as expandable position roots with persistent tags", (
   assert.match(styles, /trade-position-tag-editor/);
   assert.match(styles, /min-width:\s*940px/);
   assert.match(styles, /trade-performance-stats/);
+  assert.match(script, /averageGainPercent/);
+  assert.match(script, /averageLossPercent/);
 });
 
 test("the strategy product surface and runtime are removed", () => {

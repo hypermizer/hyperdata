@@ -66,7 +66,7 @@ test("TradFi asset view includes active xyz markets and supports search", () => 
 
 test("asset categories distinguish ETFs from equities using official annotations", () => {
   assert.deepEqual(ASSET_CATEGORY_TABS.map(({ value }) => value), [
-    "all", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo", "other",
+    "all", "new", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo",
   ]);
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["oracle", "ai"] }), "equities");
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["memory", "ETF"] }), "etfs");
@@ -86,6 +86,42 @@ test("TradFi asset filtering applies category and search together", () => {
 
   assert.deepEqual(filterAndSortTradFiAssets(markets, { category: "etfs" }).map(({ id }) => id), ["xyz:DRAM"]);
   assert.deepEqual(filterAndSortTradFiAssets(markets, { category: "equities", query: "or" }).map(({ id }) => id), ["xyz:ORCL"]);
+});
+
+test("NEW contains only assets first observed within the last seven days", () => {
+  const now = Date.UTC(2026, 7, 5, 12);
+  const markets = [
+    { id: "xyz:NEW", symbol: "NEW", dexId: "xyz" },
+    { id: "xyz:OLD", symbol: "OLD", dexId: "xyz" },
+    { id: "xyz:UNKNOWN", symbol: "UNKNOWN", dexId: "xyz" },
+  ];
+  const firstSeenAt = new Map([
+    ["xyz:NEW", new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString()],
+    ["xyz:OLD", new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString()],
+  ]);
+
+  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+    category: "new", firstSeenAt, now,
+  }).map(({ id }) => id), ["xyz:NEW"]);
+});
+
+test("NEW includes the seven-day boundary and rejects future timestamps", () => {
+  const now = Date.UTC(2026, 7, 5, 12);
+  const week = 7 * 24 * 60 * 60 * 1000;
+  const markets = [
+    { id: "xyz:BOUNDARY", symbol: "BOUNDARY", dexId: "xyz" },
+    { id: "xyz:TOO_OLD", symbol: "TOO_OLD", dexId: "xyz" },
+    { id: "xyz:FUTURE", symbol: "FUTURE", dexId: "xyz" },
+  ];
+  const firstSeenAt = new Map([
+    ["xyz:BOUNDARY", new Date(now - week).toISOString()],
+    ["xyz:TOO_OLD", new Date(now - week - 1).toISOString()],
+    ["xyz:FUTURE", new Date(now + 1).toISOString()],
+  ]);
+
+  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+    category: "new", firstSeenAt, now,
+  }).map(({ id }) => id), ["xyz:BOUNDARY"]);
 });
 
 test("TradFi asset view hydrates catalog entries with the latest live market values", () => {

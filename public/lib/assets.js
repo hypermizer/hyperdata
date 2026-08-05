@@ -9,14 +9,23 @@ export function formatMaxLeverage(value) {
 
 export const ASSET_CATEGORY_TABS = [
   { value: "all", label: "ALL" },
+  { value: "new", label: "NEW" },
   { value: "equities", label: "EQUITIES" },
   { value: "etfs", label: "ETFs" },
   { value: "commodities", label: "COMMODITIES" },
   { value: "fx", label: "FX" },
   { value: "indices", label: "INDICES" },
   { value: "pre-ipo", label: "PRE-IPO" },
-  { value: "other", label: "OTHER" },
 ];
+
+const NEW_ASSET_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function isNewAsset(asset, firstSeenAt = new Map(), now = Date.now()) {
+  const firstSeen = Date.parse(firstSeenAt.get(asset?.id));
+  return Number.isFinite(firstSeen)
+    && firstSeen <= Number(now)
+    && firstSeen >= Number(now) - NEW_ASSET_WINDOW_MS;
+}
 
 export function assetCategoryFor(asset) {
   const category = String(asset?.category ?? "").toLowerCase();
@@ -124,6 +133,7 @@ export function filterAndSortTradFiAssets(markets, options = {}) {
   const {
     averageVolumes = new Map(),
     category = "all",
+    firstSeenAt = new Map(),
     now = Date.now(),
     priceHistories = new Map(),
     query = "",
@@ -136,7 +146,8 @@ export function filterAndSortTradFiAssets(markets, options = {}) {
   const watchedIds = new Set(watched);
   const filtered = markets.filter((market) => {
     if (!isTradFiMarket(market)) return false;
-    if (category !== "all" && assetCategoryFor(market) !== category) return false;
+    if (category === "new" && !isNewAsset(market, firstSeenAt, now)) return false;
+    if (!["all", "new"].includes(category) && assetCategoryFor(market) !== category) return false;
     if (!normalizedQuery) return true;
     return [market.symbol, market.id, market.displayName, ...(market.keywords ?? [])]
       .some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery));

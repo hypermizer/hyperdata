@@ -24,7 +24,7 @@ const restHeaders = {
   "content-type": "application/json",
 };
 const restUrl = `https://${projectRef}.supabase.co/rest/v1/asset_analytics_cache`;
-const existingResponse = await fetchWithRetry(`${restUrl}?select=asset,average_daily_volume,average_volume_updated_at`, { headers: restHeaders });
+const existingResponse = await fetchWithRetry(`${restUrl}?select=asset,average_daily_volume,average_volume_updated_at,first_seen_at`, { headers: restHeaders });
 if (!existingResponse.ok) throw new Error(`Unable to read analytics cache (${existingResponse.status})`);
 const existing = new Map((await existingResponse.json()).map((row) => [row.asset, row]));
 
@@ -49,6 +49,7 @@ const rows = (await mapLimit(shardAssets, 3, async (asset) => {
     if (!history.length) throw new Error("no candle history returned");
     return {
       asset,
+      first_seen_at: cached?.first_seen_at ?? new Date(history[0].time).toISOString(),
       average_daily_volume: average,
       price_history: history,
       history_updated_at: new Date(now).toISOString(),

@@ -121,6 +121,14 @@ input, select { min-width: 0; }
 .asset-category-tabs { display: flex; min-width: 0; align-items: center; gap: 4px; overflow-x: auto; }
 .asset-category-tabs button { min-height: 28px; padding: 0 7px; border-color: #4c535b; background: transparent; color: #a8afb7; font-size: 9px; letter-spacing: 0.03em; white-space: nowrap; }
 .asset-category-tabs button[aria-pressed="true"] { border-color: #2c8881; background: #2c8881; color: #fff; }
+.asset-category-tabs button[data-asset-category="new"].has-new-assets:not([aria-pressed="true"]) { animation: new-asset-pulse 2.4s ease-in-out infinite; }
+@keyframes new-asset-pulse {
+  0%, 100% { border-color: #4c535b; color: #a8afb7; background: transparent; }
+  50% { border-color: #46d6b8; color: #c8fff4; background: #173c39; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .asset-category-tabs button[data-asset-category="new"].has-new-assets:not([aria-pressed="true"]) { border-color: #46d6b8; color: #c8fff4; animation: none; }
+}
 .asset-control-actions { display: flex; flex: none; align-items: center; gap: 7px; margin-left: auto; }
 .watched-first { display: flex; width: 28px; min-height: 28px; align-items: center; justify-content: center; color: #a8afb7; }
 .watched-first input { width: 14px; min-height: 14px; margin: 0; accent-color: #e5c84b; }
@@ -470,6 +478,7 @@ input, select { min-width: 0; }
 .trade-performance-stats div:last-child { border-right: 0; }
 .trade-performance-stats small { color: #788087; font-size: 8px; }
 .trade-performance-stats strong { color: #e7ebee; font-size: 15px; font-variant-numeric: tabular-nums; }
+.trade-performance-percent { color: #a8afb7; font-size: 9px; font-variant-numeric: tabular-nums; }
 .trade-performance-stats .positive { color: #7fe89a; }
 .trade-performance-stats .negative { color: #ff928a; }
 .trade-manual-heading { margin-top: 18px; }

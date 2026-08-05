@@ -187,17 +187,31 @@ export function episodeExecutionMetrics(episode) {
 export function summarizeTradePerformance(episodes) {
   const completed = (episodes ?? [])
     .filter((episode) => episode.status === "closed" && !episode.partialHistory)
-    .map((episode) => episode.closedPnl - episode.fees);
-  const gains = completed.filter((pnl) => pnl > POSITION_EPSILON);
-  const losses = completed.filter((pnl) => pnl < -POSITION_EPSILON);
+    .map((episode) => {
+      const pnl = episode.closedPnl - episode.fees;
+      const notional = episodeExecutionMetrics(episode).notional;
+      return {
+        pnl,
+        percent: Number.isFinite(notional) && notional > POSITION_EPSILON
+          ? (pnl / notional) * 100
+          : null,
+      };
+    });
+  const gains = completed.filter(({ pnl }) => pnl > POSITION_EPSILON);
+  const losses = completed.filter(({ pnl }) => pnl < -POSITION_EPSILON);
   const average = (values) => values.length
     ? values.reduce((total, value) => total + value, 0) / values.length
     : 0;
+  const percentages = (results) => results
+    .map(({ percent }) => percent)
+    .filter(Number.isFinite);
   return {
     winningTrades: gains.length,
     losingTrades: losses.length,
-    averageGain: average(gains),
-    averageLoss: average(losses),
+    averageGain: average(gains.map(({ pnl }) => pnl)),
+    averageLoss: average(losses.map(({ pnl }) => pnl)),
+    averageGainPercent: average(percentages(gains)),
+    averageLossPercent: average(percentages(losses)),
   };
 }
 
