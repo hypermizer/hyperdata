@@ -10,6 +10,8 @@ test("production fixed-price monitoring uses the free-tier fifteen-second cadenc
   ]);
   assert.match(migration, /'hyperdata-monitor-market',\s*'15 seconds'/);
   assert.match(migration, /'hyperdata-deliver-alerts',\s*'\*\/5 \* \* \* \*'/);
-  assert.match(monitor, /await deliverPending\(client\)/);
+  assert.match(monitor, /Promise\.allSettled\(\[/);
+  assert.match(monitor, /config\.deliveryEnabled \? deliverPending\(client\) : Promise\.resolve\(\[\]\)/);
+  assert.match(monitor, /isAnalyticsBucket\(bucket\) \? recordAssetAnalyticsSnapshot\(client, bucket\) : Promise\.resolve\(0\)/);
   assert.match(browserConfig, /alertsRefreshIntervalMs:\s*15_000/);
 });

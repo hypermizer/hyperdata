@@ -3,7 +3,8 @@ import { loadRuntimeConfig } from "../_shared/config.ts";
 import { createServiceClient } from "../_shared/database.ts";
 import type { AlertRule } from "../_shared/types.ts";
 import { deliverPending } from "../deliver-alerts/service.ts";
-import { assetIdsForBucket, isMinuteBucket, monitorBucket, rulesForBucket } from "./cadence.ts";
+import { recordAssetAnalyticsSnapshot } from "./analytics.ts";
+import { assetIdsForBucket, isAnalyticsBucket, isMinuteBucket, MONITOR_INTERVAL_SECONDS, monitorBucket, rulesForBucket } from "./cadence.ts";
 import { collectMarketObservations } from "./collector.ts";
 import { evaluateRules } from "./evaluator.ts";
 import { classifyRun, storageProjectionBytes } from "./health.ts";
@@ -25,16 +26,25 @@ export async function handleMonitor(request: Request): Promise<Response> {
       .map((asset) => ({ asset, dex: dexByAsset.get(asset) ?? (asset.includes(":") ? asset.split(":")[0] : "") }));
     const collected = await collectMarketObservations(client, assets, bucket, { persist: minuteBucket, retries: 0 });
     const evaluated = await evaluateRules(client, activeRules, collected.observations, bucket, { updateVolatility: minuteBucket });
-    let deliveryOutcomes: Array<{ id: string; state: string }> = []; let deliveryError: string | null = null;
-    if (config.deliveryEnabled) {
-      try { deliveryOutcomes = await deliverPending(client); }
-      catch (error) { deliveryError = error instanceof Error ? error.message : String(error); }
-    }
+    const [analyticsResult, deliveryResult] = await Promise.allSettled([
+      isAnalyticsBucket(bucket) ? recordAssetAnalyticsSnapshot(client, bucket) : Promise.resolve(0),
+      config.deliveryEnabled ? deliverPending(client) : Promise.resolve([]),
+    ]);
+    const analyticsUpdated = analyticsResult.status === "fulfilled" ? analyticsResult.value : 0;
+    const analyticsError = analyticsResult.status === "rejected"
+      ? analyticsResult.reason instanceof Error ? analyticsResult.reason.message : String(analyticsResult.reason)
+      : null;
+    const deliveryOutcomes: Array<{ id: string; state: string }> = deliveryResult.status === "fulfilled" ? deliveryResult.value : [];
+    const deliveryError = deliveryResult.status === "rejected"
+      ? deliveryResult.reason instanceof Error ? deliveryResult.reason.message : String(deliveryResult.reason)
+      : null;
     const unsuccessfulDeliveries = deliveryOutcomes.filter(({ state: deliveryState }) => deliveryState !== "sent").length;
-    const failureCount = Object.keys(collected.failures).length + evaluated.errors.length + unsuccessfulDeliveries + Number(Boolean(deliveryError));
+    const failureCount = Object.keys(collected.failures).length + evaluated.errors.length + unsuccessfulDeliveries
+      + Number(Boolean(deliveryError)) + Number(Boolean(analyticsError));
     const state = classifyRun(collected.observations.length, assets.length, failureCount);
     const details = { dexFailures: collected.failures, evaluationErrors: evaluated.errors, deliveryOutcomes, deliveryError,
-      cadenceSeconds: 15, persistedObservation: minuteBucket, projected30DayBytes: storageProjectionBytes(assets.length) };
+      analyticsUpdated, analyticsError, cadenceSeconds: MONITOR_INTERVAL_SECONDS, persistedObservation: minuteBucket,
+      projected30DayBytes: storageProjectionBytes(assets.length) };
     await client.from("monitor_runs").update({ state, finished_at: new Date().toISOString(), lease_until: null, assets_checked: collected.observations.length,
       rules_checked: activeRules.length, occurrences_created: evaluated.occurrences, details }).eq("bucket", bucket.toISOString());
     return Response.json({ state, bucket: bucket.toISOString(), durationMs: Date.now() - startedAt.getTime(), ...details });

@@ -11,6 +11,10 @@ export function isMinuteBucket(bucket: Date): boolean {
   return bucket.getUTCSeconds() === 0;
 }
 
+export function isAnalyticsBucket(bucket: Date): boolean {
+  return isMinuteBucket(bucket);
+}
+
 export function rulesForBucket(rules: AlertRule[], bucket: Date): AlertRule[] {
   if (isMinuteBucket(bucket)) return rules;
   return rules.filter((rule) => rule.detector === "fixed_price");

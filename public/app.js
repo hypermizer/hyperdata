@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort, unseenNewAssetIds } from "./lib/assets.js?v=20260805-new-acknowledgements";
+import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort, unseenNewAssetIds } from "./lib/assets.js?v=20260810-supabase-dots";
 import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
 import {
   applyLiveMarketContext,
@@ -12,7 +12,7 @@ import {
   MAX_CANDLE_BARS,
   mergeLiveCandle,
   normalizeCandle,
-} from "./lib/hyperliquid.js?v=20260801-bars-news";
+} from "./lib/hyperliquid.js?v=20260810-supabase-dots";
 import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
