@@ -268,3 +268,24 @@ test("buildPriceChangeSignals returns ordered changes across all seven intervals
   assert.ok(Math.abs(signals[3].changePercent - (120 / 115 - 1) * 100) < 0.000001);
   assert.ok(signals.every(({ intensity }) => ["light", "medium", "strong"].includes(intensity)));
 });
+
+test("buildPriceChangeSignals never labels a stale point as an interval reference", () => {
+  const now = Date.UTC(2026, 7, 6, 23, 20);
+  const signals = buildPriceChangeSignals(120, [
+    { time: now - (7 * 24 * 60 * 60 * 1000), price: 90 },
+    { time: now - (24 * 60 * 60 * 1000), price: 100 },
+    { time: now - (7 * 60 * 60 * 1000), price: 110 },
+  ], now);
+
+  assert.deepEqual(signals.map(({ referencePrice }) => referencePrice), [90, 100, null, null, null, null, null]);
+  assert.deepEqual(signals.map(({ direction }) => direction), ["up", "up", "neutral", "neutral", "neutral", "neutral", "neutral"]);
+});
+
+test("buildPriceChangeSignals requires a five-minute-resolution reference for the one-day dot", () => {
+  const now = Date.UTC(2026, 7, 6, 23, 20);
+  const signals = buildPriceChangeSignals(120, [
+    { time: now - (24 * 60 * 60 * 1000) - (7 * 60 * 1000), price: 100 },
+  ], now);
+
+  assert.equal(signals.find(({ label }) => label === "1d").referencePrice, null);
+});

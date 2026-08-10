@@ -1,3 +1,5 @@
+import { priceChangeForWindow } from "./hyperliquid.js?v=20260810-supabase-dots";
+
 export function displayAssetSymbol(asset) {
   return String(asset?.symbol ?? asset?.id ?? "").replace(/^xyz:/i, "");
 }
@@ -211,18 +213,7 @@ export function filterAndSortTradFiAssets(markets, options = {}) {
 }
 
 export function marketChangePercentForWindow(market, points, milliseconds, now = Date.now()) {
-  if (!Number.isFinite(market?.markPrice) || market.markPrice <= 0) return null;
-  const target = Number(now) - milliseconds;
-  let reference = null;
-  for (let index = points.length - 1; index >= 0; index -= 1) {
-    if (points[index].time <= target) {
-      reference = points[index].price;
-      break;
-    }
-  }
-  return Number.isFinite(reference) && reference > 0
-    ? (market.markPrice / reference - 1) * 100
-    : null;
+  return priceChangeForWindow(market?.markPrice, points, milliseconds, now)?.changePercent ?? null;
 }
 
 function metricSelector(sort, context) {

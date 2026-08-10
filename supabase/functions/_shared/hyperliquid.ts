@@ -2,6 +2,8 @@ import type { MarketObservation } from "./types.ts";
 export const INFO_ENDPOINT = "https://api.hyperliquid.xyz/info";
 export const WS_ENDPOINT = "wss://api.hyperliquid.xyz/ws";
 export interface AssetRequest { asset: string; dex: string }
+interface DexAsset { name?: string; isDelisted?: boolean }
+interface DexAnalyticsSample { asset: string; price: number; dayVolume: number | null }
 export type DexResult = { ok: true; observations: MarketObservation[] } | { ok: false; error: string };
 const numberOrNull = (value: unknown): number | null => {
   if (value === null || value === undefined || value === "") return null;
@@ -15,12 +17,16 @@ function positive(value: unknown, label: string, required = false): number | nul
 function nonNegative(value: unknown, label: string): number | null {
   const parsed = numberOrNull(value); if (parsed !== null && parsed < 0) throw new Error(`Invalid ${label}`); return parsed;
 }
-export function normalizeDexContext(dex: string, payload: unknown, requested: Set<string>, bucket: Date, observedAt = new Date()): MarketObservation[] {
+function parseDexPayload(payload: unknown): { universe: DexAsset[]; contexts: Array<Record<string, unknown>> } {
   if (!Array.isArray(payload) || payload.length !== 2) throw new Error("Malformed market response");
-  const [meta, contexts] = payload as [{ universe?: Array<{ name?: string }> }, Array<Record<string, unknown>>];
+  const [meta, contexts] = payload as [{ universe?: DexAsset[] }, Array<Record<string, unknown>>];
   if (!Array.isArray(meta?.universe) || !Array.isArray(contexts) || meta.universe.length !== contexts.length) throw new Error("Mismatched market contexts");
+  return { universe: meta.universe, contexts };
+}
+export function normalizeDexContext(dex: string, payload: unknown, requested: Set<string>, bucket: Date, observedAt = new Date()): MarketObservation[] {
+  const { universe, contexts } = parseDexPayload(payload);
   const rows: MarketObservation[] = [];
-  meta.universe.forEach((entry, index) => {
+  universe.forEach((entry, index) => {
     const asset = entry.name; if (!asset || !requested.has(asset)) return;
     const context = contexts[index] ?? {};
     try {
@@ -33,6 +39,17 @@ export function normalizeDexContext(dex: string, payload: unknown, requested: Se
     }
   });
   return rows;
+}
+export function normalizeDexAnalyticsSamples(payload: unknown): DexAnalyticsSample[] {
+  const { universe, contexts } = parseDexPayload(payload);
+  return universe.flatMap((entry, index) => {
+    if (!entry.name || entry.isDelisted) return [];
+    const price = numberOrNull(contexts[index]?.markPx);
+    const dayVolume = numberOrNull(contexts[index]?.dayNtlVlm);
+    return price !== null && price > 0
+      ? [{ asset: entry.name, price, dayVolume: dayVolume !== null && dayVolume >= 0 ? dayVolume : null }]
+      : [];
+  });
 }
 export function assertPublicHyperliquidUrl(value: string): boolean {
   return value === INFO_ENDPOINT || value === WS_ENDPOINT;

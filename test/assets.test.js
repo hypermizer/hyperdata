@@ -10,11 +10,38 @@ import {
   filterAndSortTradFiAssets,
   formatFundingApr,
   formatMaxLeverage,
+  marketChangePercentForWindow,
   unseenNewAssetIds,
   nextColumnSort,
   resolveAsset,
   searchAssets,
 } from "../public/lib/assets.js";
+
+test("asset move calculations reject references outside the window tolerance", () => {
+  const now = Date.UTC(2026, 7, 6, 23, 20);
+  const market = { markPrice: 120 };
+  assert.equal(marketChangePercentForWindow(market, [
+    { time: now - (30 * 60 * 1000) - (7 * 60 * 1000), price: 100 },
+  ], 30 * 60 * 1000, now), null);
+});
+
+test("move sorting puts assets with fresh interval references before stale assets", () => {
+  const now = Date.UTC(2026, 7, 6, 23, 20);
+  const markets = [
+    { id: "xyz:STALE", symbol: "STALE", dexId: "xyz", markPrice: 200 },
+    { id: "xyz:FRESH", symbol: "FRESH", dexId: "xyz", markPrice: 110 },
+  ];
+  const priceHistories = new Map([
+    ["xyz:STALE", [{ time: now - (37 * 60 * 1000), price: 100 }]],
+    ["xyz:FRESH", [{ time: now - (30 * 60 * 1000), price: 100 }]],
+  ]);
+
+  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+    now,
+    priceHistories,
+    sort: "move-30m-abs-desc",
+  }).map(({ id }) => id), ["xyz:FRESH", "xyz:STALE"]);
+});
 
 test("maximum leverage labels handle live metadata and unavailable values", () => {
   assert.equal(formatMaxLeverage(20), "20×");

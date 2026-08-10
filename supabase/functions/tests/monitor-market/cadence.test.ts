@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { assetIdsForBucket, isMinuteBucket, monitorBucket, rulesForBucket } from "../../monitor-market/cadence.ts";
+import { assetIdsForBucket, isAnalyticsBucket, isMinuteBucket, monitorBucket, rulesForBucket } from "../../monitor-market/cadence.ts";
 import type { AlertRule } from "../../_shared/types.ts";
 
 const fixed = { id: "fixed", asset: "xyz:FIXED", detector: "fixed_price" } as AlertRule;
@@ -19,4 +19,10 @@ Deno.test("statistical rules and persisted observations remain minute-aligned", 
   assertEquals(rulesForBucket([fixed, move], quarter).map(({ id }) => id), ["fixed"]);
   assertEquals(assetIdsForBucket([fixed, move], [{ asset: "xyz:WATCHED" }], minute), [fixed.asset, move.asset, "xyz:WATCHED"]);
   assertEquals(assetIdsForBucket([fixed, move], [{ asset: "xyz:WATCHED" }], quarter), [fixed.asset]);
+});
+
+Deno.test("asset analytics snapshots run once per minute", () => {
+  assertEquals(isAnalyticsBucket(new Date("2026-08-06T23:20:00.000Z")), true);
+  assertEquals(isAnalyticsBucket(new Date("2026-08-06T23:20:15.000Z")), false);
+  assertEquals(isAnalyticsBucket(new Date("2026-08-06T23:21:00.000Z")), true);
 });
