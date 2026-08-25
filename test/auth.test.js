@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { requestSignInLink } from "../public/lib/auth.js";
+
+test("public auth code excludes owner identity and privileged credentials", async () => {
+  const browserCode = await Promise.all([
+    readFile(new URL("../public/config.js", import.meta.url), "utf8"),
+    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
+  ]);
+  const publicAuthSource = browserCode.join("\n");
+
+  assert.doesNotMatch(publicAuthSource, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  assert.doesNotMatch(publicAuthSource, /service[_-]?role/i);
+  assert.doesNotMatch(publicAuthSource, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
+});
 
 test("sign-in requests use the dedicated delivery function", async () => {
   const calls = [];

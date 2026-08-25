@@ -251,11 +251,6 @@ async function initializeWatchlistStorage() {
 
 async function setSession(session) {
   state.user = session?.user ?? null;
-  if (state.user && state.user.email !== APP_CONFIG.allowedEmail) {
-    await state.supabase.auth.signOut();
-    state.user = null;
-    setAccountMessage("This is a personal app.");
-  }
   if (state.user) {
     state.accountMessage = "";
     await Promise.all([loadCloudWatchlist(), loadNewAssetAcknowledgements(), loadAlerts()]);
