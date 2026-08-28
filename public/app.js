@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, filterAndSortTradFiAssets, formatFundingApr, formatMaxLeverage, hydrateTradFiMarkets, isNewAsset, nextColumnSort, unseenNewAssetIds } from "./lib/assets.js?v=20260810-supabase-dots";
+import { ASSET_CATEGORY_TABS, assetStreamSubscriptions, calculateDailyVolatility, calculateHourlyRsi, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20260828-crypto-universe";
 import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
 import {
   applyLiveMarketContext,
@@ -13,7 +13,7 @@ import {
   mergeLiveCandle,
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20260810-supabase-dots";
-import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20260828-complete-universe";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
@@ -45,8 +45,10 @@ const state = {
   assetFundamentalsPending: new Set(),
   assetNewsAsset: null,
   assetNewsLoadToken: 0,
+  catalogRetryTimer: null,
   acknowledgedNewAssets: new Set(),
   acknowledgementPending: new Set(),
+  analyticsHistoryLoaded: false,
   averageVolumes: new Map(),
   catalog: [],
   category: "all",
@@ -64,6 +66,7 @@ const state = {
   reconnectTimer: null,
   marketRenderTimer: null,
   marketRenderedAt: 0,
+  pendingMarketContexts: new Map(),
   query: "",
   signingIn: false,
   sort: "asset-asc",
@@ -128,11 +131,16 @@ async function initialize() {
     setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to restore browser session.");
   }
   renderRoute();
+  await initializeMarketData();
+}
+
+async function initializeMarketData() {
+  window.clearTimeout(state.catalogRetryTimer);
   try {
     const [markets] = await Promise.all([getMarketCatalog(), loadCachedAssetAnalytics()]);
     state.catalog = markets;
     updateMarketMap(markets);
-    if (!tradFiMarkets().length) throw new Error("No XYZ TradFi markets were returned.");
+    if (!assetUniverseMarkets().length) throw new Error("No supported Hyperliquid markets were returned.");
     ensureValidWatchlist();
     render();
     connectMarketStream();
@@ -140,6 +148,7 @@ async function initialize() {
     state.streamPhase = "error";
     renderConnectionStatus(error.message);
     elements.marketList.textContent = "Market data unavailable.";
+    state.catalogRetryTimer = window.setTimeout(initializeMarketData, 3_000);
   }
 }
 
@@ -389,10 +398,14 @@ async function acknowledgeNewAsset(asset) {
 
 async function loadCachedAssetAnalytics() {
   if (!state.supabase) return 0;
+  const columns = state.analyticsHistoryLoaded
+    ? "asset,average_daily_volume,first_seen_at"
+    : "asset,average_daily_volume,price_history,first_seen_at";
   const { data, error } = await state.supabase
     .from("asset_analytics_cache")
-    .select("asset,average_daily_volume,price_history,first_seen_at");
+    .select(columns);
   if (error) return 0;
+  state.analyticsHistoryLoaded = true;
   const applied = applyAssetAnalyticsRows(data, state);
   if (applied && state.catalog.length) scheduleMarketRender();
   return applied;
@@ -426,24 +439,32 @@ function render() {
 
 function renderMarkets() {
   const now = Date.now();
-  const markets = tradFiMarkets();
-  const totalAssets = markets.length;
-  const rsiValues = new Map(markets.map((market) => [
+  const markets = assetUniverseMarkets();
+  const categoryMarkets = filterAssets(markets, {
+    category: state.category,
+    firstSeenAt: state.firstSeenAt,
+    now,
+  });
+  const totalAssets = categoryMarkets.length;
+  const filteredMarkets = filterAssets(markets, {
+    category: state.category,
+    firstSeenAt: state.firstSeenAt,
+    now,
+    query: state.query,
+  });
+  const rsiValues = new Map(filteredMarkets.map((market) => [
     market.id,
     calculateHourlyRsi(state.priceHistories.get(market.id) ?? [], market.markPrice, now),
   ]));
-  const dailyVolatilityValues = new Map(markets.map((market) => [
+  const dailyVolatilityValues = new Map(filteredMarkets.map((market) => [
     market.id,
     calculateDailyVolatility(state.priceHistories.get(market.id) ?? [], market.markPrice, now),
   ]));
-  const visibleMarkets = filterAndSortTradFiAssets(markets, {
+  const visibleMarkets = sortAssets(filteredMarkets, {
     averageVolumes: state.averageVolumes,
-    category: state.category,
     dailyVolatilityValues,
-    firstSeenAt: state.firstSeenAt,
     now,
     priceHistories: state.priceHistories,
-    query: state.query,
     rsiValues,
     sort: state.sort,
     watched: state.watchlist,
@@ -455,8 +476,7 @@ function renderMarkets() {
   const newCategoryButton = elements.assetCategoryTabs.find((button) => button.dataset.assetCategory === "new");
   newCategoryButton?.classList.toggle("has-new-assets", unseenNewAssets.length > 0);
   if (newCategoryButton) newCategoryButton.title = `${newAssetCount} ASSET${newAssetCount === 1 ? "" : "S"} ADDED IN THE LAST 7 DAYS · ${unseenNewAssets.length} UNSEEN`;
-  const isFiltered = state.query.trim() || state.category !== "all";
-  elements.assetCount.textContent = isFiltered
+  elements.assetCount.textContent = state.query.trim()
     ? `${visibleMarkets.length} / ${totalAssets} ASSETS`
     : `${totalAssets} ASSETS`;
   const rows = visibleMarkets
@@ -974,8 +994,7 @@ function connectMarketStream() {
     if (state.stream !== stream) return;
     state.streamPhase = "open";
     state.streamOpenedAt = Date.now();
-    const subscriptions = new Set([...tradFiMarkets().map(({ id }) => id), ...state.watchlist]);
-    subscriptions.forEach((coin) => {
+    assetStreamSubscriptions(assetUniverseMarkets(), state.watchlist).forEach((coin) => {
       stream.send(JSON.stringify({
         method: "subscribe",
         subscription: { type: "activeAssetCtx", coin },
@@ -997,10 +1016,7 @@ function connectMarketStream() {
     if (message.channel !== "activeAssetCtx") return;
     const market = state.markets.get(message.data.coin);
     if (!market) return;
-    const updatedMarket = applyLiveMarketContext(market, message.data.ctx);
-    state.markets.set(message.data.coin, updatedMarket);
-    recordLivePrice(message.data.coin, updatedMarket.markPrice);
-    updateLastSync();
+    state.pendingMarketContexts.set(message.data.coin, message.data.ctx);
     scheduleMarketRender();
   });
 
@@ -1024,8 +1040,8 @@ function sendStreamHeartbeat() {
   state.stream.send(JSON.stringify({ method: "ping" }));
 }
 
-function tradFiMarkets() {
-  return hydrateTradFiMarkets(state.catalog, state.markets);
+function assetUniverseMarkets() {
+  return hydrateAssetUniverse(state.catalog, state.markets);
 }
 
 function scheduleMarketRender() {
@@ -1033,11 +1049,25 @@ function scheduleMarketRender() {
   const delayMs = Math.max(0, 1_000 - (Date.now() - state.marketRenderedAt));
   state.marketRenderTimer = window.setTimeout(() => {
     state.marketRenderTimer = null;
+    flushPendingMarketContexts();
     renderMarkets();
     renderAlertOptions();
     const route = parseRoute(window.location.hash);
     if (route.view === "asset") renderAssetDetail(route.asset, route.assetView, route.interval);
   }, delayMs);
+}
+
+function flushPendingMarketContexts(now = Date.now()) {
+  if (!state.pendingMarketContexts.size) return;
+  state.pendingMarketContexts.forEach((context, asset) => {
+    const market = state.markets.get(asset);
+    if (!market) return;
+    const updatedMarket = applyLiveMarketContext(market, context);
+    state.markets.set(asset, updatedMarket);
+    recordLivePrice(asset, updatedMarket.markPrice, now);
+  });
+  state.pendingMarketContexts.clear();
+  updateLastSync();
 }
 
 function recordLivePrice(asset, price, now = Date.now()) {

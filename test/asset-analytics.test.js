@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyAssetAnalyticsRows, recordLivePricePoint } from "../public/lib/asset-analytics.js";
+import { applyAssetAnalyticsRows, earliestIsoTimestamp, recordLivePricePoint } from "../public/lib/asset-analytics.js";
 
 test("a bulk analytics response hydrates every asset without replacing newer live points", () => {
   const averageVolumes = new Map();
@@ -51,4 +51,12 @@ test("a live price tick retains enough history for 20-session volatility", () =>
     time: Math.floor(now / 300_000) * 300_000,
     price: 131,
   });
+});
+
+test("historical discovery repairs a newer cached first-seen timestamp", () => {
+  assert.equal(
+    earliestIsoTimestamp("2026-08-28T00:00:00Z", "2026-06-01T00:00:00Z"),
+    "2026-06-01T00:00:00.000Z",
+  );
+  assert.equal(earliestIsoTimestamp(undefined, "invalid"), null);
 });

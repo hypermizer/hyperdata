@@ -4,10 +4,11 @@ import {
   ASSET_CATEGORY_TABS,
   annualizedFundingApr,
   assetCategoryFor,
+  assetStreamSubscriptions,
   calculateDailyVolatility,
   calculateHourlyRsi,
-  hydrateTradFiMarkets,
-  filterAndSortTradFiAssets,
+  hydrateAssetUniverse,
+  filterAndSortAssets,
   formatFundingApr,
   formatMaxLeverage,
   marketChangePercentForWindow,
@@ -36,7 +37,7 @@ test("move sorting puts assets with fresh interval references before stale asset
     ["xyz:FRESH", [{ time: now - (30 * 60 * 1000), price: 100 }]],
   ]);
 
-  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+  assert.deepEqual(filterAndSortAssets(markets, {
     now,
     priceHistories,
     sort: "move-30m-abs-desc",
@@ -84,25 +85,36 @@ test("funding APR renders as a compact whole percentage", () => {
   assert.equal(formatFundingApr(null), "—");
 });
 
-test("TradFi asset view includes active xyz markets and supports search", () => {
+test("ALL includes every TradFi market and only the three core crypto markets", () => {
   const markets = [
-    ...catalog,
+    { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz" },
+    { id: "xyz:XYZ100", symbol: "XYZ100", dexId: "xyz" },
+    { id: "BTC", symbol: "BTC", dexId: "" },
+    { id: "ETH", symbol: "ETH", dexId: "" },
+    { id: "HYPE", symbol: "HYPE", dexId: "" },
+    { id: "SOL", symbol: "SOL", dexId: "" },
+    { id: "flx:ORCA", symbol: "ORCA", dexId: "flx" },
     { id: "xyz:DELISTED", symbol: "DELISTED", dexId: "xyz", isDelisted: true },
-  ].map((market) => ({ ...market, dexId: market.dex === "xyz" ? "xyz" : market.dexId }));
+    { id: "DOGE", symbol: "DOGE", dexId: "", isDelisted: true },
+  ];
 
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { query: "or" }).map(({ id }) => id),
+    filterAndSortAssets(markets, { query: "or" }).map(({ id }) => id),
     ["xyz:ORCL"],
   );
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets).map(({ id }) => id),
-    ["xyz:ORCL", "xyz:XYZ100"],
+    filterAndSortAssets(markets).map(({ id }) => id),
+    ["BTC", "ETH", "HYPE", "xyz:ORCL", "xyz:XYZ100"],
+  );
+  assert.deepEqual(
+    filterAndSortAssets(markets, { category: "crypto" }).map(({ id }) => id),
+    ["BTC", "ETH", "HYPE", "SOL"],
   );
 });
 
 test("asset categories distinguish ETFs from equities using official annotations", () => {
   assert.deepEqual(ASSET_CATEGORY_TABS.map(({ value }) => value), [
-    "all", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo", "new",
+    "all", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo", "crypto", "new",
   ]);
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["oracle", "ai"] }), "equities");
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["memory", "ETF"] }), "etfs");
@@ -133,8 +145,8 @@ test("TradFi asset filtering applies category and search together", () => {
     { id: "xyz:GOLD", symbol: "GOLD", dexId: "xyz", category: "commodities", keywords: ["metal"] },
   ];
 
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { category: "etfs" }).map(({ id }) => id), ["xyz:DRAM"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { category: "equities", query: "or" }).map(({ id }) => id), ["xyz:ORCL"]);
+  assert.deepEqual(filterAndSortAssets(markets, { category: "etfs" }).map(({ id }) => id), ["xyz:DRAM"]);
+  assert.deepEqual(filterAndSortAssets(markets, { category: "equities", query: "or" }).map(({ id }) => id), ["xyz:ORCL"]);
 });
 
 test("NEW contains only assets first observed within the last seven days", () => {
@@ -143,15 +155,21 @@ test("NEW contains only assets first observed within the last seven days", () =>
     { id: "xyz:NEW", symbol: "NEW", dexId: "xyz" },
     { id: "xyz:OLD", symbol: "OLD", dexId: "xyz" },
     { id: "xyz:UNKNOWN", symbol: "UNKNOWN", dexId: "xyz" },
+    { id: "SOL", symbol: "SOL", dexId: "" },
+    { id: "OLDCRYPTO", symbol: "OLDCRYPTO", dexId: "" },
+    { id: "DELISTED", symbol: "DELISTED", dexId: "", isDelisted: true },
   ];
   const firstSeenAt = new Map([
     ["xyz:NEW", new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString()],
     ["xyz:OLD", new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString()],
+    ["SOL", new Date(now - 24 * 60 * 60 * 1000).toISOString()],
+    ["OLDCRYPTO", new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString()],
+    ["DELISTED", new Date(now - 24 * 60 * 60 * 1000).toISOString()],
   ]);
 
-  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+  assert.deepEqual(filterAndSortAssets(markets, {
     category: "new", firstSeenAt, now,
-  }).map(({ id }) => id), ["xyz:NEW"]);
+  }).map(({ id }) => id), ["xyz:NEW", "SOL"]);
 });
 
 test("NEW includes the seven-day boundary and rejects future timestamps", () => {
@@ -168,7 +186,7 @@ test("NEW includes the seven-day boundary and rejects future timestamps", () => 
     ["xyz:FUTURE", new Date(now + 1).toISOString()],
   ]);
 
-  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+  assert.deepEqual(filterAndSortAssets(markets, {
     category: "new", firstSeenAt, now,
   }).map(({ id }) => id), ["xyz:BOUNDARY"]);
 });
@@ -196,7 +214,7 @@ test("NEW activity includes only current listings that have not been acknowledge
   );
 });
 
-test("TradFi asset view hydrates catalog entries with the latest live market values", () => {
+test("asset universe hydrates TradFi and crypto entries with the latest live market values", () => {
   const catalogMarkets = [
     { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz", markPrice: 100, funding: 0.0001 },
     { id: "xyz:DELISTED", symbol: "DELISTED", dexId: "xyz", isDelisted: true },
@@ -206,9 +224,17 @@ test("TradFi asset view hydrates catalog entries with the latest live market val
     ["xyz:ORCL", { ...catalogMarkets[0], markPrice: 125, funding: 0.0002 }],
   ]);
 
-  assert.deepEqual(hydrateTradFiMarkets(catalogMarkets, liveMarkets), [
+  assert.deepEqual(hydrateAssetUniverse(catalogMarkets, liveMarkets), [
     { ...catalogMarkets[0], markPrice: 125, funding: 0.0002 },
+    catalogMarkets[2],
   ]);
+});
+
+test("market stream subscriptions include native crypto, TradFi, and watchlist assets once", () => {
+  assert.deepEqual(assetStreamSubscriptions([
+    { id: "BTC" },
+    { id: "xyz:ORCL" },
+  ], ["BTC", "SOL"]), ["BTC", "xyz:ORCL", "SOL"]);
 });
 
 test("TradFi asset view sorts metrics with unavailable values last", () => {
@@ -223,16 +249,16 @@ test("TradFi asset view sorts metrics with unavailable values last", () => {
     ["xyz:BETA", [{ time: now - 300_000, price: 100 }]],
   ]);
 
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "volume-desc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "move-5m-abs", priceHistories, now }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "apr-asc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "mark-desc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:GAMMA", "xyz:BETA"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, { sort: "volume-asc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+  assert.deepEqual(filterAndSortAssets(markets, { sort: "volume-desc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortAssets(markets, { sort: "move-5m-abs", priceHistories, now }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortAssets(markets, { sort: "apr-asc" }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortAssets(markets, { sort: "mark-desc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:GAMMA", "xyz:BETA"]);
+  assert.deepEqual(filterAndSortAssets(markets, { sort: "volume-asc" }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
+  assert.deepEqual(filterAndSortAssets(markets, {
     sort: "rsi-desc",
     rsiValues: new Map([["xyz:ALPHA", 62], ["xyz:BETA", 38]]),
   }).map(({ id }) => id), ["xyz:ALPHA", "xyz:BETA", "xyz:GAMMA"]);
-  assert.deepEqual(filterAndSortTradFiAssets(markets, {
+  assert.deepEqual(filterAndSortAssets(markets, {
     sort: "daily-volatility-desc",
     dailyVolatilityValues: new Map([["xyz:ALPHA", 1.2], ["xyz:BETA", 2.4]]),
   }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
@@ -269,15 +295,15 @@ test("each signal column sorts by its own time window", () => {
   ]);
 
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { sort: "move-30m-desc", priceHistories, now }).map(({ id }) => id),
+    filterAndSortAssets(markets, { sort: "move-30m-desc", priceHistories, now }).map(({ id }) => id),
     ["xyz:ALPHA", "xyz:BETA"],
   );
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { sort: "move-30m-asc", priceHistories, now }).map(({ id }) => id),
+    filterAndSortAssets(markets, { sort: "move-30m-asc", priceHistories, now }).map(({ id }) => id),
     ["xyz:BETA", "xyz:ALPHA"],
   );
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { sort: "move-5m-desc", priceHistories, now }).map(({ id }) => id),
+    filterAndSortAssets(markets, { sort: "move-5m-desc", priceHistories, now }).map(({ id }) => id),
     ["xyz:BETA", "xyz:ALPHA"],
   );
 });
@@ -297,11 +323,11 @@ test("signal magnitude sorting ignores direction and keeps unavailable values la
   ]);
 
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { sort: "move-30m-abs-desc", priceHistories, now }).map(({ id }) => id),
+    filterAndSortAssets(markets, { sort: "move-30m-abs-desc", priceHistories, now }).map(({ id }) => id),
     ["xyz:DOWN", "xyz:UP", "xyz:FLAT", "xyz:MISSING"],
   );
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { sort: "move-30m-abs-asc", priceHistories, now }).map(({ id }) => id),
+    filterAndSortAssets(markets, { sort: "move-30m-abs-asc", priceHistories, now }).map(({ id }) => id),
     ["xyz:FLAT", "xyz:UP", "xyz:DOWN", "xyz:MISSING"],
   );
 });
@@ -340,7 +366,7 @@ test("watched-first grouping preserves the selected sort within each group", () 
   ];
 
   assert.deepEqual(
-    filterAndSortTradFiAssets(markets, { sort: "volume-desc", watchedFirst: true, watched: ["xyz:A", "xyz:C"] }).map(({ id }) => id),
+    filterAndSortAssets(markets, { sort: "volume-desc", watchedFirst: true, watched: ["xyz:A", "xyz:C"] }).map(({ id }) => id),
     ["xyz:C", "xyz:A", "xyz:B"],
   );
 });
