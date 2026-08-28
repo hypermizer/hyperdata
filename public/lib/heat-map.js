@@ -19,8 +19,14 @@ export function watchedHeatMapMarkets(markets, watchedAssets) {
   return markets
     .filter((market) => watched.has(market.id))
     .sort((left, right) => {
-      const leftMove = Number.isFinite(Number(left.changePercent)) ? Math.abs(Number(left.changePercent)) : -1;
-      const rightMove = Number.isFinite(Number(right.changePercent)) ? Math.abs(Number(right.changePercent)) : -1;
+      const leftValue = left.changePercent;
+      const rightValue = right.changePercent;
+      const leftMove = leftValue === null || leftValue === undefined || String(leftValue).trim() === ""
+        ? -1
+        : Number.isFinite(Number(leftValue)) ? Math.abs(Number(leftValue)) : -1;
+      const rightMove = rightValue === null || rightValue === undefined || String(rightValue).trim() === ""
+        ? -1
+        : Number.isFinite(Number(rightValue)) ? Math.abs(Number(rightValue)) : -1;
       return rightMove - leftMove || left.id.localeCompare(right.id);
     });
 }

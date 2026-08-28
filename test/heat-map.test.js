@@ -62,6 +62,21 @@ test("heat map contains watched markets only and prioritizes the largest absolut
   );
 });
 
+test("heat map sorts unavailable moves behind a genuine zero-percent move", () => {
+  const markets = [
+    { id: "AAA", changePercent: null },
+    { id: "BBB", changePercent: undefined },
+    { id: "CCC", changePercent: "" },
+    { id: "DDD", changePercent: "   " },
+    { id: "ZZZ", changePercent: 0 },
+  ];
+
+  assert.deepEqual(
+    watchedHeatMapMarkets(markets, markets.map(({ id }) => id)).map(({ id }) => id),
+    ["ZZZ", "AAA", "BBB", "CCC", "DDD"],
+  );
+});
+
 test("heat map is a routed top-level view between assets and alerts", () => {
   assert.match(html, /data-tab="watchlist"[\s\S]*data-tab="heat-map"[\s\S]*data-tab="alerts"/);
   assert.match(html, /id="heat-map-view"[^>]*role="tabpanel"/);
