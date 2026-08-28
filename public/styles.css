@@ -134,6 +134,38 @@ input, select { min-width: 0; }
 .watched-first input { width: 14px; min-height: 14px; margin: 0; accent-color: #e5c84b; }
 #watchlist-message:empty { display: none; }
 
+.heat-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 4px;
+}
+.heat-map-tile {
+  display: flex;
+  min-width: 0;
+  aspect-ratio: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 0.09);
+  color: #fff;
+  text-align: center;
+  text-decoration: none;
+}
+.heat-map-tile:hover, .heat-map-tile:focus-visible { border-color: #fff; }
+.heat-map-tile strong { max-width: calc(100% - 12px); overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.heat-map-tile span { margin-top: 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.heat-map-tile small { margin-top: 2px; color: rgb(255 255 255 / 0.72); font-size: 10px; font-variant-numeric: tabular-nums; }
+.heat-map-tile.positive.subtle { background: #174735; }
+.heat-map-tile.positive.medium { background: #116d45; }
+.heat-map-tile.positive.strong { background: #079650; }
+.heat-map-tile.positive.extreme { background: #00bd60; }
+.heat-map-tile.negative.subtle { background: #54252a; }
+.heat-map-tile.negative.medium { background: #842b32; }
+.heat-map-tile.negative.strong { background: #b91f32; }
+.heat-map-tile.negative.extreme { background: #e31445; }
+.heat-map-tile.neutral { background: #30363b; color: #c4cbd0; }
+.heat-map-empty { grid-column: 1 / -1; padding: 24px 0; color: #7f878f; font-size: 11px; }
+
 .inline-form label { font-size: 14px; }
 .inline-form input { width: 170px; }
 .inline-form select { width: 150px; }
@@ -766,6 +798,7 @@ input, select { min-width: 0; }
   .asset-category-tabs { width: 100%; }
   .asset-control-actions { width: 100%; margin-left: 0; }
   .assets-controls input[type="search"] { width: auto; flex: 1; }
+  .heat-map-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .inline-form { align-items: stretch; }
   .inline-form label { width: 100%; }
   .inline-form input, .inline-form select, .inline-form #alert-target { width: calc(50% - 4px); }

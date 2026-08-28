@@ -1,4 +1,4 @@
-const SITE_VIEWS = new Set(["watchlist", "alerts", "audio", "analysis", "paper", "tools", "principles"]);
+const SITE_VIEWS = new Set(["watchlist", "heat-map", "alerts", "audio", "analysis", "paper", "tools", "principles"]);
 const ANALYSIS_VIEWS = new Set(["trade-log"]);
 const PAPER_VIEWS = new Set(["home", "order"]);
 const TOOLS_VIEWS = new Set(["levels", "scaling"]);
