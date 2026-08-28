@@ -1,4 +1,6 @@
 import { fetchAverageDailyVolume, fetchMarketsForDex, fetchPriceHistory } from "../public/lib/hyperliquid.js";
+import { earliestIsoTimestamp } from "../public/lib/asset-analytics.js";
+import { analyticsCacheUrl, analyticsShardAssets, collectMarketCatalogResults } from "./lib/asset-analytics-refresh.js";
 
 const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
 const projectRef = process.env.SUPABASE_PROJECT_ID;
@@ -24,15 +26,21 @@ const restHeaders = {
   "content-type": "application/json",
 };
 const restUrl = `https://${projectRef}.supabase.co/rest/v1/asset_analytics_cache`;
-const existingResponse = await fetchWithRetry(`${restUrl}?select=asset,average_daily_volume,average_volume_updated_at,first_seen_at`, { headers: restHeaders });
+const failures = [];
+const marketResults = await Promise.allSettled([
+  fetchMarketsForDex("", fetchWithRetry),
+  fetchMarketsForDex("xyz", fetchWithRetry),
+]);
+const catalog = collectMarketCatalogResults(marketResults);
+const markets = catalog.markets;
+failures.push(...catalog.failures.map((failure) => `${failure} catalog`));
+if (!markets.length) throw new Error(`Unable to discover analytics assets: ${failures.join("; ")}`);
+const { assets, shardAssets } = analyticsShardAssets(markets, shardIndex, shardCount);
+const cacheUrl = analyticsCacheUrl(restUrl, shardAssets);
+const existingResponse = await fetchWithRetry(cacheUrl, { headers: restHeaders });
 if (!existingResponse.ok) throw new Error(`Unable to read analytics cache (${existingResponse.status})`);
 const existing = new Map((await existingResponse.json()).map((row) => [row.asset, row]));
-
-const markets = await fetchMarketsForDex("xyz", fetchWithRetry);
-const assets = markets.filter((market) => !market.isDelisted).map((market) => market.id).sort();
-const shardAssets = assets.filter((_, index) => index % shardCount === shardIndex);
 const now = Date.now();
-const failures = [];
 const rows = (await mapLimit(shardAssets, 3, async (asset) => {
   try {
     const cached = existing.get(asset);
@@ -47,9 +55,10 @@ const rows = (await mapLimit(shardAssets, 3, async (asset) => {
         : fetchAverageDailyVolume(asset, fetchWithRetry, now),
     ]);
     if (!history.length) throw new Error("no candle history returned");
+    const historicalFirstSeen = new Date(history[0].time).toISOString();
     return {
       asset,
-      first_seen_at: cached?.first_seen_at ?? new Date(history[0].time).toISOString(),
+      first_seen_at: earliestIsoTimestamp(cached?.first_seen_at, historicalFirstSeen) ?? historicalFirstSeen,
       average_daily_volume: average,
       price_history: history,
       history_updated_at: new Date(now).toISOString(),
