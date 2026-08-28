@@ -14,12 +14,13 @@ import {
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20260810-supabase-dots";
 import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20260828-assets-retry";
+import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260804-trade-log";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20260828-watchlist-heat-map";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -104,6 +105,8 @@ const elements = {
   alertMessage: document.querySelector("#alert-message"),
   alertType: document.querySelector("#alert-type"),
   connectionLabel: document.querySelector("#connection-label"),
+  heatMapCount: document.querySelector("#heat-map-count"),
+  heatMapGrid: document.querySelector("#heat-map-grid"),
   lastSync: document.querySelector("#last-sync"),
   listenerHealth: document.querySelector("#listener-health"),
   marketList: document.querySelector("#market-list"),
@@ -437,6 +440,20 @@ function render() {
   renderRoute();
 }
 
+function renderHeatMap() {
+  const watchedMarkets = state.watchlist.map((asset) => state.markets.get(asset)).filter(Boolean);
+  const tiles = watchedHeatMapTiles(watchedMarkets, state.watchlist);
+  const focusedAsset = focusedHeatMapAsset(elements.heatMapGrid, document.activeElement);
+  elements.heatMapCount.textContent = `${tiles.length} WATCHED`;
+  elements.heatMapGrid.innerHTML = tiles.length
+    ? tiles.map(({ market, tone }) => {
+      const name = displayAssetName(market.id);
+      return `<a class="heat-map-tile ${tone.direction} ${tone.intensity}" href="${routeFor("asset", market.id)}" data-heat-map-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(`${name}, ${formatPercent(market.changePercent)} over 24 hours, mark ${formatPrice(market.markPrice)}`)}"><strong>${escapeHtml(name)}</strong><span>${formatPercent(market.changePercent)}</span><small>${formatPrice(market.markPrice)}</small></a>`;
+    }).join("")
+    : '<p class="heat-map-empty">NO WATCHED ASSETS</p>';
+  restoreHeatMapFocus(elements.heatMapGrid, focusedAsset);
+}
+
 function renderMarkets() {
   const now = Date.now();
   const markets = assetUniverseMarkets();
@@ -662,6 +679,7 @@ function renderRoute() {
   elements.toolsPanels.forEach((panel) => {
     panel.hidden = panel.dataset.toolsPanel !== toolsView;
   });
+  if (view === "heat-map") renderHeatMap();
   if (view === "asset") {
     updateCandleSubscription(assetView === "overview" ? asset : null, assetView === "overview" ? interval : null);
     if (assetView !== "overview") destroyAssetChart();
@@ -1053,6 +1071,7 @@ function scheduleMarketRender() {
     renderMarkets();
     renderAlertOptions();
     const route = parseRoute(window.location.hash);
+    if (route.view === "heat-map") renderHeatMap();
     if (route.view === "asset") renderAssetDetail(route.asset, route.assetView, route.interval);
   }, delayMs);
 }

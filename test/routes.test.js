@@ -3,6 +3,7 @@ import test from "node:test";
 import { parseRoute, routeFor } from "../public/lib/routes.js";
 
 test("site routes resolve top-level and nested utility views", () => {
+  assert.deepEqual(parseRoute("#/heat-map"), { view: "heat-map", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
   assert.deepEqual(parseRoute("#/alerts"), { view: "alerts", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
   assert.deepEqual(parseRoute("#/analysis"), { view: "analysis", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
   assert.deepEqual(parseRoute("#/analysis/trade-log"), { view: "analysis", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
@@ -56,6 +57,7 @@ test("unknown routes fall back to the watchlist", () => {
   assert.deepEqual(parseRoute("#/missing"), { view: "watchlist", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
   assert.equal(routeFor("paper", "order"), "#/paper/order");
   assert.equal(routeFor("watchlist"), "#/watchlist");
+  assert.equal(routeFor("heat-map"), "#/heat-map");
   assert.equal(routeFor("analysis"), "#/analysis/trade-log");
   assert.equal(routeFor("principles"), "#/principles");
   assert.equal(routeFor("tools", "home", "exposure-ladder"), "#/tools/scaling");
