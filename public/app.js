@@ -13,7 +13,7 @@ import {
   mergeLiveCandle,
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20260810-supabase-dots";
-import { getMarketCatalog } from "./lib/market-catalog.js?v=20260828-complete-universe";
+import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20260828-assets-retry";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
@@ -137,7 +137,7 @@ async function initialize() {
 async function initializeMarketData() {
   window.clearTimeout(state.catalogRetryTimer);
   try {
-    const [markets] = await Promise.all([getMarketCatalog(), loadCachedAssetAnalytics()]);
+    const [markets] = await Promise.all([getAssetMarketCatalog(), loadCachedAssetAnalytics()]);
     state.catalog = markets;
     updateMarketMap(markets);
     if (!assetUniverseMarkets().length) throw new Error("No supported Hyperliquid markets were returned.");
