@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20260805-new-acknowledgements" />
+    <link rel="stylesheet" href="./styles.css?v=20260828-watchlist-heat-map" />
   </head>
   <body>
     <main>
@@ -20,6 +20,7 @@
         <div class="tab-bar">
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
             <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">ASSETS</a>
+            <a id="heat-map-tab" href="#/heat-map" role="tab" aria-selected="false" aria-controls="heat-map-view" data-tab="heat-map">HEAT MAP</a>
             <a id="alerts-tab" href="#/alerts" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</a>
             <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
             <a id="analysis-tab" href="#/analysis/trade-log" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
@@ -77,6 +78,13 @@
         <p id="watchlist-message" class="message" role="status"></p>
 
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
+      </section>
+
+      <section id="heat-map-view" role="tabpanel" aria-labelledby="heat-map-tab" hidden>
+        <div class="section-header">
+          <div class="section-title"><h2>HEAT MAP</h2><span id="heat-map-count" class="hint">— WATCHED</span></div>
+        </div>
+        <div id="heat-map-grid" class="heat-map-grid">LOADING…</div>
       </section>
 
       <section id="asset-view" role="tabpanel" aria-labelledby="watchlist-tab" hidden>
@@ -554,7 +562,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20260828-crypto-universe"></script>
+    <script type="module" src="./app.js?v=20260828-watchlist-heat-map"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./trade-log.js?v=20260805-performance-percentages"></script>
