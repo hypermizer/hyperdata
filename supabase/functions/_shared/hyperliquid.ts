@@ -64,6 +64,18 @@ export async function infoRequest(request: Record<string, unknown>, fetchImpl: t
     await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt + Math.random() * 50));
   }
 }
+export async function fetchDexNames(fetchImpl: typeof fetch = fetch, retries = 2): Promise<string[]> {
+  const payload = await infoRequest({ type: "perpDexs" }, fetchImpl, retries);
+  if (!Array.isArray(payload)) throw new Error("Malformed perp DEX response");
+  return [...new Set([
+    "",
+    ...payload.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const name = "name" in entry ? String(entry.name ?? "").trim() : "";
+      return name ? [name] : [];
+    }),
+  ])];
+}
 export async function fetchMarketBatches(assets: AssetRequest[], bucket: Date, fetchImpl: typeof fetch = fetch, retries = 2): Promise<Map<string, DexResult>> {
   const groups = new Map<string, Set<string>>();
   assets.forEach(({ asset, dex }) => { if (!groups.has(dex)) groups.set(dex, new Set()); groups.get(dex)!.add(asset); });

@@ -1,4 +1,4 @@
-import { fetchAverageDailyVolume, fetchMarketsForDex, fetchPriceHistory } from "../public/lib/hyperliquid.js";
+import { fetchAverageDailyVolume, fetchDexNames, fetchMarketsForDex, fetchPriceHistory } from "../public/lib/hyperliquid.js";
 import { earliestIsoTimestamp } from "../public/lib/asset-analytics.js";
 import { analyticsCacheUrl, analyticsShardAssets, collectMarketCatalogResults } from "./lib/asset-analytics-refresh.js";
 
@@ -27,11 +27,14 @@ const restHeaders = {
 };
 const restUrl = `https://${projectRef}.supabase.co/rest/v1/asset_analytics_cache`;
 const failures = [];
-const marketResults = await Promise.allSettled([
-  fetchMarketsForDex("", fetchWithRetry),
-  fetchMarketsForDex("xyz", fetchWithRetry),
-]);
-const catalog = collectMarketCatalogResults(marketResults);
+const dexNames = await fetchDexNames(fetchWithRetry);
+const marketResults = await Promise.allSettled(
+  dexNames.map((dex) => fetchMarketsForDex(dex, fetchWithRetry)),
+);
+const catalog = collectMarketCatalogResults(
+  marketResults,
+  dexNames.map((dex) => dex || "native"),
+);
 const markets = catalog.markets;
 failures.push(...catalog.failures.map((failure) => `${failure} catalog`));
 if (!markets.length) throw new Error(`Unable to discover analytics assets: ${failures.join("; ")}`);

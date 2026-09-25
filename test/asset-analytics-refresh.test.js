@@ -15,6 +15,18 @@ test("analytics refresh preserves a healthy DEX catalog after its peer fails", (
   assert.deepEqual(failures, ["native: native unavailable"]);
 });
 
+test("analytics refresh labels every dynamically discovered DEX", () => {
+  const { markets, failures } = collectMarketCatalogResults([
+    { status: "fulfilled", value: [{ id: "BTC" }] },
+    { status: "fulfilled", value: [{ id: "xyz:ORCL" }] },
+    { status: "rejected", reason: new Error("rates unavailable") },
+    { status: "fulfilled", value: [{ id: "mkts:USBOND" }] },
+  ], ["native", "xyz", "para", "mkts"]);
+
+  assert.deepEqual(markets.map(({ id }) => id), ["BTC", "xyz:ORCL", "mkts:USBOND"]);
+  assert.deepEqual(failures, ["para: rates unavailable"]);
+});
+
 test("analytics refresh deduplicates assets and scopes cache reads to its shard", () => {
   const { assets, shardAssets } = analyticsShardAssets([
     { id: "BTC" },

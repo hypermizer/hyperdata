@@ -1,18 +1,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { infoRequest, normalizeDexAnalyticsSamples } from "../_shared/hyperliquid.ts";
+import { fetchDexNames, infoRequest, normalizeDexAnalyticsSamples } from "../_shared/hyperliquid.ts";
 
 export async function recordAssetAnalyticsSnapshot(
   client: SupabaseClient,
   bucket: Date,
   fetchImpl: typeof fetch = fetch,
 ): Promise<number> {
-  const results = await Promise.allSettled(["", "xyz"].map(async (dex) => {
+  let dexes = ["", "xyz"];
+  try {
+    dexes = await fetchDexNames(fetchImpl);
+  } catch (error) {
+    console.warn(`DEX discovery failed; using core DEXes: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const results = await Promise.allSettled(dexes.map(async (dex) => {
     const payload = await infoRequest({ type: "metaAndAssetCtxs", dex }, fetchImpl);
     return normalizeDexAnalyticsSamples(payload);
   }));
   const samples = results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   const failures = results.flatMap((result, index) => result.status === "rejected"
-    ? [`${index === 0 ? "native" : "xyz"}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
+    ? [`${dexes[index] || "native"}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
     : []);
   if (!samples.length) throw new Error("Hyperliquid returned no mark prices for asset analytics");
   if (failures.length) console.warn(`Partial asset analytics snapshot: ${failures.join("; ")}`);
