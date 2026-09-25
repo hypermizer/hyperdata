@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
-import { ASSET_CATEGORY_TABS, assetStreamSubscriptions, calculateDailyVolatility, calculateHourlyRsi, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20260828-crypto-universe";
+import { ASSET_CATEGORY_TABS, assetStreamSubscriptions, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20260925-all-tradfi";
 import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
 import {
   applyLiveMarketContext,
@@ -13,7 +13,7 @@ import {
   mergeLiveCandle,
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20260810-supabase-dots";
-import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20260828-assets-retry";
+import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20260925-all-tradfi-review";
 import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
@@ -1101,7 +1101,7 @@ function formatDotDetail({ label, referencePrice, changePercent }) {
 }
 
 function displayAssetName(asset) {
-  return asset.startsWith("xyz:") ? asset.slice(4) : asset;
+  return displayAssetSymbol({ id: asset });
 }
 
 function formatBarTime(seconds) {

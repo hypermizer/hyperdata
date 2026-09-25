@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { assertPublicHyperliquidUrl, fetchMarketBatches, infoRequest, normalizeDexAnalyticsSamples, normalizeDexContext } from "../../_shared/hyperliquid.ts";
+import { assertPublicHyperliquidUrl, fetchDexNames, fetchMarketBatches, infoRequest, normalizeDexAnalyticsSamples, normalizeDexContext } from "../../_shared/hyperliquid.ts";
 const payload = [{ universe: [{ name: "xyz:ORCL" }] }, [{ markPx: "100", oraclePx: "99.9", midPx: "100.1", openInterest: "12", dayNtlVlm: "500" }]];
 Deno.test("normalizes a HIP-3 context", () => {
   const [row] = normalizeDexContext("xyz", payload, new Set(["xyz:ORCL"]), new Date("2026-01-01T00:00:00Z"));
@@ -38,6 +38,18 @@ Deno.test("normalizes every valid listed mark in a dex snapshot for analytics", 
     { asset: "xyz:ORCL", price: 143.3, dayVolume: 125000 },
     { asset: "xyz:DRAM", price: 51.472, dayVolume: null },
   ]);
+});
+Deno.test("discovers every active perp DEX once with native first", async () => {
+  const mock = async () => new Response(JSON.stringify([
+    null,
+    { name: "xyz" },
+    { name: "para" },
+    { name: "mkts" },
+    { name: "io" },
+    { name: "para" },
+    {},
+  ]));
+  assertEquals(await fetchDexNames(mock as typeof fetch, 0), ["", "xyz", "para", "mkts", "io"]);
 });
 Deno.test("generic info requests remain pinned to the public info endpoint", async () => {
   let body = "";

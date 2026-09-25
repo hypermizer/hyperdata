@@ -7,6 +7,7 @@ import {
   assetStreamSubscriptions,
   calculateDailyVolatility,
   calculateHourlyRsi,
+  displayAssetSymbol,
   hydrateAssetUniverse,
   filterAndSortAssets,
   formatFundingApr,
@@ -17,6 +18,13 @@ import {
   resolveAsset,
   searchAssets,
 } from "../public/lib/assets.js";
+
+test("asset labels hide every Hyperliquid provider prefix", () => {
+  assert.equal(displayAssetSymbol({ id: "xyz:ORCL" }), "ORCL");
+  assert.equal(displayAssetSymbol({ id: "para:10Y" }), "10Y");
+  assert.equal(displayAssetSymbol({ id: "mkts:USBOND" }), "USBOND");
+  assert.equal(displayAssetSymbol({ id: "BTC" }), "BTC");
+});
 
 test("asset move calculations reject references outside the window tolerance", () => {
   const now = Date.UTC(2026, 7, 6, 23, 20);
@@ -89,6 +97,12 @@ test("ALL includes every TradFi market and only the three core crypto markets", 
   const markets = [
     { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz" },
     { id: "xyz:XYZ100", symbol: "XYZ100", dexId: "xyz" },
+    { id: "para:10Y", symbol: "10Y", dexId: "para", category: "rates" },
+    { id: "para:30Y", symbol: "30Y", dexId: "para" },
+    { id: "mkts:USBOND", symbol: "USBOND", dexId: "mkts", category: "stocks" },
+    { id: "io:ANTH", symbol: "ANTH", dexId: "io", category: "preipo" },
+    { id: "para:ANSEM", symbol: "ANSEM", dexId: "para", category: "crypto" },
+    { id: "para:UNCLASSIFIED", symbol: "UNCLASSIFIED", dexId: "para" },
     { id: "BTC", symbol: "BTC", dexId: "" },
     { id: "ETH", symbol: "ETH", dexId: "" },
     { id: "HYPE", symbol: "HYPE", dexId: "" },
@@ -104,22 +118,38 @@ test("ALL includes every TradFi market and only the three core crypto markets", 
   );
   assert.deepEqual(
     filterAndSortAssets(markets).map(({ id }) => id),
-    ["BTC", "ETH", "HYPE", "xyz:ORCL", "xyz:XYZ100"],
+    ["para:10Y", "para:30Y", "io:ANTH", "BTC", "ETH", "HYPE", "xyz:ORCL", "mkts:USBOND", "xyz:XYZ100"],
   );
   assert.deepEqual(
     filterAndSortAssets(markets, { category: "crypto" }).map(({ id }) => id),
-    ["BTC", "ETH", "HYPE", "SOL"],
+    ["para:ANSEM", "BTC", "ETH", "HYPE", "SOL"],
+  );
+});
+
+test("mixed builder DEX markets need TradFi evidence before entering ALL", () => {
+  const markets = [
+    { id: "para:30Y", symbol: "30Y", dexId: "para" },
+    { id: "para:UNKNOWN", symbol: "UNKNOWN", dexId: "para" },
+    { id: "para:STOCK", symbol: "STOCK", dexId: "para", category: "stocks" },
+  ];
+
+  assert.deepEqual(
+    filterAndSortAssets(markets).map(({ id }) => id),
+    ["para:30Y", "para:STOCK"],
   );
 });
 
 test("asset categories distinguish ETFs from equities using official annotations", () => {
   assert.deepEqual(ASSET_CATEGORY_TABS.map(({ value }) => value), [
-    "all", "equities", "etfs", "commodities", "fx", "indices", "pre-ipo", "crypto", "new",
+    "all", "equities", "etfs", "commodities", "fx", "rates", "indices", "pre-ipo", "crypto", "new",
   ]);
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["oracle", "ai"] }), "equities");
   assert.equal(assetCategoryFor({ category: "stocks", keywords: ["memory", "ETF"] }), "etfs");
   assert.equal(assetCategoryFor({ category: "commodities" }), "commodities");
   assert.equal(assetCategoryFor({ category: "FX" }), "fx");
+  assert.equal(assetCategoryFor({ category: "rates" }), "rates");
+  assert.equal(assetCategoryFor({ symbol: "30Y" }), "rates");
+  assert.equal(assetCategoryFor({ symbol: "USBOND", category: "stocks" }), "rates");
   assert.equal(assetCategoryFor({ category: "indices" }), "indices");
   assert.equal(assetCategoryFor({ category: "preipo" }), "pre-ipo");
   assert.equal(assetCategoryFor({ category: "unexpected" }), "other");
@@ -143,10 +173,15 @@ test("TradFi asset filtering applies category and search together", () => {
     { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz", category: "stocks", keywords: ["oracle"] },
     { id: "xyz:DRAM", symbol: "DRAM", dexId: "xyz", category: "stocks", keywords: ["etf", "memory"] },
     { id: "xyz:GOLD", symbol: "GOLD", dexId: "xyz", category: "commodities", keywords: ["metal"] },
+    { id: "para:10Y", symbol: "10Y", dexId: "para", category: "rates", keywords: ["treasury"] },
+    { id: "para:30Y", symbol: "30Y", dexId: "para" },
+    { id: "mkts:USBOND", symbol: "USBOND", dexId: "mkts", category: "stocks" },
+    { id: "para:ANSEM", symbol: "ANSEM", dexId: "para", category: "crypto" },
   ];
 
   assert.deepEqual(filterAndSortAssets(markets, { category: "etfs" }).map(({ id }) => id), ["xyz:DRAM"]);
   assert.deepEqual(filterAndSortAssets(markets, { category: "equities", query: "or" }).map(({ id }) => id), ["xyz:ORCL"]);
+  assert.deepEqual(filterAndSortAssets(markets, { category: "rates" }).map(({ id }) => id), ["para:10Y", "para:30Y", "mkts:USBOND"]);
 });
 
 test("NEW contains only assets first observed within the last seven days", () => {
@@ -219,6 +254,10 @@ test("asset universe hydrates TradFi and crypto entries with the latest live mar
     { id: "xyz:ORCL", symbol: "ORCL", dexId: "xyz", markPrice: 100, funding: 0.0001 },
     { id: "xyz:DELISTED", symbol: "DELISTED", dexId: "xyz", isDelisted: true },
     { id: "BTC", symbol: "BTC", dexId: "", markPrice: 120000 },
+    { id: "para:10Y", symbol: "10Y", dexId: "para", category: "rates", markPrice: 4.5 },
+    { id: "mkts:US500", symbol: "US500", dexId: "mkts", category: "indices", markPrice: 750 },
+    { id: "io:ANTH", symbol: "ANTH", dexId: "io", category: "preipo", markPrice: 2000 },
+    { id: "para:ANSEM", symbol: "ANSEM", dexId: "para", category: "crypto", markPrice: 0.2 },
   ];
   const liveMarkets = new Map([
     ["xyz:ORCL", { ...catalogMarkets[0], markPrice: 125, funding: 0.0002 }],
@@ -227,6 +266,10 @@ test("asset universe hydrates TradFi and crypto entries with the latest live mar
   assert.deepEqual(hydrateAssetUniverse(catalogMarkets, liveMarkets), [
     { ...catalogMarkets[0], markPrice: 125, funding: 0.0002 },
     catalogMarkets[2],
+    catalogMarkets[3],
+    catalogMarkets[4],
+    catalogMarkets[5],
+    catalogMarkets[6],
   ]);
 });
 

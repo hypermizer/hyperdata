@@ -1,7 +1,7 @@
 import { priceChangeForWindow } from "./hyperliquid.js?v=20260810-supabase-dots";
 
 export function displayAssetSymbol(asset) {
-  return String(asset?.symbol ?? asset?.id ?? "").replace(/^xyz:/i, "");
+  return String(asset?.symbol ?? asset?.id ?? "").replace(/^[^:]+:/, "");
 }
 
 export function formatMaxLeverage(value) {
@@ -15,6 +15,7 @@ export const ASSET_CATEGORY_TABS = [
   { value: "etfs", label: "ETFs" },
   { value: "commodities", label: "COMMODITIES" },
   { value: "fx", label: "FX" },
+  { value: "rates", label: "RATES" },
   { value: "indices", label: "INDICES" },
   { value: "pre-ipo", label: "PRE-IPO" },
   { value: "crypto", label: "CRYPTO" },
@@ -23,6 +24,22 @@ export const ASSET_CATEGORY_TABS = [
 
 const NEW_ASSET_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const CORE_CRYPTO_ASSETS = new Set(["BTC", "ETH", "HYPE"]);
+const TRADFI_ONLY_DEXES = new Set(["xyz", "mkts", "io"]);
+const EQUITY_CATEGORIES = new Set(["stock", "stocks", "equity", "equities"]);
+const COMMODITY_CATEGORIES = new Set(["commodity", "commodities"]);
+const FX_CATEGORIES = new Set(["fx", "forex", "currency"]);
+const INDEX_CATEGORIES = new Set(["index", "indices"]);
+const PRE_IPO_CATEGORIES = new Set(["preipo", "pre-ipo"]);
+const RATE_CATEGORIES = new Set(["rate", "rates", "bond", "bonds", "fixed-income", "fixed income"]);
+const RATE_SYMBOLS = new Set(["2Y", "5Y", "10Y", "30Y", "USBOND"]);
+const TRADFI_CATEGORIES = new Set([
+  ...EQUITY_CATEGORIES,
+  ...COMMODITY_CATEGORIES,
+  ...FX_CATEGORIES,
+  ...INDEX_CATEGORIES,
+  ...PRE_IPO_CATEGORIES,
+  ...RATE_CATEGORIES,
+]);
 
 export function isNewAsset(asset, firstSeenAt = new Map(), now = Date.now()) {
   const firstSeen = Date.parse(firstSeenAt.get(asset?.id));
@@ -40,15 +57,19 @@ export function unseenNewAssetIds(markets, firstSeenAt = new Map(), acknowledged
 
 export function assetCategoryFor(asset) {
   const category = String(asset?.category ?? "").toLowerCase();
+  const symbol = String(asset?.symbol ?? "").toUpperCase();
   const keywords = Array.isArray(asset?.keywords)
     ? asset.keywords.map((keyword) => String(keyword).toLowerCase())
     : [];
+  if (RATE_CATEGORIES.has(category)
+    || keywords.includes("treasury")
+    || RATE_SYMBOLS.has(symbol)) return "rates";
   if (keywords.includes("etf")) return "etfs";
-  if (["stock", "stocks", "equity", "equities"].includes(category)) return "equities";
-  if (["commodity", "commodities"].includes(category)) return "commodities";
-  if (["fx", "forex", "currency"].includes(category)) return "fx";
-  if (["index", "indices"].includes(category)) return "indices";
-  if (["preipo", "pre-ipo"].includes(category)) return "pre-ipo";
+  if (EQUITY_CATEGORIES.has(category)) return "equities";
+  if (COMMODITY_CATEGORIES.has(category)) return "commodities";
+  if (FX_CATEGORIES.has(category)) return "fx";
+  if (INDEX_CATEGORIES.has(category)) return "indices";
+  if (PRE_IPO_CATEGORIES.has(category)) return "pre-ipo";
   return "other";
 }
 
@@ -98,11 +119,19 @@ export function formatFundingApr(hourlyFundingRate) {
 }
 
 export function isTradFiMarket(market) {
-  return market?.dexId === "xyz" && !market.isDelisted;
+  const category = String(market?.category ?? "").toLowerCase();
+  const symbol = String(market?.symbol ?? "").toUpperCase();
+  return Boolean(market?.dexId)
+    && (TRADFI_ONLY_DEXES.has(market.dexId)
+      || TRADFI_CATEGORIES.has(category)
+      || RATE_SYMBOLS.has(symbol))
+    && category !== "crypto"
+    && !market.isDelisted;
 }
 
 function isCryptoMarket(market) {
-  return market?.dexId === "" && !market.isDelisted;
+  return (market?.dexId === "" || String(market?.category ?? "").toLowerCase() === "crypto")
+    && !market.isDelisted;
 }
 
 export function hydrateAssetUniverse(catalog, marketsById) {
