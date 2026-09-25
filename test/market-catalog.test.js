@@ -46,6 +46,38 @@ test("asset catalog retries incomplete results without changing the shared parti
   }
 });
 
+test("asset catalog retries when official annotations are temporarily unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  let annotationAttempts = 0;
+  const { getAssetMarketCatalog: getFreshAssetMarketCatalog } = await import("../public/lib/market-catalog.js?annotation-retry");
+
+  globalThis.fetch = async (_url, { body }) => {
+    const { type, dex } = JSON.parse(body);
+    if (type === "perpDexs") return jsonResponse([{ name: "xyz" }, { name: "para" }]);
+    if (type === "perpConciseAnnotations") {
+      annotationAttempts += 1;
+      if (annotationAttempts === 1) throw new Error("annotations unavailable");
+      return jsonResponse([["para:AVGO", { category: "stocks" }]]);
+    }
+    const name = dex === "xyz" ? "xyz:ORCL" : dex === "para" ? "para:AVGO" : "BTC";
+    return jsonResponse([
+      { universe: [{ name, maxLeverage: 20, szDecimals: 2 }] },
+      [{}],
+    ]);
+  };
+
+  try {
+    await assert.rejects(getFreshAssetMarketCatalog(), /annotations unavailable/);
+    assert.deepEqual(
+      (await getFreshAssetMarketCatalog()).map(({ id, category }) => [id, category ?? null]),
+      [["para:AVGO", "stocks"], ["BTC", null], ["xyz:ORCL", null]],
+    );
+    assert.equal(annotationAttempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function jsonResponse(payload) {
   return {
     ok: true,

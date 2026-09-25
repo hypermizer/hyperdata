@@ -13,7 +13,7 @@ import {
   mergeLiveCandle,
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20260810-supabase-dots";
-import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20260828-assets-retry";
+import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20260925-all-tradfi-review";
 import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";

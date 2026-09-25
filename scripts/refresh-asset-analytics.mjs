@@ -1,6 +1,6 @@
 import { fetchAverageDailyVolume, fetchDexNames, fetchMarketsForDex, fetchPriceHistory } from "../public/lib/hyperliquid.js";
 import { earliestIsoTimestamp } from "../public/lib/asset-analytics.js";
-import { analyticsCacheUrl, analyticsShardAssets, collectMarketCatalogResults } from "./lib/asset-analytics-refresh.js";
+import { analyticsCacheUrl, analyticsShardAssets, collectMarketCatalogResults, discoverAnalyticsDexes } from "./lib/asset-analytics-refresh.js";
 
 const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
 const projectRef = process.env.SUPABASE_PROJECT_ID;
@@ -27,7 +27,10 @@ const restHeaders = {
 };
 const restUrl = `https://${projectRef}.supabase.co/rest/v1/asset_analytics_cache`;
 const failures = [];
-const dexNames = await fetchDexNames(fetchWithRetry);
+const dexNames = await discoverAnalyticsDexes(
+  () => fetchDexNames(fetchWithRetry),
+  (error) => console.warn(`DEX discovery failed; using core DEXes: ${error.message}`),
+);
 const marketResults = await Promise.allSettled(
   dexNames.map((dex) => fetchMarketsForDex(dex, fetchWithRetry)),
 );

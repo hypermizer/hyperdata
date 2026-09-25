@@ -8,6 +8,15 @@ export function collectMarketCatalogResults(results, labels = ["native", "xyz"])
   return { markets, failures };
 }
 
+export async function discoverAnalyticsDexes(fetchDexNames, onFallback = () => {}) {
+  try {
+    return await fetchDexNames();
+  } catch (error) {
+    onFallback(error);
+    return ["", "xyz"];
+  }
+}
+
 export function analyticsShardAssets(markets, shardIndex, shardCount) {
   const assets = [...new Set(markets
     .filter((market) => !market.isDelisted)
