@@ -29,6 +29,15 @@ Deno.test("ETF news queries target fund flows, holdings, and the tracked sector"
   assertEquals(queries.some((query) => query.includes("holdings")), true);
 });
 
+Deno.test("native crypto news queries never search for an equity with the same ticker", () => {
+  const queries = buildNewsQueries("LINK", {
+    symbol: "LINK", yahooSymbol: null, displayName: "LINK", description: "LINK is a cryptocurrency perpetual.",
+    instrumentType: "CRYPTOCURRENCY", category: "crypto", keywords: ["chainlink", "crypto"], exchange: "Hyperliquid", currency: "USD", regularMarketTime: null, market: {}, source: "hyperliquid",
+  });
+  assertEquals(queries.some((query) => query.includes("cryptocurrency")), true);
+  assertEquals(queries.some((query) => query.includes(" stock")), false);
+});
+
 Deno.test("news provider requests cover the recent month and sort newest first", () => {
   const url = buildNewsSearchUrl('"Oracle Corporation" earnings');
   assertEquals(url.hostname, "www.bing.com");

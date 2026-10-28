@@ -34,6 +34,9 @@ export function buildNewsQueries(asset: string, identity: AssetIdentity | string
     : subject;
   const category = String(data.category || "").toLowerCase();
   const isEtf = String(data.instrumentType || "").toUpperCase() === "ETF" || (data.keywords ?? []).some((keyword) => keyword.toLowerCase() === "etf");
+  if (category === "crypto" || String(data.instrumentType || "").toUpperCase() === "CRYPTOCURRENCY") return uniqueQueries([
+    `${subject} cryptocurrency`, `${subject} crypto price`, `${subject} protocol`, `${subject} token`, `${subject} regulation`, `${subject} exchange flows`,
+  ]);
   if (isEtf) return uniqueQueries([
     `${subject} fund flows`, `${subject} holdings`, `${subject} ETF price`, `${contextSubject} sector outlook`, `${subject} rebalance`, `${subject} analyst`,
   ]);

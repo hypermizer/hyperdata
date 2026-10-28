@@ -84,6 +84,15 @@ Deno.test("native crypto symbols never collide with similarly named Yahoo equiti
   assertEquals(calls.length, 1);
 });
 
+Deno.test("native crypto without an annotation still gets a derivative-safe identity", async () => {
+  const identity = await resolveAssetIdentity("BTC", { fetcher: (async () => Response.json(null)) as typeof fetch });
+  assertEquals(identity.displayName, "BTC");
+  assertEquals(identity.yahooSymbol, null);
+  assertEquals(identity.instrumentType, "CRYPTOCURRENCY");
+  assertEquals(identity.category, "crypto");
+  assertStringIncludes(identity.description, "cryptocurrency perpetual");
+});
+
 Deno.test("non-XYZ providers use official annotations and avoid Treasury ticker collisions", async () => {
   const calls: string[] = [];
   const fetcher = async (input: string | URL | Request) => {

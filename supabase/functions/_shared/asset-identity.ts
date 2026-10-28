@@ -65,6 +65,9 @@ export async function resolveAssetIdentity(
   const symbol = bareAssetSymbol(asset);
   const curated = CURATED[symbol];
   const annotation = await fetchPerpAnnotation(asset, fetcher);
+  if (!asset.includes(":")) return annotation
+    ? annotatedIdentity(symbol, annotation, curated, null)
+    : nativeCryptoIdentity(symbol);
   const yahooSymbol = yahooSymbolForAsset(asset, annotation);
   if (!yahooSymbol) return annotatedIdentity(symbol, annotation, curated, yahooSymbol);
   const meta = await fetchYahooMetadata(yahooSymbol, fetcher);
@@ -94,6 +97,23 @@ export async function resolveAssetIdentity(
       previousClose: finite(meta.chartPreviousClose),
     },
     source: identitySource(annotation, curated, description),
+  };
+}
+
+function nativeCryptoIdentity(symbol: string): AssetIdentity {
+  return {
+    symbol,
+    yahooSymbol: null,
+    displayName: symbol,
+    description: `${symbol} is a cryptocurrency perpetual market on Hyperliquid. Its mark price, funding, volume, and open interest describe the derivative market rather than shares in a public company.`,
+    instrumentType: "CRYPTOCURRENCY",
+    category: "crypto",
+    keywords: [symbol.toLowerCase(), "crypto", "cryptocurrency", "perpetual"],
+    exchange: "Hyperliquid",
+    currency: "USD",
+    regularMarketTime: null,
+    market: {},
+    source: "hyperliquid",
   };
 }
 
