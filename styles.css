@@ -230,6 +230,17 @@ input, select { min-width: 0; }
   line-height: 1.25;
   white-space: nowrap;
 }
+.asset-venue-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 14px;
+  padding: 1px 4px;
+  border: 1px solid #4b535a;
+  color: #929ba2;
+  font-size: 7px;
+  line-height: 1;
+  text-transform: uppercase;
+}
 .new-asset-acknowledgement {
   width: 20px;
   min-height: 20px;
