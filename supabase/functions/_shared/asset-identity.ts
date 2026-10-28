@@ -39,12 +39,22 @@ const CURATED: Record<string, Pick<AssetIdentity, "displayName" | "description" 
 };
 
 export function bareAssetSymbol(asset: string): string {
-  return asset.replace(/^xyz:/i, "").toUpperCase();
+  return asset.replace(/^[^:]+:/, "").toUpperCase();
 }
 
-export function yahooSymbolForAsset(asset: string): string | null {
+export function isValidAssetId(asset: string): boolean {
+  return /^(?:[A-Za-z0-9][A-Za-z0-9_-]{0,31}:)?[A-Za-z0-9._-]{1,32}$/.test(asset);
+}
+
+export function yahooSymbolForAsset(asset: string, annotation: PerpAnnotation | null = null): string | null {
   const symbol = bareAssetSymbol(asset);
-  return Object.hasOwn(YAHOO_OVERRIDES, symbol) ? YAHOO_OVERRIDES[symbol] : symbol;
+  if (!asset.includes(":")) return null;
+  if (Object.hasOwn(YAHOO_OVERRIDES, symbol)) return YAHOO_OVERRIDES[symbol];
+  const category = String(annotation?.category || "").toLowerCase();
+  const annotationText = `${annotation?.displayName || ""} ${annotation?.description || ""} ${(annotation?.keywords || []).join(" ")}`.toLowerCase();
+  if (["crypto", "preipo", "pre-ipo", "rates", "rate", "bonds", "fixed-income"].includes(category)
+    || /\b(?:treasury|bond|yield|pre-?ipo|private company|crypto)\b/.test(annotationText)) return null;
+  return symbol;
 }
 
 export async function resolveAssetIdentity(
@@ -53,28 +63,24 @@ export async function resolveAssetIdentity(
 ): Promise<AssetIdentity> {
   const fetcher = options.fetcher ?? fetch;
   const symbol = bareAssetSymbol(asset);
-  const yahooSymbol = yahooSymbolForAsset(asset);
   const curated = CURATED[symbol];
-  const annotationPromise = fetchPerpAnnotation(asset, fetcher);
-  const annotation = yahooSymbol ? null : await annotationPromise;
-  if (!yahooSymbol) return annotatedIdentity(symbol, annotation, curated);
-  const [resolvedAnnotation, meta] = await Promise.all([
-    annotationPromise,
-    fetchYahooMetadata(yahooSymbol, fetcher),
-  ]);
-  if (!meta) return { ...annotatedIdentity(symbol, resolvedAnnotation, curated), yahooSymbol };
-  const displayName = displayNameForIdentity(meta, resolvedAnnotation, curated, symbol);
+  const annotation = await fetchPerpAnnotation(asset, fetcher);
+  const yahooSymbol = yahooSymbolForAsset(asset, annotation);
+  if (!yahooSymbol) return annotatedIdentity(symbol, annotation, curated, yahooSymbol);
+  const meta = await fetchYahooMetadata(yahooSymbol, fetcher);
+  if (!meta) return { ...annotatedIdentity(symbol, annotation, curated, yahooSymbol), yahooSymbol };
+  const displayName = displayNameForIdentity(meta, annotation, curated, symbol);
   const description = options.includeDescription === false
-    ? (resolvedAnnotation?.description || curated?.description || "")
-    : (resolvedAnnotation?.description || curated?.description || await fetchWikipediaDescription(displayName, fetcher));
+    ? (annotation?.description || curated?.description || "")
+    : (annotation?.description || curated?.description || await fetchWikipediaDescription(displayName, fetcher));
   return {
     symbol,
     yahooSymbol,
     displayName,
     description,
     instrumentType: String(meta.instrumentType || curated?.instrumentType || ""),
-    category: resolvedAnnotation?.category || "",
-    keywords: resolvedAnnotation?.keywords || [],
+    category: annotation?.category || "",
+    keywords: annotation?.keywords || [],
     exchange: String(meta.fullExchangeName || meta.exchangeName || ""),
     currency: String(meta.currency || ""),
     regularMarketTime: finite(meta.regularMarketTime),
@@ -87,7 +93,7 @@ export async function resolveAssetIdentity(
       regularMarketVolume: finite(meta.regularMarketVolume),
       previousClose: finite(meta.chartPreviousClose),
     },
-    source: identitySource(resolvedAnnotation, curated, description),
+    source: identitySource(annotation, curated, description),
   };
 }
 
@@ -128,7 +134,6 @@ function identitySource(
 }
 
 async function fetchPerpAnnotation(asset: string, fetcher: typeof fetch): Promise<PerpAnnotation | null> {
-  if (!asset.toLowerCase().startsWith("xyz:")) return null;
   try {
     const response = await fetcher("https://api.hyperliquid.xyz/info", {
       method: "POST",
@@ -155,8 +160,9 @@ function annotatedIdentity(
   symbol: string,
   annotation?: PerpAnnotation | null,
   curated?: Pick<AssetIdentity, "displayName" | "description" | "instrumentType">,
+  yahooSymbol: string | null = null,
 ): AssetIdentity {
-  const fallback = curatedIdentity(symbol, curated);
+  const fallback = curatedIdentity(symbol, curated, yahooSymbol);
   if (!annotation) return fallback;
   return {
     ...fallback,
@@ -168,10 +174,10 @@ function annotatedIdentity(
   };
 }
 
-function curatedIdentity(symbol: string, curated?: Pick<AssetIdentity, "displayName" | "description" | "instrumentType">): AssetIdentity {
+function curatedIdentity(symbol: string, curated?: Pick<AssetIdentity, "displayName" | "description" | "instrumentType">, yahooSymbol: string | null = null): AssetIdentity {
   return {
     symbol,
-    yahooSymbol: yahooSymbolForAsset(symbol),
+    yahooSymbol,
     displayName: curated?.displayName || symbol,
     description: curated?.description || "",
     instrumentType: curated?.instrumentType || "",

@@ -10,6 +10,7 @@ import {
   fetchMarketsForDex,
   fetchPerpAnnotations,
   fetchPriceHistory,
+  mapAllDexsAssetContexts,
   postInfo,
   mergeLiveCandle,
   normalizeCandle,
@@ -99,6 +100,7 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
     changePercent: 25,
     volume24h: 1000,
     openInterest: 20,
+    openInterestNotional: 5000,
     funding: 0.0001,
     maxLeverage: 10,
     sizeDecimals: 2,
@@ -111,7 +113,21 @@ test("fetchMarketsForDex combines metadata and market context", async () => {
       { lowerBound: 100000, maxLeverage: 5, maintenanceRate: 0.1, maintenanceDeduction: 5000 },
     ],
     isDelisted: false,
+    contextIndex: 0,
   });
+});
+
+test("all-DEX context snapshots map tuple-encoded venues to canonical assets", () => {
+  const markets = [
+    { id: "BTC", dexId: "", contextIndex: 0 },
+    { id: "xyz:ORCL", dexId: "xyz", contextIndex: 1 },
+  ];
+  const contexts = mapAllDexsAssetContexts({ ctxs: {
+    0: ["", [{ markPx: "81000" }]],
+    1: ["xyz", [{ markPx: "1" }, { markPx: "250" }]],
+  } }, markets);
+  assert.equal(contexts.get("BTC").markPx, "81000");
+  assert.equal(contexts.get("xyz:ORCL").markPx, "250");
 });
 
 test("applyLiveMarketContext replaces a market's live stats from the WebSocket feed", () => {

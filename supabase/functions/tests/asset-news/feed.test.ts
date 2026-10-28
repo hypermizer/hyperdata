@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { buildNewsQueries, buildNewsQuery, buildNewsSearchUrl, parseNewsFeed, rankAndDeduplicateNews } from "../../asset-news/feed.ts";
+import { buildGoogleNewsSearchUrl, buildNewsQueries, buildNewsQuery, buildNewsSearchUrl, parseNewsFeed, rankAndDeduplicateNews } from "../../asset-news/feed.ts";
 
 Deno.test("company and market assets produce price-relevant news queries", () => {
   assertEquals(buildNewsQuery("xyz:ORCL").includes("ORCL"), true);
@@ -35,6 +35,14 @@ Deno.test("news provider requests cover the recent month and sort newest first",
   assertEquals(url.searchParams.get("format"), "rss");
   assertEquals(url.searchParams.get("qft"), 'interval="30"');
   assertEquals(url.searchParams.get("sortbydate"), "1");
+});
+
+Deno.test("secondary news discovery uses recent Google News RSS", () => {
+  const url = buildGoogleNewsSearchUrl('"Oracle Corporation" earnings');
+  assertEquals(url.hostname, "news.google.com");
+  assertEquals(url.pathname, "/rss/search");
+  assertEquals(url.searchParams.get("q")?.endsWith("when:30d"), true);
+  assertEquals(url.searchParams.get("ceid"), "US:en");
 });
 
 Deno.test("Google News RSS is decoded, deduplicated, and source suffixes are removed", () => {

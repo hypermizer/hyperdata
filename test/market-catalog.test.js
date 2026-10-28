@@ -37,7 +37,7 @@ test("asset catalog retries incomplete results without changing the shared parti
   };
 
   try {
-    await assert.rejects(getAssetMarketCatalog(), /TradFi catalog unavailable/);
+    await assert.rejects(getAssetMarketCatalog(), /catalog incomplete \(xyz\)/);
     assert.deepEqual((await getAssetMarketCatalog()).map(({ id }) => id), ["BTC", "xyz:ORCL"]);
     assert.deepEqual((await getMarketCatalog()).map(({ id }) => id), ["BTC"]);
     assert.equal(attempt, 3);

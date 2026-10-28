@@ -18,3 +18,12 @@ Deno.test("asset fundamentals rejects invalid assets and origins", async () => {
   const invalid = await handleAssetFundamentals(new Request("https://example.test", { method: "POST", headers: { origin: allowedOrigin }, body: JSON.stringify({ asset: "../bad" }) }), { allowedOrigin, fetchFundamentals });
   assertEquals(invalid.status, 400);
 });
+
+Deno.test("asset fundamentals accepts every canonical Hyperliquid provider", async () => {
+  for (const asset of ["para:10Y", "mkts:USBOND", "io:ANTH", "BTC"]) {
+    const response = await handleAssetFundamentals(new Request("https://example.test", {
+      method: "POST", headers: { origin: allowedOrigin }, body: JSON.stringify({ asset }),
+    }), { allowedOrigin, fetchFundamentals: async () => ({ identity: { displayName: asset }, available: false } as never) });
+    assertEquals(response.status, 200);
+  }
+});

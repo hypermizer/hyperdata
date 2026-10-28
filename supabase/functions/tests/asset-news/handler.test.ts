@@ -21,3 +21,12 @@ Deno.test("asset news rejects foreign origins and invalid assets", async () => {
   const oversized = await handleAssetNews(new Request("https://example.test", { method: "POST", headers: { origin: allowedOrigin }, body: "x".repeat(257) }), { allowedOrigin, fetchNews: async () => [] });
   assertEquals(oversized.status, 413);
 });
+
+Deno.test("asset news accepts every canonical Hyperliquid provider", async () => {
+  for (const asset of ["para:AVGO", "mkts:US500", "io:ANTH", "ETH"]) {
+    const response = await handleAssetNews(new Request("https://example.test", {
+      method: "POST", headers: { origin: allowedOrigin }, body: JSON.stringify({ asset }),
+    }), { allowedOrigin, fetchNews: async () => [] });
+    assertEquals(response.status, 200);
+  }
+});

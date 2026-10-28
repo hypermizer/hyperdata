@@ -1,3 +1,5 @@
+import { functionErrorMessage } from "./fundamentals.js";
+
 const cache = new Map();
 const CACHE_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 100;
@@ -7,7 +9,10 @@ export async function fetchAssetNews(client, asset, now = Date.now()) {
   if (cached && cached.expiresAt > now) return cached.items;
   if (!client?.functions) throw new Error("News service unavailable.");
   const { data, error } = await client.functions.invoke("asset-news", { body: { asset } });
-  if (error) throw new Error(error.message || "News service unavailable.");
+  if (error) {
+    if (cached?.items) return cached.items;
+    throw new Error(await functionErrorMessage(error, "News service temporarily unavailable. Retrying automatically."));
+  }
   if (!Array.isArray(data?.items)) throw new Error("News service returned invalid data.");
   const items = data.items.flatMap((item) => {
     const publishedAt = new Date(item?.publishedAt);

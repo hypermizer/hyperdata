@@ -1,4 +1,5 @@
 import type { AssetFundamentals } from "./finance.ts";
+import { isValidAssetId } from "../_shared/asset-identity.ts";
 
 export interface AssetFundamentalsDependencies {
   allowedOrigin: string;
@@ -14,10 +15,11 @@ export async function handleAssetFundamentals(request: Request, dependencies: As
     if (body.length > 256) return Response.json({ error: "request_too_large" }, { status: 413 });
     asset = String(JSON.parse(body)?.asset ?? "").trim();
   } catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
-  if (!/^(?:xyz:)?[A-Za-z0-9._-]{1,24}$/.test(asset)) return Response.json({ error: "invalid_asset" }, { status: 400 });
+  if (!isValidAssetId(asset)) return Response.json({ error: "invalid_asset", detail: "Use a canonical Hyperliquid asset ID." }, { status: 400 });
   try {
     return Response.json(await dependencies.fetchFundamentals(asset), { headers: { "cache-control": "private, max-age=900" } });
-  } catch {
-    return Response.json({ error: "financials_unavailable" }, { status: 502 });
+  } catch (error) {
+    console.error("asset-fundamentals failed", { asset, error });
+    return Response.json({ error: "financials_unavailable", detail: "The upstream financial data source is temporarily unavailable." }, { status: 502 });
   }
 }

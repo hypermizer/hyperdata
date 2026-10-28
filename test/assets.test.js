@@ -307,6 +307,14 @@ test("TradFi asset view sorts metrics with unavailable values last", () => {
   }).map(({ id }) => id), ["xyz:BETA", "xyz:ALPHA", "xyz:GAMMA"]);
 });
 
+test("open-interest sorting compares dollar notional rather than contract units", () => {
+  const markets = [
+    { id: "xyz:EXPENSIVE", symbol: "EXPENSIVE", dexId: "xyz", openInterest: 10, openInterestNotional: 10_000 },
+    { id: "xyz:CHEAP", symbol: "CHEAP", dexId: "xyz", openInterest: 100, openInterestNotional: 1_000 },
+  ];
+  assert.deepEqual(filterAndSortAssets(markets, { sort: "open-interest-desc" }).map(({ id }) => id), ["xyz:EXPENSIVE", "xyz:CHEAP"]);
+});
+
 test("column sorting starts high-to-low and toggles direction", () => {
   assert.equal(nextColumnSort("asset-asc", "volume"), "volume-desc");
   assert.equal(nextColumnSort("volume-desc", "volume"), "volume-asc");

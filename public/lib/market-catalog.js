@@ -9,7 +9,7 @@ export function getMarketCatalog() {
 }
 
 export function getAssetMarketCatalog() {
-  assetCatalogPromise ??= fetchAllMarkets(fetch, { requireAnnotations: true })
+  assetCatalogPromise ??= fetchAllMarkets(fetch, { requireAnnotations: true, requireComplete: true })
     .then(requireAssetUniverseDexes)
     .then(sortMarkets)
     .catch((error) => {

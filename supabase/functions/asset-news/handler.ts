@@ -1,4 +1,5 @@
 import type { NewsItem } from "./feed.ts";
+import { isValidAssetId } from "../_shared/asset-identity.ts";
 
 export interface AssetNewsDependencies {
   allowedOrigin: string;
@@ -15,10 +16,11 @@ export async function handleAssetNews(request: Request, dependencies: AssetNewsD
     asset = String(JSON.parse(body)?.asset ?? "").trim();
   }
   catch { return Response.json({ error: "invalid_json" }, { status: 400 }); }
-  if (!/^(?:xyz:)?[A-Za-z0-9._-]{1,24}$/.test(asset)) return Response.json({ error: "invalid_asset" }, { status: 400 });
+  if (!isValidAssetId(asset)) return Response.json({ error: "invalid_asset", detail: "Use a canonical Hyperliquid asset ID." }, { status: 400 });
   try {
     return Response.json({ items: await dependencies.fetchNews(asset) }, { headers: { "cache-control": "private, max-age=300" } });
-  } catch {
-    return Response.json({ error: "news_unavailable" }, { status: 502 });
+  } catch (error) {
+    console.error("asset-news failed", { asset, error });
+    return Response.json({ error: "news_unavailable", detail: "The upstream news sources are temporarily unavailable." }, { status: 502 });
   }
 }

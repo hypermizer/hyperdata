@@ -1,5 +1,5 @@
 import { resolveAssetIdentity } from "../_shared/asset-identity.ts";
-import { buildNewsQueries, buildNewsSearchUrl, parseNewsFeed, rankAndDeduplicateNews, type NewsItem } from "./feed.ts";
+import { buildGoogleNewsSearchUrl, buildNewsQueries, buildNewsSearchUrl, parseNewsFeed, rankAndDeduplicateNews, type NewsItem } from "./feed.ts";
 import { handleAssetNews } from "./handler.ts";
 
 const ALLOWED_ORIGIN = "https://hypermizer.github.io";
@@ -16,8 +16,11 @@ async function fetchNews(asset: string): Promise<NewsItem[]> {
   const cached = cache.get(asset);
   if (cached && cached.expiresAt > Date.now()) return cached.items;
   const identity = await resolveAssetIdentity(asset, { includeDescription: false });
-  const results = await Promise.allSettled(buildNewsQueries(asset, identity).map(async (query) => {
-    const url = buildNewsSearchUrl(query);
+  const searches = buildNewsQueries(asset, identity).slice(0, 6).flatMap((query) => [
+    buildNewsSearchUrl(query),
+    buildGoogleNewsSearchUrl(query),
+  ]);
+  const results = await Promise.allSettled(searches.map(async (url) => {
     const response = await fetch(url, { signal: AbortSignal.timeout(3_000) });
     if (!response.ok) throw new Error(`news provider returned ${response.status}`);
     return parseNewsFeed(await response.text());

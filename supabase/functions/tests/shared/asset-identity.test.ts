@@ -1,5 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { resolveAssetIdentity, yahooSymbolForAsset } from "../../_shared/asset-identity.ts";
+import { bareAssetSymbol, isValidAssetId, resolveAssetIdentity, yahooSymbolForAsset } from "../../_shared/asset-identity.ts";
 
 Deno.test("Yahoo chart metadata and Wikipedia lead resolve a company identity", async () => {
   const calls: string[] = [];
@@ -60,4 +60,38 @@ Deno.test("Yahoo ticker overrides cover Hyperliquid market aliases", () => {
   assertEquals(yahooSymbolForAsset("xyz:XYZ100"), "^NDX");
   assertEquals(yahooSymbolForAsset("xyz:SOFTBANK"), "9984.T");
   assertEquals(yahooSymbolForAsset("xyz:ORCL"), "ORCL");
+});
+
+Deno.test("all provider prefixes are stripped and canonical provider IDs are accepted", () => {
+  assertEquals(bareAssetSymbol("para:10Y"), "10Y");
+  assertEquals(bareAssetSymbol("mkts:USBOND"), "USBOND");
+  assertEquals(bareAssetSymbol("io:ANTH"), "ANTH");
+  assertEquals(isValidAssetId("para:10Y"), true);
+  assertEquals(isValidAssetId("mkts:USBOND"), true);
+  assertEquals(isValidAssetId("../secret"), false);
+});
+
+Deno.test("native crypto symbols never collide with similarly named Yahoo equities", async () => {
+  const calls: string[] = [];
+  const fetcher = async (input: string | URL | Request) => {
+    calls.push(String(input));
+    return Response.json({ category: "crypto", displayName: "Chainlink", description: "LINK is a crypto perpetual.", keywords: ["crypto"] });
+  };
+  const identity = await resolveAssetIdentity("LINK", { fetcher: fetcher as typeof fetch });
+  assertEquals(identity.displayName, "Chainlink");
+  assertEquals(identity.yahooSymbol, null);
+  assertEquals(identity.source, "hyperliquid");
+  assertEquals(calls.length, 1);
+});
+
+Deno.test("non-XYZ providers use official annotations and avoid Treasury ticker collisions", async () => {
+  const calls: string[] = [];
+  const fetcher = async (input: string | URL | Request) => {
+    calls.push(String(input));
+    return Response.json({ category: "rates", displayName: "10-Year Treasury Yield", description: "A U.S. Treasury rates product.", keywords: ["treasury"] });
+  };
+  const identity = await resolveAssetIdentity("para:10Y", { fetcher: fetcher as typeof fetch });
+  assertEquals(identity.displayName, "10-Year Treasury Yield");
+  assertEquals(identity.yahooSymbol, null);
+  assertEquals(calls.length, 1);
 });

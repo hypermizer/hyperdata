@@ -128,6 +128,7 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch, dexMetadata = n
           : null,
       volume24h: toNumber(context.dayNtlVlm),
       openInterest: toNumber(context.openInterest),
+      openInterestNotional: notionalOpenInterest(context.openInterest, context.markPx),
       funding: toNumber(context.funding),
       maxLeverage: asset.maxLeverage ?? null,
       sizeDecimals: asset.szDecimals ?? null,
@@ -137,11 +138,12 @@ export async function fetchMarketsForDex(dex, fetchImpl = fetch, dexMetadata = n
       deployerFeeScale: dexMetadata?.deployerFeeScale ?? null,
       marginTiers,
       isDelisted: Boolean(asset.isDelisted),
+      contextIndex: index,
     };
   });
 }
 
-export async function fetchAllMarkets(fetchImpl = fetch, { requireAnnotations = false } = {}) {
+export async function fetchAllMarkets(fetchImpl = fetch, { requireAnnotations = false, requireComplete = false } = {}) {
   const annotationsRequest = fetchPerpAnnotations(fetchImpl);
   const [dexes, annotations] = await Promise.all([
     postInfo({ type: "perpDexs" }, fetchImpl),
@@ -152,7 +154,7 @@ export async function fetchAllMarkets(fetchImpl = fetch, { requireAnnotations = 
     ...dexes.filter(Boolean).filter(({ name }) => name),
   ];
   const results = await Promise.allSettled(
-    dexConfigs.map((dex) => fetchMarketsForDex(dex.name, fetchImpl, dex)),
+    dexConfigs.map((dex) => retry(() => fetchMarketsForDex(dex.name, fetchImpl, dex), 2)),
   );
 
   const markets = results.flatMap((result) =>
@@ -162,6 +164,13 @@ export async function fetchAllMarkets(fetchImpl = fetch, { requireAnnotations = 
   if (!markets.length) {
     const firstError = results.find((result) => result.status === "rejected");
     throw firstError?.reason ?? new Error("No Hyperliquid markets were returned");
+  }
+
+  const failures = results.flatMap((result, index) => result.status === "rejected"
+    ? [dexConfigs[index]?.name || "native"]
+    : []);
+  if (requireComplete && failures.length) {
+    throw new Error(`Hyperliquid catalog incomplete (${failures.join(", ")}); retrying.`);
   }
 
   return markets
@@ -184,8 +193,47 @@ export function applyLiveMarketContext(market, context) {
         : null,
     volume24h: toNumber(context.dayNtlVlm) ?? market.volume24h,
     openInterest: toNumber(context.openInterest) ?? market.openInterest,
+    openInterestNotional: notionalOpenInterest(
+      toNumber(context.openInterest) ?? market.openInterest,
+      markPrice,
+    ),
     funding: toNumber(context.funding) ?? market.funding,
   };
+}
+
+export function mapAllDexsAssetContexts(payload, markets) {
+  const contexts = payload?.ctxs;
+  if (!contexts || typeof contexts !== "object") return new Map();
+  const byDex = new Map();
+  for (const [key, value] of Object.entries(contexts)) {
+    if (Array.isArray(value) && typeof value[0] === "string" && Array.isArray(value[1])) {
+      byDex.set(value[0], value[1]);
+    } else if (Array.isArray(value)) {
+      byDex.set(key, value);
+    }
+  }
+  const result = new Map();
+  for (const market of Array.isArray(markets) ? markets : []) {
+    const dexContexts = byDex.get(market.dexId ?? "");
+    const context = Array.isArray(dexContexts) ? dexContexts[market.contextIndex] : null;
+    if (context && typeof context === "object") result.set(market.id, context);
+  }
+  return result;
+}
+
+export function notionalOpenInterest(openInterest, markPrice) {
+  const units = toNumber(openInterest);
+  const price = toNumber(markPrice);
+  return units !== null && price !== null ? units * price : null;
+}
+
+async function retry(operation, retries) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try { return await operation(); }
+    catch (error) { lastError = error; }
+  }
+  throw lastError;
 }
 
 export async function fetchAverageDailyVolume(asset, fetchImpl = fetch, now = Date.now()) {

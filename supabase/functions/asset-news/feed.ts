@@ -63,6 +63,15 @@ export function buildNewsSearchUrl(query: string): URL {
   return url;
 }
 
+export function buildGoogleNewsSearchUrl(query: string): URL {
+  const url = new URL("https://news.google.com/rss/search");
+  url.searchParams.set("q", `${query} when:30d`);
+  url.searchParams.set("hl", "en-US");
+  url.searchParams.set("gl", "US");
+  url.searchParams.set("ceid", "US:en");
+  return url;
+}
+
 export function parseNewsFeed(xml: string, limit = 25): NewsItem[] {
   const seen = new Set<string>();
   const items: NewsItem[] = [];
