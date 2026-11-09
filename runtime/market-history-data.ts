@@ -39,7 +39,7 @@ export function historySamples(payload: unknown, catalog: HistoryAsset[]) {
       | undefined;
     const price = context?.markPx;
     return typeof price === "string" && /^[0-9]+(?:\.[0-9]+)?$/.test(price) &&
-        Number(price) > 0
+        Number.isFinite(Number(price)) && Number(price) > 0
       ? [{ asset: asset.asset, price }]
       : [];
   });

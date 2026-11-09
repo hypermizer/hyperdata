@@ -27,7 +27,7 @@ Deno.test("mark history respects full universe indices across delisted assets an
 });
 Deno.test("mark history never persists an absent or invalid market quote", () => {
   const catalog = [{ asset: "BTC", dex: "", index: 0 }];
-  for (const markPx of [null, undefined, "NaN", "0", "-1"]) {
+  for (const markPx of [null, undefined, "NaN", "0", "-1", "9".repeat(400)]) {
     assertEquals(historySamples({ ctxs: { "": [{ markPx }] } }, catalog), []);
   }
   assertEquals(historySamples({}, catalog), []);

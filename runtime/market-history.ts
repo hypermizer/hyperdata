@@ -23,6 +23,7 @@ let catalog: ReturnType<typeof historyCatalog> = [],
   persistBusy = false,
   repairBusy = false;
 let lastError: string | null = null;
+let catalogRetryAt = 0;
 const contexts = new Map<string, { price: string; at: number }>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function rpc(name: string, args: Record<string, unknown> = {}) {
@@ -199,14 +200,20 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 while (!stopped) {
-  if (!catalog.length || Date.now() - catalogAt > 3600000) {
+  if (
+    Date.now() >= catalogRetryAt &&
+    (!catalog.length || Date.now() - catalogAt > 3600000)
+  ) {
     try {
       await loadCatalog();
     } catch (e) {
       console.error(e);
-      await sleep(3000);
-      continue;
+      catalogRetryAt = Date.now() + 30000;
     }
+  }
+  if (!catalog.length) {
+    await sleep(1000);
+    continue;
   }
   if (!socket && Date.now() >= reconnectAt) connect();
   const activeSocket = socket as WebSocket | null;
