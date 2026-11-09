@@ -20,6 +20,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run check
+      - run: python3 -m venv .gateway-test-venv
+      - run: .gateway-test-venv/bin/pip install -r deploy/gateway-requirements.txt
+      - run: .gateway-test-venv/bin/python -m unittest discover -s test -p '*_test.py'
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x

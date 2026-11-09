@@ -1,0 +1,8 @@
+[Unit]
+Description=Check the Hyperdata Tailscale client identity daily
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+[Install]
+WantedBy=timers.target

@@ -56,7 +56,8 @@ if (active) {
       sendNtfy({
         baseUrl: Deno.env.get("NTFY_BASE_URL") ?? "",
         topic: Deno.env.get("NTFY_TOPIC") ?? "",
-        clickUrl: (Deno.env.get("PUBLIC_ORIGIN") ?? "") + "/#/alerts",
+        clickUrl: (Deno.env.get("NOTIFICATION_ORIGIN") ??
+          Deno.env.get("PUBLIC_ORIGIN") ?? "") + "/#/alerts",
       }, message),
       sendEmail({
         host: Deno.env.get("ZOHO_SMTP_HOST") ?? "smtp.zoho.com",

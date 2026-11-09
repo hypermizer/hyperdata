@@ -14,6 +14,58 @@ const base = {
   "x-hyperdata-verified": "SUCCESS",
   "x-hyperdata-certificate": fingerprint,
 };
+Deno.test("owner data is certificate-protected and write access requires CSRF for each configured private origin", async () => {
+  let called = 0;
+  const alternate = "https://dev-mini-ohio.tail628a67.ts.net:8446";
+  const api = alertApi(store, {
+    origin,
+    additionalOrigins: [alternate],
+    owner,
+    ownerEmail: "owner@example.test",
+    ownerBackend: () => {
+      called++;
+      return Promise.resolve(Response.json({ ok: true }));
+    },
+  });
+  const path = origin + "/api/owner/rest/v1/watchlist_items";
+  assertEquals((await api(new Request(path))).status, 403);
+  const session = await (await api(
+    new Request(origin + "/api/owner/session", { headers: base }),
+  )).json();
+  assertEquals(session.user.id, owner);
+  assertEquals(session.user.email, "owner@example.test");
+  const headers = {
+    ...base,
+    "content-type": "application/json",
+    cookie: `__Host-hyperdata-csrf=${session.csrf}`,
+    "x-csrf-token": session.csrf,
+    origin: alternate,
+  };
+  assertEquals(
+    (await api(
+      new Request(path, { method: "POST", headers, body: '[{"asset":"BTC"}]' }),
+    )).status,
+    200,
+  );
+  assertEquals(
+    (await api(
+      new Request(path, {
+        method: "POST",
+        headers: { ...headers, origin: "https://hypermizer.github.io" },
+        body: "[]",
+      }),
+    )).status,
+    403,
+  );
+  assertEquals(called, 1);
+  assertEquals(
+    (await api(
+      new Request(path + "?asset=eq.BTC", { method: "DELETE", headers }),
+    )).status,
+    200,
+  );
+  assertEquals(called, 2);
+});
 Deno.test("private API requires the verified client identity and rejects revoked certificates", async () => {
   const api = alertApi(store, { origin, owner });
   assertEquals((await api(new Request(origin + "/api/alerts"))).status, 403);

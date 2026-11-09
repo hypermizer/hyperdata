@@ -39,10 +39,10 @@ Deno.test("login link rejects non-site browser origins before claiming", async (
   assertEquals(claimed, false);
 });
 
-Deno.test("login link preflight permits only the hosted app origin", async () => {
+Deno.test("retired login link endpoint cannot send email or enable public browser access", async () => {
   const response = await serveLoginLink(new Request("https://example.test/send-login-link", { method: "OPTIONS", headers: { origin: "https://hypermizer.github.io" } }));
-  assertEquals(response.status, 200);
-  assertEquals(response.headers.get("access-control-allow-origin"), "https://hypermizer.github.io");
+  assertEquals(response.status, 410);
+  assertEquals(response.headers.get("access-control-allow-origin"), null);
 });
 
 Deno.test("login link enforces cooldown and hourly limits before generating", async () => {

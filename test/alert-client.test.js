@@ -6,6 +6,11 @@ test('alerts require the private origin and never send credentials through anoth
  const client=createAlertRuntimeClient({alertsRuntimeUrl:'https://192.0.2.10'},'https://hypermizer.github.io',()=>{called=true;});
  assert.equal(client.sameOrigin,false);await assert.rejects(()=>client.list(),/private server/);assert.equal(called,false);
 });
+test('the configured Tailscale entrance stays on its own origin for alerts',async()=>{
+ const origin='https://dev-mini-ohio.tail628a67.ts.net:8446',calls=[];
+ const client=createAlertRuntimeClient({alertsRuntimeUrl:'https://192.0.2.10',runtimeOrigins:['https://192.0.2.10',origin]},origin,async(path)=>{calls.push(path);return Response.json(path.endsWith('session')?{csrf:'nonce'}:{rules:[],health:[]});});
+ assert.equal(client.sameOrigin,true);assert.equal(client.url,origin);await client.list();assert.deepEqual(calls,['/api/owner/session','/api/alerts']);
+});
 test('local API authenticates independently and attaches same-origin CSRF to mutations',async()=>{
  const calls=[];
  const client=createAlertRuntimeClient({alertsRuntimeUrl:'https://192.0.2.10'},'https://192.0.2.10',async(path,init)=>{

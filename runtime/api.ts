@@ -2,6 +2,7 @@ import { AlertStore } from "./store.ts";
 import { validateRule } from "./validation.ts";
 import { LiquidationStore } from "./liquidation-store.ts";
 import { liquidationAsset } from "./liquidation-data.ts";
+import { ownerBackendRequest } from "./unix-proxy.ts";
 
 interface ApiStore {
   revoked(fingerprint: string): Promise<boolean>;
@@ -39,7 +40,10 @@ export function alertApi(
   store: ApiStore,
   config: {
     origin: string;
+    additionalOrigins?: string[];
     owner: string;
+    ownerEmail?: string;
+    ownerBackend?: (request: Request) => Promise<Response>;
     fingerprints?: string[];
     healthFingerprints?: string[];
     liquidations?: {
@@ -49,6 +53,10 @@ export function alertApi(
   },
 ) {
   const origin = new URL(config.origin).origin;
+  const allowedOrigins = new Set([
+    origin,
+    ...(config.additionalOrigins ?? []).map((value) => new URL(value).origin),
+  ]);
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url),
       fingerprint =
@@ -93,21 +101,41 @@ export function alertApi(
           ),
         );
       }
-      if (request.method === "GET" && url.pathname === "/api/alerts/session") {
+      if (
+        request.method === "GET" &&
+        ["/api/alerts/session", "/api/owner/session"].includes(url.pathname)
+      ) {
         const csrf = crypto.randomUUID() + crypto.randomUUID();
-        return json({ csrf, backend: "server", owner: config.owner }, 200, {
-          "set-cookie":
-            `__Host-hyperdata-csrf=${csrf}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600`,
-        });
+        return json(
+          {
+            csrf,
+            backend: "server",
+            owner: config.owner,
+            user: { id: config.owner, email: config.ownerEmail },
+          },
+          200,
+          {
+            "set-cookie":
+              `__Host-hyperdata-csrf=${csrf}; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=3600`,
+          },
+        );
       }
       if (request.method === "GET" && url.pathname === "/api/alerts") {
         return json(await store.list());
+      }
+      if (
+        ["GET", "HEAD"].includes(request.method) &&
+        url.pathname.startsWith("/api/owner/")
+      ) {
+        return config.ownerBackend
+          ? await config.ownerBackend(request)
+          : json({ error: "Owner data unavailable." }, 503);
       }
       if (!["POST", "PATCH", "DELETE"].includes(request.method)) {
         return json({ error: "Method not allowed." }, 405);
       }
       if (
-        request.headers.get("origin") !== origin ||
+        !allowedOrigins.has(request.headers.get("origin") ?? "") ||
         request.headers.get("sec-fetch-site") === "cross-site"
       ) return json({ error: "Forbidden origin." }, 403);
       const csrf = request.headers.get("x-csrf-token") ?? "";
@@ -129,11 +157,24 @@ export function alertApi(
       if (new TextEncoder().encode(raw).length > 16_384) {
         return json({ error: "Request too large." }, 413);
       }
+      if (
+        url.pathname.startsWith("/api/owner/") && request.method === "DELETE" &&
+        raw === ""
+      ) {
+        return config.ownerBackend
+          ? await config.ownerBackend(new Request(request, { body: raw }))
+          : json({ error: "Owner data unavailable." }, 503);
+      }
       let body: Record<string, unknown>;
       try {
         body = JSON.parse(raw);
       } catch {
         return json({ error: "Invalid JSON." }, 400);
+      }
+      if (url.pathname.startsWith("/api/owner/")) {
+        return config.ownerBackend
+          ? await config.ownerBackend(new Request(request, { body: raw }))
+          : json({ error: "Owner data unavailable." }, 503);
       }
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json({ error: "Invalid request." }, 400);
@@ -219,6 +260,11 @@ if (import.meta.main) {
     alertApi(store, {
       origin,
       owner,
+      ownerEmail: Deno.env.get("OWNER_EMAIL"),
+      ownerBackend: ownerBackendRequest,
+      additionalOrigins: Deno.env.get("ADDITIONAL_ORIGINS")?.split(",").filter(
+        Boolean,
+      ),
       liquidations: new LiquidationStore(store.sql),
       fingerprints: Deno.env.get("CLIENT_FINGERPRINTS")?.split(",").filter(
         Boolean,

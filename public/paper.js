@@ -241,16 +241,11 @@ async function loadProcessorHealth() {
 }
 
 function connectAccountChanges(epochId) {
-  if (state.accountChannelEpochId === epochId) return;
-  disconnectAccountChanges();
+  // Owner data uses the existing private five-second refresh loop.
   state.accountChannelEpochId = epochId;
-  state.accountChannel = client.channel(`paper-epoch-${epochId}`)
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "paper_account_epochs", filter: `id=eq.${epochId}` }, queueAccountRefresh)
-    .subscribe();
 }
 
 function disconnectAccountChanges() {
-  if (state.accountChannel) client.removeChannel(state.accountChannel);
   state.accountChannel = null;
   state.accountChannelEpochId = "";
 }
@@ -740,7 +735,7 @@ function updateOrderPreview() {
   elements.placeOrder.dataset.side = side;
   elements.placeOrder.disabled = !valid;
 
-  if (!state.user) elements.validation.textContent = "SIGN IN TO PLACE PAPER ORDERS";
+  if (!state.user) elements.validation.textContent = "PRIVATE SESSION REQUIRED TO PLACE PAPER ORDERS";
   else if (!state.account) elements.validation.textContent = "CREATE A PAPER ACCOUNT FIRST";
   else if (!market) elements.validation.textContent = "SELECT AN ASSET";
   else if (!hasAmount) elements.validation.textContent = `ENTER AN AMOUNT LARGE ENOUGH FOR 1 ${market.symbol} SIZE INCREMENT`;
@@ -1034,7 +1029,7 @@ function setPending(value) {
 function renderStatus(value) { if (elements.status.textContent !== value) elements.status.textContent = value; }
 function renderPaperStatus() {
   elements.status.classList.remove("positive", "warning", "negative");
-  if (!state.user) return renderStatus("SIGN IN TO LOAD");
+  if (!state.user) return renderStatus("PRIVATE SESSION REQUIRED TO LOAD");
   if (!APP_CONFIG.paperTradingEnabled) { elements.status.classList.add("warning"); return renderStatus("SHADOW MODE · TRADING DISABLED"); }
   const engine = paperEngineHealth(state.processorHealth);
   const desiredAssets = paperQuoteAssets(state.epoch?.positions, activeQuoteAsset());

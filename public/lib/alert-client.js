@@ -1,36 +1,22 @@
+import {createOwnerSession,sharedOwnerSession} from './owner-session.js?v=20261109-owner';
+
 export function createAlertRuntimeClient(
   config,
   currentOrigin = globalThis.location?.origin,
   fetchImpl = globalThis.fetch,
 ) {
-  const url = config.alertsRuntimeUrl ? new URL(config.alertsRuntimeUrl) : null;
+  const local = config.runtimeOrigins?.includes(currentOrigin);
+  const url = local ? new URL(currentOrigin) : config.alertsRuntimeUrl ? new URL(config.alertsRuntimeUrl) : null;
   const sameOrigin = Boolean(url && url.origin === currentOrigin);
-  let csrf = null, sessionPending = null;
+  const identity=fetchImpl===globalThis.fetch?sharedOwnerSession():createOwnerSession(fetchImpl);
   async function session() {
     if (!sameOrigin) {
       throw new Error("Open your private server to manage alerts.");
     }
-    if (csrf) return;
-    if (!sessionPending) {
-      sessionPending = (async () => {
-        const response = await fetchImpl("/api/alerts/session", {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!response.ok) {
-          throw new Error("Could not authenticate the private alert runtime.");
-        }
-        const result = await response.json();
-        csrf = result.csrf;
-      })().finally(() => {
-        sessionPending = null;
-      });
-    }
-    await sessionPending;
+    return await identity.get();
   }
   async function request(path, method = "GET", body) {
-    await session();
+    const {csrf}=await session();
     const response = await fetchImpl(path, {
       method,
       credentials: "same-origin",
@@ -43,7 +29,7 @@ export function createAlertRuntimeClient(
     });
     const result = await response.json();
     if (!response.ok) {
-      if (response.status === 403) csrf = null;
+      if (response.status === 403) identity.invalidate();
       throw new Error(result.error ?? "Alert runtime unavailable.");
     }
     return result;

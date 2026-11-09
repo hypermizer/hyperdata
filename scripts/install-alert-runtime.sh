@@ -8,6 +8,7 @@ sudo test -s /etc/hyperdata/providers.env
 if ! id hyperdata >/dev/null 2>&1; then sudo useradd --system --home-dir /srv/hyperdata/state --no-create-home --shell /usr/sbin/nologin hyperdata; fi
 if ! id hyperdata-api >/dev/null 2>&1; then sudo useradd --system --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin hyperdata-api; fi
 sudo groupadd -f hyperdata-db
+sudo groupadd -f hyperdata-owner-api
 sudo usermod -a -G hyperdata-db postgres
 sudo usermod -a -G hyperdata-db hyperdata
 sudo usermod -a -G hyperdata-db hyperdata-api

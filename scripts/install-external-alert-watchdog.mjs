@@ -85,6 +85,7 @@ putRemote(
   "/etc/hyperdata-health/config.json",
   JSON.stringify({
     origin: state.origin,
+    app_origin: "https://dev-mini-ohio.tail628a67.ts.net:8446",
     ntfy_url: provider.NTFY_BASE_URL,
     ntfy_topic: provider.NTFY_TOPIC,
   }),

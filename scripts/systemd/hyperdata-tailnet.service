@@ -1,0 +1,33 @@
+[Unit]
+Description=Owner Tailscale entrance to private Hyperdata
+After=network-online.target tailscaled.service nginx.service hyperdata-api.service
+Wants=network-online.target
+[Service]
+User=hyperdata-gateway
+Group=hyperdata-gateway
+WorkingDirectory=/opt/hyperdata-runtime/current
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/hyperdata/tailnet.env
+LoadCredential=client.crt:/etc/hyperdata/tailnet-client.crt
+LoadCredential=client.key:/etc/hyperdata/tailnet-client.key
+ExecStart=/opt/hyperdata-gateway-venv/bin/python /opt/hyperdata-runtime/current/runtime/tailnet_bridge.py
+RuntimeDirectory=hyperdata-tailnet
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/hyperdata-tailnet
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=3.131.225.164/32
+CapabilityBoundingSet=
+MemoryMax=192M
+TasksMax=24
+LimitCORE=0
+[Install]
+WantedBy=multi-user.target

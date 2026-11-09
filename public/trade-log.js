@@ -291,8 +291,8 @@ function render() {
   picker.setDisabled(!enabled);
   renderAccountData();
   if (!state.user) {
-    elements.status.textContent = client ? "SIGN IN TO LOAD" : "STORAGE UNAVAILABLE";
-    elements.table.innerHTML = `<p class="hint">SIGN IN TO LOAD ORDERS.</p>`;
+    elements.status.textContent = client ? "PRIVATE SESSION REQUIRED TO LOAD" : "STORAGE UNAVAILABLE";
+    elements.table.innerHTML = `<p class="hint">PRIVATE SESSION REQUIRED TO LOAD ORDERS.</p>`;
     return;
   }
   const catalogStatus = state.catalogState === "error" ? " · ASSET LIST ERROR" : "";
@@ -302,9 +302,9 @@ function render() {
 
 function renderAccountData() {
   if (!state.user) {
-    elements.accountHealth.textContent = client ? "SIGN IN TO LOAD" : "STORAGE UNAVAILABLE";
-    elements.accountFills.innerHTML = `<p class="hint">SIGN IN TO LOAD FILLS.</p>`;
-    elements.accountPositions.innerHTML = `<p class="hint">SIGN IN TO LOAD POSITIONS.</p>`;
+    elements.accountHealth.textContent = client ? "PRIVATE SESSION REQUIRED TO LOAD" : "STORAGE UNAVAILABLE";
+    elements.accountFills.innerHTML = `<p class="hint">PRIVATE SESSION REQUIRED TO LOAD FILLS.</p>`;
+    elements.accountPositions.innerHTML = `<p class="hint">PRIVATE SESSION REQUIRED TO LOAD POSITIONS.</p>`;
     renderTradePerformance([]);
     return;
   }

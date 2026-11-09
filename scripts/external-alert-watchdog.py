@@ -20,7 +20,7 @@ elif healthy and previous['notified']:
  notice='The direct Hyperdata alert server has recovered.'
 notified=previous['notified']
 if notice:
- payload=json.dumps({'topic':config['ntfy_topic'],'title':'HYPERDATA · independent runtime check','message':notice,'priority':4 if failures else 3,'click':config['origin']+'/#/alerts'}).encode()
+ payload=json.dumps({'topic':config['ntfy_topic'],'title':'HYPERDATA · independent runtime check','message':notice,'priority':4 if failures else 3,'click':config.get('app_origin',config['origin'])+'/#/alerts'}).encode()
  request=urllib.request.Request(config['ntfy_url'],data=payload,headers={'Content-Type':'application/json'},method='POST')
  with urllib.request.urlopen(request,timeout=10) as response:
   accepted=json.load(response)

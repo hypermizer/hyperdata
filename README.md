@@ -1,6 +1,6 @@
 # Hyperdata
 
-Personal Hyperliquid utility for a live watchlist and unattended alerts. The private server app is available at https://3.131.225.164/#/alerts with the existing browser client certificate. Price alerts run continuously on the server without GitHub, Supabase, or an open browser. Other cloud features retain their existing backend.
+Personal Hyperliquid utility for a live watchlist and unattended alerts. Hyperdata is hosted only on the Ohio server, with [Tailscale access](https://dev-mini-ohio.tail628a67.ts.net:8446/) and [browser-certificate access](https://3.131.225.164/), both linked from the Webapp gateway. There is no separate Hyperdata sign-in. Price alerts run continuously on the server without GitHub, Supabase, or an open browser. Paper trading, watchlists, and analytics retain their existing Supabase storage behind the private owner service; the browser has no direct cloud connection or backend credentials. See [server access](docs/server-access.md).
 
 ## Alerts
 
@@ -42,7 +42,7 @@ For the activation shadow, keep `PAPER_TRADING_ENABLED=false`, set `PAPER_PROCES
 
 Deploy the direct alert runtime with `bash scripts/deploy-alert-runtime.sh` and inspect it with `bash scripts/verify-direct-alert-runtime.sh`. Root-only configuration lives in `/etc/hyperdata/`; production data lives in `/srv/hyperdata`. See the [operations guide](docs/price-alerts.md) for initial provisioning and recovery.
 
-The existing GitHub/Supabase deployment still serves other application features. The legacy alert scheduler and delivery flags are disabled, and a database cutover guard prevents accidental reactivation. GitHub Pages links to the private alert app; it is not an intermediary for alerts.
+The existing Supabase backend still supplies other application features through the private owner service. The legacy alert scheduler and delivery flags are disabled, and a database cutover guard prevents accidental reactivation. Public GitHub Pages application files have been removed and replaced by a retirement notice. The Pages publishing workflow has been removed.
 
 ## Local development
 
@@ -57,4 +57,4 @@ npm run check
 npm run serve
 ```
 
-The browser contains only the Supabase publishable key for the remaining cloud features. SMTP, ntfy, service-role, and scheduler credentials must remain in protected server configuration or the existing cloud secret stores.
+The browser loads locally bundled application code and holds only a private CSRF nonce and owner profile. SMTP, ntfy, upstream owner tokens, service-role, and scheduler credentials stay in protected server configuration or the existing cloud secret stores.

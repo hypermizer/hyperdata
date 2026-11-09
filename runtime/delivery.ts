@@ -18,7 +18,9 @@ export const providerSender: LocalSender = (row, message) =>
       baseUrl: required("NTFY_BASE_URL"),
       topic: required("NTFY_TOPIC"),
       token: Deno.env.get("NTFY_TOKEN"),
-      clickUrl: required("PUBLIC_ORIGIN") + "/#/alerts",
+      clickUrl:
+        (Deno.env.get("NOTIFICATION_ORIGIN") ?? required("PUBLIC_ORIGIN")) +
+        "/#/alerts",
     }, message)
     : sendEmail(
       {

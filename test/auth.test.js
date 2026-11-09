@@ -1,40 +1,22 @@
-import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import test from "node:test";
-import { requestSignInLink } from "../public/lib/auth.js";
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import test from 'node:test';
+import {createOwnerSession} from '../public/lib/owner-session.js';
 
-test("public auth code excludes owner identity and privileged credentials", async () => {
-  const browserCode = await Promise.all([
-    readFile(new URL("../public/config.js", import.meta.url), "utf8"),
-    readFile(new URL("../public/app.js", import.meta.url), "utf8"),
-  ]);
-  const publicAuthSource = browserCode.join("\n");
-
-  assert.doesNotMatch(publicAuthSource, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  assert.doesNotMatch(publicAuthSource, /service[_-]?role/i);
-  assert.doesNotMatch(publicAuthSource, /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/);
+test('server-only app has no sign-in button, public backend settings, or embedded owner credentials',async()=>{
+ const [config,app,html]=await Promise.all(['config.js','app.js','index.html'].map(name=>readFile(new URL('../public/'+name,import.meta.url),'utf8')));
+ assert.doesNotMatch(config,/supabaseUrl|supabasePublishableKey/);
+ assert.doesNotMatch(config+'\n'+app,/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+ assert.doesNotMatch(html,/id="account-button"|Sign in|Sign out/);
+ assert.doesNotMatch(app,/requestSignInLink|signOut\(/);
 });
-
-test("sign-in requests use the dedicated delivery function", async () => {
-  const calls = [];
-  const client = { functions: { invoke: async (...args) => {
-    calls.push(args);
-    return { data: { status: "sent" }, error: null };
-  } } };
-
-  await requestSignInLink(client);
-
-  assert.deepEqual(calls, [["send-login-link", { body: {} }]]);
+test('owner session deduplicates requests and keeps its CSRF identity shared until invalidated',async()=>{
+ let calls=0;
+ const identity=createOwnerSession(async(path,init)=>{calls++;assert.equal(path,'/api/owner/session');assert.equal(init.credentials,'same-origin');return Response.json({csrf:'nonce-'+calls,user:{id:'owner'}});});
+ const [a,b]=await Promise.all([identity.get(),identity.get()]);assert.equal(calls,1);assert.equal(a.csrf,b.csrf);
+ await identity.get();assert.equal(calls,1);identity.invalidate();assert.equal((await identity.get()).csrf,'nonce-2');
 });
-
-test("sign-in requests expose a useful server rejection", async () => {
-  const response = Response.json({ error: "please_wait", retryAfter: 10 }, { status: 429 });
-  const client = { functions: { invoke: async () => ({ data: null, error: { context: response, message: "non-2xx" } }) } };
-
-  await assert.rejects(requestSignInLink(client), /Wait 10 seconds before requesting another link/);
-});
-
-test("sign-in requests do not claim success without a sent receipt", async () => {
-  const client = { functions: { invoke: async () => ({ data: {}, error: null }) } };
-  await assert.rejects(requestSignInLink(client), /Unable to confirm sign-in email delivery/);
+test('owner session fails closed when gateway authentication is missing',async()=>{
+ const identity=createOwnerSession(async()=>Response.json({error:'denied'},{status:403}));
+ await assert.rejects(()=>identity.get(),/gateway/);
 });

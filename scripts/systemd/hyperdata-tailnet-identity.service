@@ -1,0 +1,10 @@
+[Unit]
+Description=Rotate the private Hyperdata Tailscale bridge certificate
+After=postgresql@16-hyperdata.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock /run/lock/hyperdata-tailnet-identity.lock /usr/bin/python3 /usr/local/libexec/hyperdata-renew-tailnet-identity.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+LimitCORE=0

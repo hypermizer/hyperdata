@@ -1,19 +1,19 @@
 [Unit]
 Description=Hyperdata certificate-authenticated alert API
-After=postgresql@16-hyperdata.service
+After=postgresql@16-hyperdata.service hyperdata-owner.service
 Requires=postgresql@16-hyperdata.service
 RequiresMountsFor=/srv/hyperdata
 StartLimitIntervalSec=0
 [Service]
 User=hyperdata-api
 Group=www-data
-SupplementaryGroups=hyperdata-db
+SupplementaryGroups=hyperdata-db hyperdata-owner-api
 WorkingDirectory=/opt/hyperdata-runtime/current
 EnvironmentFile=/etc/hyperdata/api.env
 Environment=DENO_DIR=/opt/hyperdata-runtime/cache
 RuntimeDirectory=hyperdata-api
 RuntimeDirectoryMode=0750
-ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,unix:/run/hyperdata-api/api.sock --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata,/run/hyperdata-api --allow-write=/run/hyperdata-api,/run/postgresql-hyperdata runtime/api.ts
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,unix:/run/hyperdata-api/api.sock,unix:/run/hyperdata-owner/backend.sock --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata,/run/hyperdata-api,/run/hyperdata-owner --allow-write=/run/hyperdata-api,/run/postgresql-hyperdata,/run/hyperdata-owner runtime/api.ts
 Restart=always
 RestartSec=2
 UMask=0007

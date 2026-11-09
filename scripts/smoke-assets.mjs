@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-import { APP_CONFIG } from "../public/config.js";
 import { fetchAllMarkets } from "../public/lib/hyperliquid.js";
 
-const ORIGIN = "https://hypermizer.github.io";
+const ORIGIN = process.env.HYPERDATA_ORIGIN ?? "https://3.131.225.164";
+const privateFetch = await (await import("./private-fetch.mjs")).createPrivateFetch();
 const MINIMUM_EXPECTED_MARKETS = 100;
 const markets = await fetchAllMarkets(fetch, { requireAnnotations: true, requireComplete: true });
 if (markets.length < MINIMUM_EXPECTED_MARKETS) {
@@ -20,11 +20,9 @@ for (const venue of ["native", "xyz", "para", "mkts", "io"]) {
   const asset = providers.get(venue);
   if (!asset) continue;
   for (const functionName of ["asset-fundamentals", "asset-news"]) {
-    const response = await fetch(`${APP_CONFIG.supabaseUrl}/functions/v1/${functionName}`, {
+    const response = await privateFetch(`${ORIGIN}/api/owner/functions/v1/${functionName}`, {
       method: "POST",
       headers: {
-        apikey: APP_CONFIG.supabasePublishableKey,
-        authorization: `Bearer ${APP_CONFIG.supabasePublishableKey}`,
         "content-type": "application/json",
         origin: ORIGIN,
       },

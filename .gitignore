@@ -4,3 +4,6 @@ node_modules/
 coverage/
 supabase/.branches/
 supabase/.temp/
+__pycache__/
+*.pyc
+.gateway-test-venv/

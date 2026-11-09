@@ -1,8 +1,7 @@
-import { APP_CONFIG } from "./config.js?v=20261109-liquidations";
-import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-liquidations";
-import { createAssetChart } from "./asset-chart.js?v=20261109-liquidations";
-import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-liquidations";
-import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
+import { APP_CONFIG } from "./config.js?v=20261109-owner";
+import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-owner";
+import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
+import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
 import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
 import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
@@ -20,8 +19,7 @@ import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261028-assets
 import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
-import { hasAuthCallbackParameters } from "./lib/session.js?v=20260728-persistent-auth";
+import { createWatchlistClient } from "./lib/supabase.js?v=20261109-owner";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
 import { parseRoute, routeFor } from "./lib/routes.js?v=20260828-watchlist-heat-map";
 
@@ -77,7 +75,6 @@ const state = {
   marketRenderedAt: 0,
   pendingMarketContexts: new Map(),
   query: "",
-  signingIn: false,
   sort: "asset-asc",
   user: null,
   watchedFirst: false,
@@ -85,7 +82,6 @@ const state = {
 };
 
 const elements = {
-  accountButton: document.querySelector("#account-button"),
   accountStatus: document.querySelector("#account-status"),
   assetChart: document.querySelector("#asset-chart"),
   assetChartStatus: document.querySelector("#asset-chart-status"),
@@ -143,7 +139,7 @@ async function initialize() {
   try {
     await initializeWatchlistStorage();
   } catch (error) {
-    setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to restore browser session.");
+    setAccountMessage(error instanceof Error ? error.message : "Unable to restore browser session.");
   }
   await marketReady;
 }
@@ -169,7 +165,6 @@ async function initializeMarketData() {
 }
 
 function wireEvents() {
-  elements.accountButton.addEventListener("click", handleAccountAction);
   elements.alertType.addEventListener("change", renderAlertFields);
   elements.settingsButton.addEventListener("click", openSettings);
   elements.assetFilter.addEventListener("input", () => {
@@ -190,7 +185,7 @@ function wireEvents() {
     renderMarkets();
   }));
   window.addEventListener("hashchange", renderRoute);
-  if (!hasAuthCallbackParameters()) renderRoute();
+  renderRoute();
 
   elements.marketList.addEventListener("click", async (event) => {
     const sortButton = event.target.closest("[data-sort-column]");
@@ -288,31 +283,6 @@ async function setSession(session) {
   }
 }
 
-async function handleAccountAction() {
-  if (!state.supabase) {
-    setAccountMessage("Storage unavailable.");
-    return;
-  }
-  if (state.user) {
-    const { error } = await state.supabase.auth.signOut();
-    state.accountMessage = error ? error.message : "";
-    renderAccount();
-    return;
-  }
-  state.signingIn = true;
-  renderAccount();
-  setAccountMessage("Sending link…");
-  try {
-    await requestSignInLink(state.supabase);
-    setAccountMessage("Link sent. Open it in this browser.");
-  } catch (error) {
-    setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to send sign-in link.");
-  } finally {
-    state.signingIn = false;
-    renderAccount();
-  }
-}
-
 async function loadCloudWatchlist() {
   const { data, error } = await state.supabase
     .from("watchlist_items")
@@ -336,23 +306,13 @@ function dispatchWatchlist() {
 }
 
 function renderAccount() {
-  const storageReady = Boolean(state.supabase);
-  elements.accountButton.disabled = !storageReady || state.signingIn;
-  elements.accountButton.textContent = state.user ? "Sign out" : "Sign in";
-  const status = state.user
-    ? state.user.email
-    : state.signingIn
-      ? "Sending link…"
-      : storageReady
-        ? "Not signed in"
-        : "Storage unavailable";
-  elements.accountStatus.textContent = state.accountMessage || status;
+  elements.accountStatus.textContent = state.accountMessage || (state.user ? "PRIVATE OWNER SESSION" : "CONNECTING TO PRIVATE SESSION");
 }
 
 async function toggleWatchedAsset(asset) {
   if (state.favoritePending.has(asset)) return;
   if (!state.user) {
-    setWatchlistMessage("Sign in to save watched assets.");
+    setWatchlistMessage("Private owner session is unavailable. Reload through the gateway.");
     return;
   }
   const wasWatched = state.watchlist.includes(asset);
@@ -386,7 +346,7 @@ async function toggleWatchedAsset(asset) {
 async function acknowledgeNewAsset(asset) {
   if (state.acknowledgedNewAssets.has(asset) || state.acknowledgementPending.has(asset)) return;
   if (!state.user) {
-    setWatchlistMessage("Sign in to save seen assets.");
+    setWatchlistMessage("Open the private gateway to save seen assets.");
     return;
   }
   state.acknowledgementPending.add(asset);
@@ -1020,13 +980,6 @@ function setWatchlistMessage(message) {
 function setAccountMessage(message) {
   state.accountMessage = message;
   renderAccount();
-}
-
-function formatAuthError(error) {
-  const message = error?.message ?? String(error);
-  return /rate limit/i.test(message)
-    ? "Email limit reached. Try again in about an hour."
-    : message;
 }
 
 function connectMarketStream() {
