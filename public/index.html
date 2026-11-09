@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261028-assets-hardening" />
+    <link rel="stylesheet" href="./styles.css?v=20261109-liquidations" />
   </head>
   <body>
     <main>
@@ -103,9 +103,25 @@
           <div id="asset-company-profile" class="asset-company-profile" aria-live="polite"></div>
           <div class="asset-detail-signals"><span class="hint">MOVES</span><div id="asset-detail-signals"></div></div>
           <nav id="asset-intervals" class="asset-intervals" aria-label="Chart interval"></nav>
+          <div class="liquidation-toolbar">
+            <label><input id="asset-liquidations-toggle" type="checkbox" /> Show liquidation levels</label>
+          </div>
           <div id="asset-bar-readout" class="asset-bar-readout" aria-live="polite"></div>
           <p id="asset-chart-status" class="message" role="status">LOADING CHART…</p>
           <div id="asset-chart" class="asset-chart" aria-label="Live Hyperliquid candlestick chart"></div>
+          <section id="asset-liquidations-panel" class="liquidation-panel" aria-label="Projected liquidation exposure" hidden>
+            <div class="liquidation-controls">
+              <label>Range <select id="asset-liquidations-range"><option value="2">±2%</option><option value="5" selected>±5%</option><option value="10">±10%</option></select></label>
+              <label>Exposure <select id="asset-liquidations-side"><option value="both">Longs + shorts</option><option value="long">Longs</option><option value="short">Shorts</option></select></label>
+              <label><input id="asset-liquidations-history" type="checkbox" /> 24h heatmap</label>
+              <span class="liquidation-legend"><span class="liquidation-long">● LONGS</span> <span class="liquidation-short">● SHORTS</span></span>
+            </div>
+            <p id="asset-liquidations-status" class="message" role="status"></p>
+            <p id="asset-liquidations-hover" class="hint liquidation-hover">Move over the chart to inspect a price zone in the latest snapshot.</p>
+            <div id="asset-liquidations-metrics" class="asset-detail-metrics"></div>
+            <div id="asset-liquidations-nearby" class="paper-table-wrap"></div>
+            <details class="liquidation-methodology"><summary>Coverage &amp; interpretation</summary><p id="asset-liquidations-note" class="hint"></p></details>
+          </section>
         </section>
         <section class="asset-news" data-asset-panel="news" aria-labelledby="asset-news-heading" hidden>
           <div class="section-header">
@@ -563,7 +579,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20261109-runtime"></script>
+    <script type="module" src="./app.js?v=20261109-liquidations"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./trade-log.js?v=20260805-performance-percentages"></script>

@@ -123,3 +123,72 @@ Deno.test("independent watchdog certificate can read health but cannot read or c
     403,
   );
 });
+
+Deno.test("liquidation cache and collection demand require owner authentication and CSRF; health clients are excluded", async () => {
+  let watched = 0;
+  const api = alertApi(store, {
+    origin,
+    owner,
+    healthFingerprints: ["B".repeat(40)],
+    liquidations: {
+      read: (asset) => Promise.resolve({ asset, latest: null, history: [] }),
+      watch: () => {
+        watched++;
+        return Promise.resolve(true);
+      },
+    },
+  });
+  const url = origin + "/api/liquidations?asset=xyz%3AGOLD";
+  assertEquals((await api(new Request(url))).status, 403);
+  assertEquals(
+    (await api(
+      new Request(url, {
+        headers: { ...base, "x-hyperdata-certificate": "B".repeat(40) },
+      }),
+    )).status,
+    403,
+  );
+  const r = await api(new Request(url, { headers: base }));
+  assertEquals(r.status, 200);
+  assertEquals((await r.json()).asset, "xyz:GOLD");
+  assertEquals(
+    (await api(
+      new Request(origin + "/api/liquidations?asset=..%2FBTC", {
+        headers: base,
+      }),
+    )).status,
+    400,
+  );
+  const body = JSON.stringify({ asset: "BTC", history: true });
+  assertEquals(
+    (await api(
+      new Request(origin + "/api/liquidations/watch", {
+        method: "POST",
+        headers: { ...base, origin, "content-type": "application/json" },
+        body,
+      }),
+    )).status,
+    403,
+  );
+  const session = await (await api(
+    new Request(origin + "/api/alerts/session", { headers: base }),
+  )).json();
+  const headers = {
+    ...base,
+    origin,
+    "content-type": "application/json",
+    "x-csrf-token": session.csrf,
+    cookie: `__Host-hyperdata-csrf=${session.csrf}`,
+  };
+  assertEquals(
+    (await api(
+      new Request(origin + "/api/liquidations/watch", {
+        method: "POST",
+        headers,
+        body,
+      }),
+    )).status,
+    202,
+  );
+  assertEquals(watched, 1);
+});

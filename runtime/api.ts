@@ -1,5 +1,7 @@
 import { AlertStore } from "./store.ts";
 import { validateRule } from "./validation.ts";
+import { LiquidationStore } from "./liquidation-store.ts";
+import { liquidationAsset } from "./liquidation-data.ts";
 
 interface ApiStore {
   revoked(fingerprint: string): Promise<boolean>;
@@ -40,6 +42,10 @@ export function alertApi(
     owner: string;
     fingerprints?: string[];
     healthFingerprints?: string[];
+    liquidations?: {
+      read(asset: string, history: boolean): Promise<unknown>;
+      watch(asset: string, history: boolean): Promise<boolean>;
+    };
   },
 ) {
   const origin = new URL(config.origin).origin;
@@ -69,6 +75,23 @@ export function alertApi(
       }
       if (config.healthFingerprints?.includes(fingerprint)) {
         return json({ error: "Health-only certificate." }, 403);
+      }
+      if (request.method === "GET" && url.pathname === "/api/liquidations") {
+        let asset;
+        try {
+          asset = liquidationAsset(url.searchParams.get("asset"));
+        } catch {
+          return json({ error: "Choose a supported perpetual asset." }, 400);
+        }
+        if (!config.liquidations) {
+          return json({ error: "Liquidation data is not configured." }, 503);
+        }
+        return json(
+          await config.liquidations.read(
+            asset,
+            url.searchParams.get("history") === "1",
+          ),
+        );
       }
       if (request.method === "GET" && url.pathname === "/api/alerts/session") {
         const csrf = crypto.randomUUID() + crypto.randomUUID();
@@ -114,6 +137,33 @@ export function alertApi(
       }
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json({ error: "Invalid request." }, 400);
+      }
+      if (
+        request.method === "POST" && url.pathname === "/api/liquidations/watch"
+      ) {
+        let asset;
+        try {
+          asset = liquidationAsset(body.asset);
+        } catch {
+          return json({ error: "Choose a supported perpetual asset." }, 400);
+        }
+        if (!config.liquidations) {
+          return json({ error: "Liquidation data is not configured." }, 503);
+        }
+        if (body.history !== undefined && typeof body.history !== "boolean") {
+          return json({ error: "Invalid history option." }, 400);
+        }
+        const accepted = await config.liquidations.watch(
+          asset,
+          body.history === true,
+        );
+        return json(
+          accepted ? { asset, accepted: true } : {
+            error:
+              "Close another liquidation chart before opening more markets.",
+          },
+          accepted ? 202 : 429,
+        );
       }
       if (request.method === "POST" && url.pathname === "/api/alerts") {
         let normalized;
@@ -169,6 +219,7 @@ if (import.meta.main) {
     alertApi(store, {
       origin,
       owner,
+      liquidations: new LiquidationStore(store.sql),
       fingerprints: Deno.env.get("CLIENT_FINGERPRINTS")?.split(",").filter(
         Boolean,
       ),

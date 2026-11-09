@@ -20,6 +20,10 @@ The root volume is 240 GiB; a separate 50 GiB encrypted volume holds alert data.
 
 The feed normally updates about once per second. Exchange outages and provider/iPhone conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, backups, and recovery.
 
+## Liquidation visualization
+
+Open an asset chart in the private server app and enable **Show liquidation levels**. Current long/short exposure appears at the right edge; an optional 24-hour heatmap shows historical snapshots behind the candles. Range/side filters, nearby zones, snapshot age, and coverage details are included. A separate collector keeps the 0xArchive key on the server and caches data independently of alerts. These are approximately five-minute projected snapshots, with position-state limitations shown in the UI. See [liquidation operations](docs/liquidations.md).
+
 ## Paper trading
 
 The Paper tab is a personal, ledger-backed Hyperliquid perpetual simulator. Each account starts with the capital selected when it is created and resets to that same amount. Immediate orders use visible public book depth; resting fills use conservative public-trade queue replay. The server processor handles mark revaluation, hourly funding, and cross/isolated liquidation without requiring an open browser.

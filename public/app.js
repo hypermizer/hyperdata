@@ -1,6 +1,7 @@
-import { APP_CONFIG } from "./config.js?v=20261109-runtime";
-import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-runtime";
-import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
+import { APP_CONFIG } from "./config.js?v=20261109-liquidations";
+import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-liquidations";
+import { createAssetChart } from "./asset-chart.js?v=20261109-liquidations";
+import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-liquidations";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
@@ -131,6 +132,7 @@ const elements = {
   watchedFirst: document.querySelector("#watched-first"),
 };
 
+const liquidationView = createAssetLiquidations(state.alertClient, (asset) => state.markets.get(asset)?.markPrice);
 wireEvents();
 initialize();
 
@@ -769,7 +771,8 @@ async function loadAssetChart(asset, interval) {
     state.assetChart = createAssetChart(elements.assetChart, (time) => {
       state.assetChartCursorTime = time;
       renderAssetBarReadout();
-    });
+    }, (band) => liquidationView.inspect(band));
+    liquidationView.setChart(asset,state.assetChart);
     const candles = await fetchCandles(asset, interval, MAX_CANDLE_BARS);
     if (token !== state.assetChartLoadToken || state.assetChartAsset !== asset || state.assetChartInterval !== interval) return;
     const liveCandles = state.assetCandles;
@@ -779,6 +782,7 @@ async function loadAssetChart(asset, interval) {
     elements.assetChartStatus.textContent = "";
   } catch (error) {
     if (token !== state.assetChartLoadToken) return;
+    liquidationView.setChart(null,null);
     state.assetChart?.destroy();
     state.assetChart = null;
     elements.assetChart.replaceChildren();
@@ -804,6 +808,7 @@ function updateAssetCandle(rawCandle) {
 }
 
 function destroyAssetChart() {
+  liquidationView.setChart(null,null);
   state.assetChartLoadToken += 1;
   window.clearTimeout(state.assetChartRetryTimer);
   state.assetChartRetryTimer = null;

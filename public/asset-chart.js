@@ -1,4 +1,6 @@
-export function createAssetChart(container, onCursorTime = () => {}) {
+import { LiquidationPrimitive } from "./lib/liquidations.js?v=20261109-liquidations";
+
+export function createAssetChart(container, onCursorTime = () => {}, onLiquidationHover = () => {}) {
   const library = window.LightweightCharts;
   if (!library?.createChart || !library?.CandlestickSeries || !library?.HistogramSeries) {
     throw new Error("Chart library unavailable.");
@@ -37,9 +39,12 @@ export function createAssetChart(container, onCursorTime = () => {}) {
     lastValueVisible: false,
     priceLineVisible: false,
   });
+  const liquidations = new LiquidationPrimitive();
+  candleSeries.attachPrimitive(liquidations);
   volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
   chart.subscribeCrosshairMove((parameter) => {
     onCursorTime(typeof parameter.time === "number" ? parameter.time : null);
+    onLiquidationHover(liquidations.inspectPrice(parameter.point ? candleSeries.coordinateToPrice(parameter.point.y) : null));
   });
 
   function candlePoint(candle) {
@@ -58,6 +63,7 @@ export function createAssetChart(container, onCursorTime = () => {}) {
   return {
     setData(candles, resetView = true) {
       candleSeries.setData(candles.map(candlePoint));
+      liquidations.setCandles(candles);
       volumeSeries.setData(candles.map(volumePoint));
       if (resetView) {
         const finalIndex = candles.length - 1;
@@ -66,9 +72,12 @@ export function createAssetChart(container, onCursorTime = () => {}) {
     },
     update(candle) {
       candleSeries.update(candlePoint(candle));
+      liquidations.updateCandle(candle);
       volumeSeries.update(volumePoint(candle));
     },
+    setLiquidations(data) { liquidations.setData(data); },
     destroy() {
+      candleSeries.detachPrimitive(liquidations);
       chart.remove();
     },
   };

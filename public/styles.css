@@ -777,6 +777,22 @@ input, select { min-width: 0; }
 .asset-bar-readout strong { margin-left: 3px; color: #eceff1; }
 .asset-chart { width: 100%; min-height: 430px; border: 1px solid #34383d; }
 #asset-chart-status:empty { display: none; }
+.liquidation-toolbar { margin: 8px 0 12px; }
+.liquidation-toolbar label, .liquidation-controls label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+.liquidation-toolbar input, .liquidation-controls input { width: auto; accent-color: #20d6a5; }
+.liquidation-panel { padding: 14px; border: 1px solid #34383d; border-top: 0; }
+.liquidation-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+.liquidation-controls select { width: auto; padding: 6px; }
+.liquidation-legend { display: flex; gap: 12px; font-size: 11px; }
+.liquidation-long { color: #20d6a5; }
+.liquidation-short { color: #ffa657; }
+.liquidation-panel .asset-detail-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); margin-bottom: 12px; }
+.liquidation-panel .hint { line-height: 1.6; margin-top: 14px; }
+.liquidation-panel .message { color: #a8afb7; }
+.liquidation-panel th, .liquidation-panel td { white-space: nowrap; }
+.liquidation-methodology { margin-top: 14px; font-size: 12px; color: #a8afb7; }
+.liquidation-methodology summary { cursor: pointer; }
+@media (max-width: 540px) { .liquidation-panel { padding: 9px; } .liquidation-panel .asset-detail-metrics strong { font-size: 12px; } }
 .asset-news, .asset-financials { padding-top: 4px; }
 .asset-news .section-header { margin-bottom: 0; }
 .asset-news-list { border-top: 1px solid #34383d; }

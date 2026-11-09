@@ -1,0 +1,36 @@
+[Unit]
+Description=Hyperdata private liquidation snapshot collector
+After=network-online.target postgresql@16-hyperdata.service
+Wants=network-online.target
+Requires=postgresql@16-hyperdata.service
+RequiresMountsFor=/srv/hyperdata
+StartLimitIntervalSec=0
+[Service]
+User=hyperdata-liquidity
+Group=hyperdata-liquidity
+SupplementaryGroups=hyperdata-db
+WorkingDirectory=/opt/hyperdata-runtime/current
+EnvironmentFile=/etc/hyperdata/liquidations.env
+EnvironmentFile=/etc/hyperdata/oxarchive.env
+Environment=DENO_DIR=/opt/hyperdata-runtime/cache
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,api.0xarchive.io:443 --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata --allow-write=/run/postgresql-hyperdata runtime/liquidation-collector.ts
+Restart=always
+RestartSec=5
+TimeoutStopSec=95
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+MemoryMax=384M
+CPUWeight=50
+TasksMax=32
+LimitCORE=0
+[Install]
+WantedBy=multi-user.target

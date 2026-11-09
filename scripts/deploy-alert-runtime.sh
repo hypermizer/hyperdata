@@ -12,7 +12,7 @@ sudo rsync -a supabase/functions/_shared supabase/functions/deliver-alerts supab
 # Preserve the import paths used by the stream engine and shared detector modules.
 sudo install -d "$release_path/scripts/price-stream"
 sudo cp scripts/price-stream/*.ts "$release_path/scripts/price-stream/"
-sudo env DENO_DIR=/opt/hyperdata-runtime/cache /usr/local/bin/deno cache --frozen --config "$release_path/supabase/functions/deno.json" "$release_path/runtime/api.ts" "$release_path/runtime/monitor.ts" "$release_path/runtime/watchdog.ts"
+sudo env DENO_DIR=/opt/hyperdata-runtime/cache /usr/local/bin/deno cache --frozen --config "$release_path/supabase/functions/deno.json" "$release_path/runtime/api.ts" "$release_path/runtime/monitor.ts" "$release_path/runtime/watchdog.ts" "$release_path/runtime/liquidation-collector.ts"
 sudo chown -R root:root "$release_path" /opt/hyperdata-runtime/cache
 sudo chmod -R a+rX "$release_path" /opt/hyperdata-runtime/cache
 sudo ln -sfn "$release_path" /opt/hyperdata-runtime/current.next
@@ -25,4 +25,11 @@ sudo systemctl enable hyperdata-api hyperdata-stream hyperdata-monitor hyperdata
 sudo systemctl restart hyperdata-api hyperdata-stream hyperdata-monitor
 sudo systemctl start hyperdata-watchdog.timer hyperdata-backup.timer
 sudo systemctl is-active hyperdata-api hyperdata-stream hyperdata-monitor
+if sudo test -s /etc/hyperdata/liquidations.env; then
+ sudo install -m 0644 scripts/systemd/hyperdata-liquidations.service /etc/systemd/system/
+ sudo systemctl daemon-reload
+ sudo systemctl enable hyperdata-liquidations
+ sudo systemctl restart hyperdata-liquidations
+ sudo systemctl is-active hyperdata-liquidations
+fi
 printf 'Deployed Hyperdata runtime release %s\n' "$release"
