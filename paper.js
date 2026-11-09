@@ -145,7 +145,7 @@ async function initialize() {
 }
 
 async function setSession(session) {
-  state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null;
+  state.user = session?.user ?? null;
   if (!state.user) {
     disconnectAccountChanges();
     state.accounts = []; state.account = null; state.epoch = null;

@@ -1,4 +1,5 @@
-import { APP_CONFIG } from "./config.js?v=20260718-listener";
+import { APP_CONFIG } from "./config.js?v=20261109-runtime";
+import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-runtime";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
 import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
@@ -34,6 +35,9 @@ const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 
 const state = {
   accountMessage: "",
+  alertClient: createAlertRuntimeClient(APP_CONFIG),
+  alertReady: false,
+  alertOptionsKey: "",
   assetCandles: [],
   assetChart: null,
   assetChartAsset: null,
@@ -131,13 +135,15 @@ wireEvents();
 initialize();
 
 async function initialize() {
+  renderRoute();
+  void loadAlerts();
+  const marketReady = initializeMarketData();
   try {
     await initializeWatchlistStorage();
   } catch (error) {
     setAccountMessage(error instanceof Error ? formatAuthError(error) : "Unable to restore browser session.");
   }
-  renderRoute();
-  await initializeMarketData();
+  await marketReady;
 }
 
 async function initializeMarketData() {
@@ -214,34 +220,29 @@ function wireEvents() {
     const submitButton = elements.alertForm.querySelector("button[type=submit]");
     submitButton.disabled = true;
     try {
-      if (!state.user) throw new Error("Sign in first.");
+      if (!state.alertReady) throw new Error("Connect to the private alert runtime first.");
       const form = new FormData(elements.alertForm);
       const detector = form.get("detector");
       const normalized = normalizeAlertRuleInput({ asset: form.get("asset"), detector, delivery: form.get("delivery"),
         direction: detector === "fixed_price" ? form.get("direction") : form.get("moveDirection"), target: form.get("target"),
         horizonMinutes: form.get("horizonMinutes"), tailPercentile: form.get("tailPercentile"), minimumMovePercent: form.get("minimumMovePercent") });
-      const market = state.markets.get(normalized.asset);
-      const { error } = await state.supabase.rpc("create_alert_rule", { p_asset: normalized.asset, p_dex: market?.dexId ?? "",
-        p_detector: normalized.detector, p_configuration: normalized.configuration, p_delivery: normalized.delivery });
-      if (error) throw error;
+      await state.alertClient.create(normalized);
       elements.alertMessage.textContent = "Alert created.";
       await loadAlerts();
     } catch (error) {
       elements.alertMessage.textContent = error.message;
     } finally {
-      submitButton.disabled = !state.user;
+      submitButton.disabled = !state.alertReady;
     }
   });
 
   elements.alertList.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-rule-action]");
-    if (!button || !state.user) return;
+    if (!button || !state.alertReady) return;
     button.disabled = true; elements.alertMessage.textContent = "";
     const action = button.dataset.ruleAction; const id = button.dataset.ruleId;
-    const request = action === "delete" ? state.supabase.rpc("delete_alert_rule", { p_rule_id: id })
-      : state.supabase.rpc("set_alert_rule_enabled", { p_rule_id: id, p_enabled: action === "enable" });
-    const { error } = await request;
-    if (error) elements.alertMessage.textContent = error.message;
+    try { await state.alertClient.change(id, action); }
+    catch (error) { elements.alertMessage.textContent = error.message; }
     await loadAlerts();
   });
 
@@ -581,14 +582,21 @@ function renderSortHeader(content, column, className = "", title = "") {
 
 function renderAlertOptions() {
   const selected = elements.alertAsset.value;
-  elements.alertAsset.innerHTML = `<option value="">Choose asset</option>${state.watchlist
-    .map((id) => {
-      const market = state.markets.get(id);
-      if (!market) return "";
-      return `<option value="${escapeHtml(id)}">${escapeHtml(displayAssetName(market.id))} (${formatPrice(market.markPrice)})</option>`;
-    })
-    .join("")}`;
-  if (state.watchlist.includes(selected)) elements.alertAsset.value = selected;
+  const available = assetUniverseMarkets().map((market) => market.id);
+  const watched = state.watchlist.filter((id) => available.includes(id));
+  const watchedSet = new Set(watched);
+  const others = available.filter((id) => !watchedSet.has(id)).sort((a, b) => displayAssetName(a).localeCompare(displayAssetName(b)));
+  const key = [...watched, "|", ...others].join(",");
+  const label = (id) => `${displayAssetName(id)}${id.includes(":") ? ` · ${id.split(":")[0]}` : ""}`;
+  if (key !== state.alertOptionsKey) {
+    const options = (ids) => ids.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(label(id))}</option>`).join("");
+    elements.alertAsset.innerHTML = `<option value="">Choose asset</option>${watched.length ? `<optgroup label="Watched">${options(watched)}</optgroup>` : ""}<optgroup label="All assets">${options(others)}</optgroup>`;
+    if (available.includes(selected)) elements.alertAsset.value = selected;
+    state.alertOptionsKey = key;
+  }
+  const current = elements.alertAsset.selectedOptions[0];
+  const market = state.markets.get(current?.value);
+  if (market) current.textContent = `${label(market.id)} (${formatPrice(market.markPrice)})`;
 }
 
 function openSettings() {
@@ -620,71 +628,49 @@ function handleSignalClick(event) {
 }
 
 async function loadAlerts() {
-  if (!state.user || !state.supabase) {
-    elements.alertCount.textContent = "—"; elements.listenerHealth.textContent = "SIGN IN TO LOAD";
-    elements.alertList.innerHTML = `<p class="hint">Sign in to manage alerts.</p>`; return;
+  if (!state.alertClient.sameOrigin) {
+    state.alertReady = false;
+    elements.alertCount.textContent = "—";
+    elements.listenerHealth.textContent = "PRIVATE SERVER";
+    elements.alertList.innerHTML = state.alertClient.url
+      ? `<p class="hint"><a href="${escapeHtml(state.alertClient.url)}/#/alerts">Open your private server to manage alerts</a> using your browser client certificate.</p>`
+      : `<p class="hint">The private alert runtime is being configured.</p>`;
+    renderAlertFields(); return;
   }
   try {
-    const [rulesResponse, runsResponse, statesResponse, streamResponse] = await Promise.all([
-      state.supabase.from("alert_rules").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
-      state.supabase.from("monitor_runs").select("*").order("bucket", { ascending: false }).limit(1),
-      state.supabase.from("rule_evaluation_state").select("rule_id,status,tail_percentile,updated_at"),
-      state.supabase.from("price_stream_health").select("*").order("heartbeat_at", { ascending: false }).limit(1),
-    ]);
-    const error = rulesResponse.error ?? runsResponse.error ?? statesResponse.error; if (error) throw error;
-    const rules = rulesResponse.data ?? []; const states = new Map((statesResponse.data ?? []).map((item) => [item.rule_id, item]));
-    const latestDeliveryByRule = await loadLatestAlertDeliveries(rules);
-    elements.listenerHealth.textContent = `${priceStreamHealth(streamResponse.data?.[0])} · ${listenerHealth(runsResponse.data?.[0])}`;
+    const snapshot = await state.alertClient.list();
+    state.alertReady = true;
+    const rules = snapshot.rules ?? [];
+    const rawStream = snapshot.health.find((row) => row.worker_id === "stream");
+    const stream = rawStream ? { ...rawStream.details, heartbeat_at: rawStream.heartbeat_at } : null;
+    const fallback = snapshot.health.find((row) => row.worker_id === "fallback");
+    const monitor = fallback ? { state: fallback.details.state, finished_at: fallback.heartbeat_at } : null;
+    elements.listenerHealth.textContent = `${priceStreamHealth(stream)} · ${listenerHealth(monitor)}`;
     elements.alertCount.textContent = String(rules.filter((rule) => rule.enabled).length);
     elements.alertList.innerHTML = rules.length ? rules.map((rule) => {
-      const storedEvaluation = states.get(rule.id);
-      const evaluation = rule.enabled && Date.parse(rule.updated_at) > Date.parse(storedEvaluation?.updated_at) ? null : storedEvaluation;
-      const status = evaluation?.status ?? (rule.detector === "large_move" ? "warming"
-        : priceStreamHealth(streamResponse.data?.[0]) === "LIVE PRICE STREAM HEALTHY" && Date.parse(streamResponse.data[0].rules_refreshed_at) >= Date.parse(rule.updated_at) ? "not_triggered" : "not evaluated");
-      const delivery = latestDeliveryByRule.get(rule.id);
-      const meta = alertDeliverySummary(delivery, { enabled: rule.enabled, evaluationStatus: status, delivery: rule.delivery });
-      const errors = delivery?.map((row) => row.last_error).filter(Boolean).join("; ");
-      const deliveryError = errors ? ` title="${escapeHtml(errors)}"` : "";
-      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · ${rule.delivery === "both" ? "email + iPhone" : rule.delivery === "sms" ? "text" : "email"}</span><br><span class="alert-meta"${deliveryError}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
+      const status = rule.evaluation?.status ?? (rule.detector === "large_move" ? "warming"
+        : priceStreamHealth(stream) === "LIVE PRICE STREAM HEALTHY" && Date.parse(stream.rules_refreshed_at) >= Date.parse(rule.updated_at) ? "not_triggered" : "not evaluated");
+      const meta = alertDeliverySummary(rule.deliveries, { enabled: rule.enabled, evaluationStatus: status, delivery: "both" });
+      const errors = rule.deliveries?.map((row) => row.last_error).filter(Boolean).join("; ");
+      const title = errors ? ` title="${escapeHtml(errors)}"` : "";
+      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · email + iPhone</span><br><span class="alert-meta"${title}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
     }).join("") : `<p class="hint">No alerts.</p>`;
   } catch (error) {
+    state.alertReady = false;
     elements.alertCount.textContent = "—";
-    elements.listenerHealth.textContent = "MONITOR UNKNOWN";
+    elements.listenerHealth.textContent = "RUNTIME UNAVAILABLE";
     elements.alertList.innerHTML = `<p class="hint">${escapeHtml(error.message ?? "Could not load alerts.")}</p>`;
   }
-}
-
-async function loadLatestAlertDeliveries(rules) {
-  const occurrenceResponses = await Promise.all(rules.map((rule) => state.supabase
-    .from("alert_occurrences")
-    .select("id,rule_id,bucket")
-    .eq("rule_id", rule.id)
-    .order("bucket", { ascending: false })
-    .limit(1)
-    .maybeSingle()));
-  const occurrenceError = occurrenceResponses.find(({ error }) => error)?.error;
-  if (occurrenceError) throw occurrenceError;
-  const occurrences = occurrenceResponses.flatMap(({ data }) => data ? [data] : []);
-  if (!occurrences.length) return new Map();
-  const { data: deliveries, error } = await state.supabase
-    .from("notification_outbox")
-    .select("occurrence_id,channel,state,attempts,last_error,updated_at")
-    .in("occurrence_id", occurrences.map(({ id }) => id));
-  if (error) throw error;
-  const deliveryByOccurrence = new Map(occurrences.map((occurrence) => [occurrence.id, (deliveries ?? []).filter((item) => item.occurrence_id === occurrence.id)]));
-  return new Map(occurrences.flatMap((occurrence) => {
-    const delivery = deliveryByOccurrence.get(occurrence.id);
-    return delivery ? [[occurrence.rule_id, delivery]] : [];
-  }));
+  renderAlertFields();
 }
 
 function renderAlertFields() {
   const isMove = elements.alertType.value === "large_move";
-  document.querySelectorAll("[data-fixed-field]").forEach((field) => { field.hidden = isMove; field.disabled = isMove || !state.user; });
-  document.querySelectorAll("[data-move-field]").forEach((field) => { field.hidden = !isMove; field.disabled = !isMove || !state.user; });
-  elements.alertType.disabled = !state.user; elements.alertAsset.disabled = !state.user;
-  document.querySelector("#alert-delivery").disabled = !state.user;
-  elements.alertForm.querySelector("button[type=submit]").disabled = !state.user;
+  document.querySelectorAll("[data-fixed-field]").forEach((field) => { field.hidden = isMove; field.disabled = isMove || !state.alertReady; });
+  document.querySelectorAll("[data-move-field]").forEach((field) => { field.hidden = !isMove; field.disabled = !isMove || !state.alertReady; });
+  elements.alertType.disabled = !state.alertReady; elements.alertAsset.disabled = !state.alertReady;
+  document.querySelector("#alert-delivery").disabled = !state.alertReady;
+  elements.alertForm.querySelector("button[type=submit]").disabled = !state.alertReady;
 }
 
 function renderRoute() {

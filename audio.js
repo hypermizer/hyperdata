@@ -82,7 +82,7 @@ async function initialize() {
 }
 
 async function setSession(session) {
-  state.session = session?.user?.email === APP_CONFIG.allowedEmail ? session : null;
+  state.session = session?.user ? session : null;
   state.syncAvailable = Boolean(state.session);
   if (!state.session) {
     state.watchlist = [...APP_CONFIG.initialWatchlist];

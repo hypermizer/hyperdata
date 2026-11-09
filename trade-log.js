@@ -92,7 +92,7 @@ async function initialize() {
 }
 
 async function setSession(session) {
-  state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null;
+  state.user = session?.user ?? null;
   state.accountError = null;
   state.accountLoaded = false;
   state.accountSource = null;

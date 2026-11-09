@@ -63,8 +63,8 @@ function bindEvents() {
 async function initializePreferences() {
   if (!client) return;
   const { data } = await client.auth.getSession();
-  state.user = data.session?.user?.email === APP_CONFIG.allowedEmail ? data.session.user : null;
-  client.auth.onAuthStateChange((_event, session) => { state.user = session?.user?.email === APP_CONFIG.allowedEmail ? session.user : null; });
+  state.user = data.session?.user ?? null;
+  client.auth.onAuthStateChange((_event, session) => { state.user = session?.user ?? null; });
 }
 
 async function loadPreference() {
