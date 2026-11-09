@@ -31,6 +31,7 @@ SQL
 pg_prove supabase/tests/{paper*,strategy*,hyperliquid*,trade*,asset*,new_asset*,audio*}.sql
 psql -X -vON_ERROR_STOP=1 -c "delete from paper_processor_lease" >>"$core_test_dir/setup.log"
 psql -X -vON_ERROR_STOP=1 -f runtime/core/localize.sql >>"$core_test_dir/setup.log"
+for migration in runtime/core/migrations/*.sql; do psql -X -vON_ERROR_STOP=1 -f "$migration" >>"$core_test_dir/setup.log"; done
 pg_prove runtime/core/tests/*.sql
 
 if command -v postgrest >/dev/null 2>&1; then

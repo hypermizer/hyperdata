@@ -8,6 +8,7 @@ import { serveAssetFundamentals } from "../supabase/functions/asset-fundamentals
 
 const tables = new Set([
   "watchlist_items",
+  "market_history_state",
   "new_asset_acknowledgements",
   "asset_analytics_cache",
   "audio_listener_assets",
@@ -31,6 +32,7 @@ const tables = new Set([
 ]);
 const rpcs = new Set([
   "paper_fee_volume",
+  "asset_history_updates",
   "create_paper_account",
   "reset_paper_account",
   "archive_paper_account",

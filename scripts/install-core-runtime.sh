@@ -59,5 +59,6 @@ for name in ['api.env','worker.env']:
  if name=='api.env' and 'OWNER_EMAIL=' not in s:s+='\nOWNER_EMAIL=jasonblick@zohomail.com'
  p.write_text(s+'\nLOCAL_CORE_ENABLED=true\n');p.chmod(0o600)
 PY
+bash scripts/apply-core-migrations.sh
 bash scripts/install-owner-backend.sh
 printf 'Local core database and identities configured. Deploy with scripts/deploy-alert-runtime.sh.\n'

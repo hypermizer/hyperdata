@@ -12,6 +12,7 @@ Hyperdata has no live Supabase dependency. Both databases run in PostgreSQL 16 o
 | Paper processor, original SQL leases and idempotency | `hyperdata-core@paper`, 10-second cadence |
 | Hyperliquid history/positions synchronization, original cursors/upsert keys | `hyperdata-core@account-sync`, 60-second cadence |
 | Diagnostic retention | `hyperdata-core-maintenance.timer`, daily |
+| Continuous watchlist marks / reference repair | `hyperdata-market-history`, minute persistence and incremental gap recovery |
 | Historical analytics | `hyperdata-analytics.timer`, hourly; rotating 24 shards |
 | Both databases, identities/configuration, globals | `hyperdata-backup.timer`, every 15 minutes, Ohio + Tokyo SSE-KMS copies |
 
@@ -70,3 +71,13 @@ sudo -u postgres psql -h /run/postgresql-hyperdata -p5545 -d hyperdata_restore_v
 ```
 
 Check financial balances, epochs, order/fill/ledger counts, ownership policies, and cursors before considering a live replacement. Never restore a stale dump over the live database or run two paper processors against independent writable copies of owner data. A controlled live restore must stop owner/core writers first and resume only after reconciliation. Alert units need not be stopped for a core-only restore. Do not point the app back at the former hosted database as a code rollback.
+
+## Continuous watchlist history
+
+`hyperdata-market-history` subscribes to the exchange's combined mark-context stream, persists real mark observations every minute for every active perpetual, and repairs downtime gaps with incremental exchange candle history. Repairs prioritize watched assets and reserve no more than 600 REST weight/minute (including metadata/retries); a 429 response pauses repairs before retrying. Hourly analytics remains separate and merges its candles atomically rather than replacing newer streamed observations. Historical recovery uses actual trade candle closes; subsequent continuously recorded references use mark observations. Missing history before an asset existed is never synthesized.
+
+The browser loads histories in bounded batches, then polls server-watermarked deltas every minute. Completed repairs resend older reference points behind the cursor, and phone resume never requires one unbounded response. Failed requests retry after 15 seconds; live WebSocket quotes continue independently. The new history checks report stream/persistence freshness and pending reference repairs in `/api/health`, so live-quote health alone no longer hides a stalled history collector.
+
+The 2026-11-09 follow-up corrected the migration's insufficient daily history refresh and its browser's one-time history load. Verification covered all 98 dot windows on the owner's 14 watched assets, live quote frames, and history updates without a page reload, plus transaction tests for concurrent backfill/sample merging, cursor replay, permission enforcement, and recovery after another outage. Newly listed assets can legitimately lack 1-day or 1-week history; these references remain unavailable until real data exists.
+
+Local forward migrations run once through `scripts/apply-core-migrations.sh`, serialized by a PostgreSQL advisory lock and recorded in `server_schema_migrations`. Deploy/install run this automatically before switching code. Never edit an applied migration; add a subsequent migration. The disposable database suite also applies these forward migrations.

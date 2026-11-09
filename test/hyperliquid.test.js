@@ -305,3 +305,13 @@ test("buildPriceChangeSignals requires a five-minute-resolution reference for th
 
   assert.equal(signals.find(({ label }) => label === "1d").referencePrice, null);
 });
+
+test("dot intensity normalizes minute and five-minute sample cadence consistently", () => {
+  const now=Date.now();
+  const sparse=[{time:now-300000,price:100},{time:now,price:101}];
+  const dense=Array.from({length:6},(_,i)=>({time:now-300000+i*60000,price:100*(1+0.01/Math.sqrt(5))**i}));
+  const five=s=>buildPriceChangeSignals(101.2,s,now).find(row=>row.label==='5m');
+  assert.equal(five(sparse).intensity,'light');
+  assert.equal(five(dense).intensity,'light');
+  assert.equal(five(dense).changePercent,five(sparse).changePercent);
+});

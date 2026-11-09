@@ -1,0 +1,25 @@
+[Unit]
+Description=Hyperdata continuous mark history and incremental repair
+Requires=hyperdata-data.service
+After=hyperdata-data.service network-online.target
+[Service]
+User=hyperdata-core
+Group=hyperdata-data
+WorkingDirectory=/opt/hyperdata-runtime/current
+EnvironmentFile=/etc/hyperdata/core.env
+Environment=DENO_DIR=/opt/hyperdata-runtime/cache
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/hyperdata-data/rest.sock,api.hyperliquid.xyz:443 --allow-read=/opt/hyperdata-runtime,/run/hyperdata-data --allow-write=/run/hyperdata-data runtime/market-history.ts
+Restart=always
+RestartSec=3
+TimeoutStopSec=110
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=512M
+TasksMax=48
+LimitCORE=0
+[Install]
+WantedBy=multi-user.target

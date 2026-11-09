@@ -4,7 +4,7 @@ import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
 import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
 import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
-import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
+import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261109-history";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
@@ -14,7 +14,7 @@ import {
   MAX_CANDLE_BARS,
   mergeLiveCandle,
   normalizeCandle,
-} from "./lib/hyperliquid.js?v=20261028-assets-hardening";
+} from "./lib/hyperliquid.js?v=20261109-history";
 import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261028-assets-hardening";
 import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
@@ -56,6 +56,8 @@ const state = {
   acknowledgementPending: new Set(),
   analyticsHistoryLoaded: new Set(),
   analyticsHistoryLoading: false,
+  analyticsHistorySince: null,
+  analyticsHistoryRetryTimer: null,
   averageVolumes: new Map(),
   catalog: [],
   category: "all",
@@ -243,7 +245,10 @@ function wireEvents() {
     await loadAlerts();
   });
 
-  setInterval(loadCachedAssetAnalytics, APP_CONFIG.assetAnalyticsCachePollIntervalMs);
+  setInterval(() => {
+    void loadCachedAssetAnalytics();
+    if (state.catalog.length) void loadCachedAssetHistories(state.catalog.map(({id}) => id));
+  }, APP_CONFIG.assetAnalyticsCachePollIntervalMs);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
   setInterval(checkQuoteHealth, 1_000);
   setInterval(sendStreamHeartbeat, 30_000);
@@ -381,24 +386,35 @@ async function loadCachedAssetAnalytics() {
 async function loadCachedAssetHistories(assetIds) {
   if (!state.supabase || state.analyticsHistoryLoading) return;
   state.analyticsHistoryLoading = true;
-  const pending = assetIds.filter((asset) => !state.analyticsHistoryLoaded.has(asset));
+  window.clearTimeout(state.analyticsHistoryRetryTimer);
+  const missing = assetIds.filter(asset => !state.analyticsHistoryLoaded.has(asset));
+  const watched = new Set(state.watchlist);
+  const pending = missing.sort((a,b) => Number(watched.has(b))-Number(watched.has(a)));
   try {
-    for (let index = 0; index < pending.length; index += 20) {
-      const batch = pending.slice(index, index + 20);
-      const { data, error } = await state.supabase
-        .from("asset_analytics_cache")
-        .select("asset,price_history")
-        .in("asset", batch);
+    for (let index=0; index<pending.length; index+=20) {
+      const batch=pending.slice(index,index+20);
+      const {data,error}=await state.supabase.rpc("asset_history_updates",{p_since:null,p_assets:batch});
       if (error) throw error;
-      applyAssetAnalyticsRows(data, state);
-      batch.forEach((asset) => state.analyticsHistoryLoaded.add(asset));
+      applyAssetAnalyticsRows(data.rows,state);
+      state.analyticsHistorySince ??= data.asOf;
+      batch.forEach(asset=>state.analyticsHistoryLoaded.add(asset));
       if (state.catalog.length) scheduleMarketRender();
     }
-  } catch (error) {
-    console.warn("Asset analytics history refresh failed", error);
-  } finally {
-    state.analyticsHistoryLoading = false;
-  }
+    // Bound each response, including after a phone resumes from a long sleep.
+    // Keep the first server watermark so updates during later batches are replayed.
+    let nextSince=null;
+    for(let index=0;index<assetIds.length;index+=20){
+      const {data,error}=await state.supabase.rpc("asset_history_updates",{p_since:state.analyticsHistorySince,p_assets:assetIds.slice(index,index+20)});
+      if(error)throw error;
+      applyAssetAnalyticsRows(data.rows,state);
+      nextSince??=data.asOf;
+    }
+    state.analyticsHistorySince=nextSince??state.analyticsHistorySince;
+    if (state.catalog.length) scheduleMarketRender();
+  } catch(error) {
+    console.warn("Asset price history refresh failed; retrying",error);
+    state.analyticsHistoryRetryTimer=window.setTimeout(()=>loadCachedAssetHistories(assetIds),15000);
+  } finally { state.analyticsHistoryLoading=false; }
 }
 
 function updateMarketMap(markets) {

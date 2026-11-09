@@ -1,4 +1,4 @@
-const LIVE_PRICE_BUCKET_MS = 5 * 60 * 1000;
+const LIVE_PRICE_BUCKET_MS = 60 * 1000;
 const PRICE_HISTORY_RETENTION_MS = 31 * 24 * 60 * 60 * 1000;
 
 export function applyAssetAnalyticsRows(rows, { averageVolumes, firstSeenAt, priceHistories }) {
@@ -20,12 +20,12 @@ export function applyAssetAnalyticsRows(rows, { averageVolumes, firstSeenAt, pri
 
 export function recordLivePricePoint(points, price, now = Date.now()) {
   const recent = normalizePoints(points)
-    .filter((point) => point.time >= now - PRICE_HISTORY_RETENTION_MS);
+    .filter((point) => point.time >= now - PRICE_HISTORY_RETENTION_MS && point.time <= now);
   if (!Number.isFinite(price) || price <= 0) return recent;
 
   const bucket = Math.floor(now / LIVE_PRICE_BUCKET_MS) * LIVE_PRICE_BUCKET_MS;
-  if (recent.at(-1)?.time >= bucket) recent[recent.length - 1] = { time: bucket, price };
-  else recent.push({ time: bucket, price });
+  if (recent.at(-1)?.time >= bucket) recent[recent.length - 1] = { time: now, price };
+  else recent.push({ time: now, price });
   return recent;
 }
 

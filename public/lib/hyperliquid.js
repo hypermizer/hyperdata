@@ -395,8 +395,10 @@ function estimateFiveMinuteVolatility(points) {
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
-    if (current.time - previous.time > FIVE_MINUTES_MS * 2) continue;
-    returns.push(Math.abs(((current.price - previous.price) / previous.price) * 100));
+    const elapsed = current.time - previous.time;
+    if (elapsed <= 0 || elapsed > FIVE_MINUTES_MS * 2) continue;
+    returns.push(Math.abs(((current.price - previous.price) / previous.price) * 100)
+      * Math.sqrt(FIVE_MINUTES_MS / elapsed));
   }
   if (!returns.length) return 0;
   returns.sort((left, right) => left - right);

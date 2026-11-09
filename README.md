@@ -14,6 +14,8 @@ Detection, occurrences, and notification attempts are persisted separately. Prov
 
 ## Runtime
 
+Watchlist reference prices are collected continuously for every active asset, independent of open browsers. Server-side gap recovery and minute-by-minute browser history updates keep the dot columns current; newly listed assets retain unavailable references until genuine history exists.
+
 The supervised server runtime evaluates Hyperliquid mark-price WebSocket updates, syncs qualifying touches to disk, and atomically records occurrences and independent delivery jobs in local PostgreSQL. A separate HTTP monitor checks every 15 seconds. Email and ntfy send directly from the server with leases, retries, health checks, and an independent external watchdog.
 
 The root volume is 240 GiB; a separate 50 GiB encrypted volume holds both databases, liquidation data, and backups. Backups run every 15 minutes to Ohio and Tokyo. The API uses a separate HTTPS Elastic IP, mutual TLS, CSRF protection, a restricted database role, and a Unix socket. Provider secrets stay outside the API and source tree.

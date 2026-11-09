@@ -8,12 +8,15 @@ export async function coreHealth() {
       if (!response.ok) throw new Error("Local core data unavailable");
       return await response.json();
     };
-    const [paper, sources] = await Promise.all([
+    const [paper, sources, history] = await Promise.all([
       get(
         "paper_processor_health?select=latest_finished_at,latest_state,reconciliation_failures_24h",
       ),
       get(
         "hyperliquid_account_sources?select=last_success_at,last_error&active=eq.true",
+      ),
+      get(
+        "market_history_state?select=connected,last_frame_at,last_persisted_at,assets_sampled,assets_expected,repairs_pending,watched_repairs_pending,last_error",
       ),
     ]);
     const paperFresh = Boolean(
@@ -27,8 +30,13 @@ export async function coreHealth() {
       !row.last_error && row.last_success_at &&
       Date.now() - Date.parse(row.last_success_at) < 240_000
     );
+    const historyFresh = marketHistoryFresh(history[0]);
     return {
-      healthy: paperFresh && accountSyncFresh,
+      healthy: paperFresh && accountSyncFresh && historyFresh,
+      historyFresh,
+      referenceRepairsPending: history[0]?.repairs_pending ?? null,
+      watchedReferenceRepairsPending: history[0]?.watched_repairs_pending ??
+        null,
       paperFresh,
       accountSyncFresh,
       backend: "local",
@@ -36,9 +44,31 @@ export async function coreHealth() {
   } catch {
     return {
       healthy: false,
+      historyFresh: false,
+      referenceRepairsPending: null,
+      watchedReferenceRepairsPending: null,
       paperFresh: false,
       accountSyncFresh: false,
       backend: "local",
     };
   }
+}
+
+export function marketHistoryFresh(
+  row: {
+    connected?: boolean;
+    last_frame_at?: string;
+    last_persisted_at?: string;
+    assets_sampled?: number;
+    assets_expected?: number;
+  } | undefined,
+  now = Date.now(),
+) {
+  return Boolean(
+    row?.connected && row.last_frame_at && row.last_persisted_at &&
+      now - Date.parse(row.last_frame_at) < 90000 &&
+      now - Date.parse(row.last_persisted_at) < 120000 &&
+      Number(row.assets_expected) > 0 &&
+      Number(row.assets_sampled) >= Number(row.assets_expected),
+  );
 }

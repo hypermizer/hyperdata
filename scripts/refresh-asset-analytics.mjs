@@ -64,12 +64,19 @@ const rows = (await mapLimit(shardAssets, 3, async (asset) => {
 })).filter(Boolean);
 
 if (rows.length) {
+  const metadata=rows.map(({price_history,history_updated_at,...row})=>row);
   const upsertResponse = await fetchWithRetry(`${restUrl}?on_conflict=asset`, {
     method: "POST",
     headers: { ...restHeaders, prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify(rows),
+    body: JSON.stringify(metadata),
   });
-  if (!upsertResponse.ok) throw new Error(`Unable to write analytics cache (${upsertResponse.status}): ${(await upsertResponse.text()).slice(0, 300)}`);
+  if (!upsertResponse.ok) throw new Error(`Unable to write analytics cache (${upsertResponse.status})`);
+  for (const row of rows) {
+    const response=await fetchWithRetry("http://local-data/rest/v1/rpc/merge_asset_price_history",{
+      method:"POST",headers:restHeaders,body:JSON.stringify({p_asset:row.asset,p_points:row.price_history,p_observed_at:new Date().toISOString()}),
+    });
+    if (!response.ok) throw new Error(`Unable to merge analytics history (${response.status})`);
+  }
 }
 
 console.log(`Analytics shard ${shardIndex + 1}/${shardCount}: cached ${rows.length}/${shardAssets.length} assets (${assets.length} total)`);
