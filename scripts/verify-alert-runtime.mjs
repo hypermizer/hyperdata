@@ -77,6 +77,18 @@ if (!monitorHealth.latest_completed_bucket || Number(monitorHealth.latest_comple
 }
 console.log(`Alert monitor health: ${JSON.stringify(monitorHealth)}`);
 
+const [streamHealth] = await query(`select *, extract(epoch from now() - heartbeat_at) as heartbeat_age,
+  extract(epoch from now() - last_market_at) as market_age,
+  extract(epoch from now() - rules_refreshed_at) as rules_age
+  from public.price_stream_health order by heartbeat_at desc limit 1`);
+if (!streamHealth || Number(streamHealth.heartbeat_age) > 20 || !streamHealth.connected
+  || streamHealth.market_age === null || Number(streamHealth.market_age) > 15
+  || streamHealth.rules_age === null || Number(streamHealth.rules_age) > 20
+  || streamHealth.stale_assets?.length || Number(streamHealth.pending_occurrences) > 0) {
+  throw new Error(`Continuous price stream is unhealthy: ${JSON.stringify(streamHealth)}`);
+}
+console.log(`Continuous price stream verified: ${JSON.stringify(streamHealth)}`);
+
 const [ruleHealth = {}] = await query(`
   select count(*)::integer as enabled_rules,
     count(*) filter (where state.rule_id is null
@@ -95,7 +107,7 @@ const [ruleHealth = {}] = await query(`
       or state.status = 'error'), '[]'::jsonb) as unhealthy_rule_details
   from public.alert_rules rule
   left join public.rule_evaluation_state state on state.rule_id = rule.id
-  where rule.enabled and rule.deleted_at is null
+  where rule.enabled and rule.deleted_at is null and rule.detector = 'large_move'
 `);
 if (Number(ruleHealth.unhealthy_rules) > 0) {
   throw new Error(`Enabled alert rules are not being evaluated reliably: ${JSON.stringify(ruleHealth)}`);

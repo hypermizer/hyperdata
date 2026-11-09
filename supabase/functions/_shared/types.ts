@@ -1,11 +1,12 @@
 export type DetectorName = "fixed_price" | "large_move";
-export type DeliveryChannel = "email" | "sms";
+export type DeliveryChannel = "email" | "sms" | "both";
 
 export interface AlertRule {
   id: string; user_id: string; asset: string; dex: string;
   detector: DetectorName; detector_version: number;
   configuration: Record<string, unknown>; delivery: DeliveryChannel;
   enabled: boolean; deleted_at: string | null;
+  updated_at?: string;
 }
 
 export interface MarketObservation {

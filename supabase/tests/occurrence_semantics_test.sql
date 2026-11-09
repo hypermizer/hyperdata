@@ -17,7 +17,7 @@ select lives_ok($$select public.record_alert_occurrence('10000000-0000-0000-0000
 select lives_ok($$select public.record_alert_occurrence('10000000-0000-0000-0000-000000000021', '2026-07-18 12:00:00+00', 101, 'underlying_move', '{}')$$,
   'same-minute replay completes idempotently');
 select is((select count(*)::integer from public.alert_occurrences), 2, 'same-minute replay creates no duplicate occurrence');
-select is((select count(*)::integer from public.notification_outbox), 2, 'each qualifying minute has one outbox row');
+select is((select count(*)::integer from public.notification_outbox), 4, 'each qualifying minute has both channel rows');
 select is((select enabled from public.alert_rules where id = '10000000-0000-0000-0000-000000000021'), true, 'continuous rule stays enabled');
 
 select * from finish();

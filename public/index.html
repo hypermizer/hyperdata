@@ -152,13 +152,13 @@
           </select>
           <input id="move-floor" name="minimumMovePercent" type="number" min="0" step="0.1" value="0" aria-label="Minimum move percent" title="Minimum move percent" data-move-field hidden />
           <select id="alert-delivery" name="delivery" aria-label="Alert delivery">
-            <option value="email">email</option>
-            <option value="sms">text</option>
+            <option value="both">email + iPhone (ntfy)</option>
           </select>
           <button type="submit">Create</button>
         </form>
         <p id="alert-message" class="message" role="alert"></p>
-        <p class="hint">LARGE MOVE USES A PRE-MOVE VOLATILITY FORECAST AND EMPIRICAL TAIL CALIBRATION.</p>
+        <p class="hint">PRICE ALERTS USE THE LIVE HYPERLIQUID MARK PRICE, INCLUDING EQUALITY. EMAIL AND IPHONE NOTIFICATIONS ARE SENT TOGETHER. A TARGET ALREADY MET FIRES ON THE FIRST LIVE CHECK.</p>
+        <p class="hint">LARGE MOVE USES A ONE-MINUTE PRE-MOVE VOLATILITY FORECAST AND EMPIRICAL TAIL CALIBRATION.</p>
 
         <div class="section-header active-header">
           <h3>Active</h3>
@@ -563,7 +563,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20261028-assets-hardening"></script>
+    <script type="module" src="./app.js?v=20261109-alerts"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./trade-log.js?v=20260805-performance-percentages"></script>

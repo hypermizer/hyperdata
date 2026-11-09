@@ -8,6 +8,7 @@ import { assetIdsForBucket, isAnalyticsBucket, isMinuteBucket, MONITOR_INTERVAL_
 import { collectMarketObservations } from "./collector.ts";
 import { evaluateRules } from "./evaluator.ts";
 import { classifyRun, storageProjectionBytes } from "./health.ts";
+import { checkPriceAlertHealth } from "./watchdog.ts";
 
 export async function handleMonitor(request: Request): Promise<Response> {
   const config = loadRuntimeConfig(); const authError = authorizeInternal(request, config.monitorSecret); if (authError) return authError;
@@ -26,9 +27,10 @@ export async function handleMonitor(request: Request): Promise<Response> {
       .map((asset) => ({ asset, dex: dexByAsset.get(asset) ?? (asset.includes(":") ? asset.split(":")[0] : "") }));
     const collected = await collectMarketObservations(client, assets, bucket, { persist: minuteBucket, retries: 0 });
     const evaluated = await evaluateRules(client, activeRules, collected.observations, bucket, { updateVolatility: minuteBucket });
-    const [analyticsResult, deliveryResult] = await Promise.allSettled([
+    const [analyticsResult, deliveryResult, watchdogResult] = await Promise.allSettled([
       isAnalyticsBucket(bucket) ? recordAssetAnalyticsSnapshot(client, bucket) : Promise.resolve(0),
       config.deliveryEnabled ? deliverPending(client) : Promise.resolve([]),
+      config.deliveryEnabled && minuteBucket ? checkPriceAlertHealth(client) : Promise.resolve(null),
     ]);
     const analyticsUpdated = analyticsResult.status === "fulfilled" ? analyticsResult.value : 0;
     const analyticsError = analyticsResult.status === "rejected"
@@ -43,6 +45,7 @@ export async function handleMonitor(request: Request): Promise<Response> {
       + Number(Boolean(deliveryError)) + Number(Boolean(analyticsError));
     const state = classifyRun(collected.observations.length, assets.length, failureCount);
     const details = { dexFailures: collected.failures, evaluationErrors: evaluated.errors, deliveryOutcomes, deliveryError,
+      watchdog: watchdogResult.status === "fulfilled" ? watchdogResult.value : { error: "Alert watchdog failed" },
       analyticsUpdated, analyticsError, cadenceSeconds: MONITOR_INTERVAL_SECONDS, persistedObservation: minuteBucket,
       projected30DayBytes: storageProjectionBytes(assets.length) };
     await client.from("monitor_runs").update({ state, finished_at: new Date().toISOString(), lease_until: null, assets_checked: collected.observations.length,

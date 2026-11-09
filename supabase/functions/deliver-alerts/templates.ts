@@ -3,17 +3,17 @@ export interface NotificationContext {
 }
 const displayAsset = (asset: string) => asset.startsWith("xyz:") ? asset.slice(4) : asset;
 export function buildNotification(context: NotificationContext): { subject: string; text: string } {
-  const asset = displayAsset(context.asset); const price = `$${context.markPrice.toLocaleString("en-US", { maximumFractionDigits: 6 })}`;
+  const asset = displayAsset(context.asset); const price = `$${context.markPrice.toLocaleString("en-US", { maximumFractionDigits: 12 })}`;
   if (context.detector === "fixed_price") {
     const direction = context.evidence.direction === "below" ? "below" : "above";
     const targetValue = Number(context.evidence.target);
     const target = Number.isFinite(targetValue)
-      ? `$${targetValue.toLocaleString("en-US", { maximumFractionDigits: 6 })}`
+      ? `$${targetValue.toLocaleString("en-US", { maximumFractionDigits: 12 })}`
       : "configured target";
     const observedAt = typeof context.evidence.observedAt === "string" ? context.evidence.observedAt : context.bucket;
     return {
       subject: `HYPERDATA · ${asset} ${direction} ${target}`,
-      text: `HYPERDATA\n${asset} mark ${price} crossed ${direction} target ${target}.\nObserved ${observedAt}.`,
+      text: `HYPERDATA\n${asset} mark ${price} is at or ${direction} target ${target}.\nObserved ${observedAt}.`,
     };
   }
   const move = Number(context.evidence.movePercent); const percentile = Number(context.evidence.empiricalPercentile);

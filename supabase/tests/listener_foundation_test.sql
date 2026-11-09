@@ -29,7 +29,7 @@ select lives_ok(
   'records occurrence and outbox atomically'
 );
 select is((select count(*)::integer from public.alert_occurrences), 1, 'one occurrence');
-select is((select count(*)::integer from public.notification_outbox), 1, 'one outbox row');
+select is((select count(*)::integer from public.notification_outbox), 2, 'independent email and ntfy outbox rows');
 select is((select enabled from public.alert_rules where id = '10000000-0000-0000-0000-000000000001'), false, 'fixed rule disabled');
 
 update public.alert_rules set enabled = true where id = '10000000-0000-0000-0000-000000000001';
@@ -41,9 +41,9 @@ select lives_ok(
   'replay is idempotent'
 );
 select is((select count(*)::integer from public.alert_occurrences), 1, 'replay keeps one occurrence');
-select is((select count(*)::integer from public.notification_outbox), 1, 'replay keeps one outbox row');
+select is((select count(*)::integer from public.notification_outbox), 2, 'replay keeps two channel rows');
 
-select is((select count(*)::integer from public.claim_outbox(10)), 1, 'claims due outbox row');
+select is((select count(*)::integer from public.claim_outbox(10)), 2, 'claims due channel rows');
 select is((select state from public.notification_outbox limit 1), 'claimed', 'outbox state claimed');
 
 insert into public.market_observations (asset, dex, bucket, observed_at, mark_price)

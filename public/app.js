@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { createAssetChart } from "./asset-chart.js?v=20260801-bars-news";
 import { requestSignInLink } from "./lib/auth.js?v=20260727-login";
-import { alertStatusLabel, displayRule, listenerHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20260801-alerts";
+import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
 import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20260805-volatility-retention";
 import {
@@ -625,21 +625,27 @@ async function loadAlerts() {
     elements.alertList.innerHTML = `<p class="hint">Sign in to manage alerts.</p>`; return;
   }
   try {
-    const [rulesResponse, runsResponse, statesResponse] = await Promise.all([
+    const [rulesResponse, runsResponse, statesResponse, streamResponse] = await Promise.all([
       state.supabase.from("alert_rules").select("*").is("deleted_at", null).order("created_at", { ascending: false }),
       state.supabase.from("monitor_runs").select("*").order("bucket", { ascending: false }).limit(1),
       state.supabase.from("rule_evaluation_state").select("rule_id,status,tail_percentile,updated_at"),
+      state.supabase.from("price_stream_health").select("*").order("heartbeat_at", { ascending: false }).limit(1),
     ]);
     const error = rulesResponse.error ?? runsResponse.error ?? statesResponse.error; if (error) throw error;
     const rules = rulesResponse.data ?? []; const states = new Map((statesResponse.data ?? []).map((item) => [item.rule_id, item]));
     const latestDeliveryByRule = await loadLatestAlertDeliveries(rules);
-    elements.listenerHealth.textContent = listenerHealth(runsResponse.data?.[0]); elements.alertCount.textContent = String(rules.filter((rule) => rule.enabled).length);
+    elements.listenerHealth.textContent = `${priceStreamHealth(streamResponse.data?.[0])} · ${listenerHealth(runsResponse.data?.[0])}`;
+    elements.alertCount.textContent = String(rules.filter((rule) => rule.enabled).length);
     elements.alertList.innerHTML = rules.length ? rules.map((rule) => {
-      const evaluation = states.get(rule.id); const status = evaluation?.status ?? (rule.detector === "large_move" ? "warming" : "not evaluated");
+      const storedEvaluation = states.get(rule.id);
+      const evaluation = rule.enabled && Date.parse(rule.updated_at) > Date.parse(storedEvaluation?.updated_at) ? null : storedEvaluation;
+      const status = evaluation?.status ?? (rule.detector === "large_move" ? "warming"
+        : priceStreamHealth(streamResponse.data?.[0]) === "LIVE PRICE STREAM HEALTHY" && Date.parse(streamResponse.data[0].rules_refreshed_at) >= Date.parse(rule.updated_at) ? "not_triggered" : "not evaluated");
       const delivery = latestDeliveryByRule.get(rule.id);
-      const meta = alertStatusLabel({ enabled: rule.enabled, evaluationStatus: status, deliveryState: delivery?.state, delivery: rule.delivery });
-      const deliveryError = delivery?.last_error ? ` title="${escapeHtml(delivery.last_error)}"` : "";
-      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · ${rule.delivery === "sms" ? "text" : "email"}</span><br><span class="alert-meta"${deliveryError}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
+      const meta = alertDeliverySummary(delivery, { enabled: rule.enabled, evaluationStatus: status, delivery: rule.delivery });
+      const errors = delivery?.map((row) => row.last_error).filter(Boolean).join("; ");
+      const deliveryError = errors ? ` title="${escapeHtml(errors)}"` : "";
+      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · ${rule.delivery === "both" ? "email + iPhone" : rule.delivery === "sms" ? "text" : "email"}</span><br><span class="alert-meta"${deliveryError}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
     }).join("") : `<p class="hint">No alerts.</p>`;
   } catch (error) {
     elements.alertCount.textContent = "—";
@@ -662,10 +668,10 @@ async function loadLatestAlertDeliveries(rules) {
   if (!occurrences.length) return new Map();
   const { data: deliveries, error } = await state.supabase
     .from("notification_outbox")
-    .select("occurrence_id,state,attempts,last_error,updated_at")
+    .select("occurrence_id,channel,state,attempts,last_error,updated_at")
     .in("occurrence_id", occurrences.map(({ id }) => id));
   if (error) throw error;
-  const deliveryByOccurrence = new Map((deliveries ?? []).map((item) => [item.occurrence_id, item]));
+  const deliveryByOccurrence = new Map(occurrences.map((occurrence) => [occurrence.id, (deliveries ?? []).filter((item) => item.occurrence_id === occurrence.id)]));
   return new Map(occurrences.flatMap((occurrence) => {
     const delivery = deliveryByOccurrence.get(occurrence.id);
     return delivery ? [[occurrence.rule_id, delivery]] : [];

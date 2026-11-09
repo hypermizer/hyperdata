@@ -31,12 +31,17 @@ export async function evaluateRules(
     try {
       const horizon = Number(rule.configuration.horizon_minutes); const context = resolvedContexts.get(`${rule.asset}:${horizon}`) ?? {};
       const result = evaluateRule(rule, { current, ...context, volatilityState: states.get(rule.asset) });
-      const { error: stateError } = await client.from("rule_evaluation_state").upsert({ rule_id: rule.id, bucket: bucket.toISOString(), status: result.status,
-        score: result.score, tail_percentile: result.tailPercentile, reference_age_seconds: result.referenceAgeSeconds, model_version: result.modelVersion, details: result.evidence });
-      if (stateError) throw stateError;
+      // The fixed-price occurrence transaction records its own triggered state.
+      // A late fallback check must not overwrite a WebSocket trigger.
+      if (rule.detector !== "fixed_price") {
+        const { error: stateError } = await client.from("rule_evaluation_state").upsert({ rule_id: rule.id, bucket: bucket.toISOString(), status: result.status,
+          score: result.score, tail_percentile: result.tailPercentile, reference_age_seconds: result.referenceAgeSeconds, model_version: result.modelVersion, details: result.evidence });
+        if (stateError) throw stateError;
+      }
       if (result.qualifies) {
         const { data, error } = await client.rpc("record_alert_occurrence", { p_rule_id: rule.id, p_bucket: bucket.toISOString(), p_mark_price: current.mark_price,
-          p_classification: result.classification, p_evidence: result.evidence });
+          p_classification: result.classification, p_evidence: { ...result.evidence, source: "http_snapshot",
+            ...(rule.updated_at ? { ruleUpdatedAt: rule.updated_at } : {}) } });
         if (error) throw error; if (data) occurrences += 1;
       }
     } catch (error) { errors.push(`${rule.id}: ${error instanceof Error ? error.message : String(error)}`); }

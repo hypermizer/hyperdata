@@ -1,0 +1,27 @@
+[Unit]
+Description=Hyperdata continuous mark-price alert listener
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/hyperdata-price-stream
+EnvironmentFile=/home/ubuntu/.config/hyperdata/price-stream.env
+Environment=DENO_DIR=/var/lib/hyperdata-price-stream/deno
+ExecStart=/usr/local/bin/deno run --cached-only --config supabase/functions/deno.json --allow-env --allow-net=api.hyperliquid.xyz,itheknkmuutquriojdzt.supabase.co,ntfy.sh --allow-read=/var/lib/hyperdata-price-stream --allow-write=/var/lib/hyperdata-price-stream scripts/price-stream/worker.ts
+Restart=always
+RestartSec=2
+StateDirectory=hyperdata-price-stream
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictSUIDSGID=true
+UMask=0077
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

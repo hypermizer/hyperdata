@@ -6,20 +6,23 @@ Personal Hyperliquid utility for a live watchlist and unattended alerts. It is a
 
 - Fixed price: inclusive above/below mark-price threshold, then automatically disables after the first occurrence.
 - Large move: recurring one-minute evaluation of an endpoint log return against a pre-move robust EWMA volatility forecast and an empirical calibration for that asset and horizon.
-- Email: Zoho SMTP over TLS 465.
-- Text: Twilio SMS when the sender is permitted to message the destination.
+- Every fixed-price alert sends both Zoho email to `jasonblick@zohomail.com` and an iPhone notification through the existing Hyprgarden ntfy topic.
+- Independent delivery records, rapid retries, and live-stream health are visible in Alerts.
+- Legacy SMS rules remain supported.
 
 Detection, occurrences, and notification attempts are persisted separately. Provider failure cannot erase a detected occurrence. An empirical percentile is not a Gaussian probability or a trade recommendation.
 
 ## Runtime
 
-Three Supabase Edge Functions are scheduled through `pg_cron`:
+An always-on, supervised server listener evaluates live Hyperliquid mark-price WebSocket updates and durably queues brief threshold touches. It runs without a browser, reconnects automatically, and tracks asset freshness.
 
-- `monitor-market` every minute: batches Hyperliquid market context by DEX, stores observations, evaluates rules, and records health.
+Supabase Edge Functions provide independent fallback and statistical evaluation through `pg_cron`:
+
+- `monitor-market` every 15 seconds (large-move statistics every minute): batches Hyperliquid market context by DEX, stores observations, evaluates rules, and records health.
 - `rebuild-calibrations` every 15 minutes: drains bounded calibration jobs and refreshes versioned models.
-- `deliver-alerts` every minute: drains the durable outbox with leases, retries, and explicit terminal or ambiguous states.
+- `deliver-alerts` every 15 seconds: drains the durable outbox with leases, retries, and explicit terminal or ambiguous states.
 
-Market observations are retained for 30 days and monitor runs for 14 days. One-minute scheduling on the Supabase Free tier is not trading-grade and can be delayed; health is visible in the Alerts tab.
+Market observations are retained for 30 days and monitor runs for 14 days. The WebSocket feed normally updates about once per second; notification-provider acceptance adds latency. Outages and iPhone delivery conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, and recovery.
 
 ## Paper trading
 
@@ -41,9 +44,10 @@ The deployment workflow requires these GitHub Actions secrets:
 
 - `SUPABASE_ACCESS_TOKEN`
 - `MONITOR_SECRET` (a long random value)
+- `NTFY_BASE_URL`, `NTFY_TOPIC` (reuse the protected Hyprgarden configuration)
 - Existing delivery secrets: `ALERT_EMAIL`, `ALERT_SMS_TO`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`
 
-The workflow applies migrations, deploys functions, copies provider settings into Edge secrets, writes the scheduler values to Vault, configures cron, verifies monitor freshness and large-move calibration, and uses any queued notification as a controlled provider smoke test. A failed provider smoke automatically disables delivery again. The equivalent manual scheduler recovery is:
+The workflow applies migrations, deploys functions, copies provider settings into Edge secrets, writes the scheduler values to Vault, configures cron, verifies monitor freshness and large-move calibration, and uses any queued notification as a controlled provider smoke test. A failed verification fails deployment without disabling durable retries. The equivalent manual scheduler recovery is:
 
 ```sql
 select vault.create_secret('https://itheknkmuutquriojdzt.supabase.co', 'project_url');
@@ -52,7 +56,7 @@ select vault.create_secret('<same MONITOR_SECRET>', 'monitor_secret');
 select public.configure_listener_cron();
 ```
 
-`DELIVERY_ENABLED=true` is the production setting after the completed shadow period. The Supabase one-minute listener is the only alert engine; the legacy GitHub issue monitor was retired at cutover.
+`DELIVERY_ENABLED=true` is the production setting after the completed shadow period. The supervised WebSocket listener is the primary fixed-price engine, backed by the 15-second Supabase monitor. The legacy GitHub issue monitor remains retired. Host listener changes also require `bash scripts/install-price-stream.sh`; see the operations guide.
 
 ## Local development
 

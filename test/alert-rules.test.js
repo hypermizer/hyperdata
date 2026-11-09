@@ -15,3 +15,17 @@ test("alert status prioritizes the delivery outcome after a trigger", () => {
   assert.equal(alertStatusLabel({ enabled: true, evaluationStatus: "data_gap", delivery: "email" }), "WAITING FOR MARKET DATA");
   assert.equal(alertStatusLabel({ enabled: false, evaluationStatus: "not_triggered", delivery: "email" }), "OFF");
 });
+
+test("new alerts default to email and iPhone", () => {
+  assert.equal(normalizeAlertRuleInput({ asset: "BTC", direction: "above", target: 100 }).delivery, "both");
+});
+test("separate channels expose partial delivery instead of hiding a failure", async () => {
+  const { alertDeliverySummary, priceStreamHealth } = await import("../public/lib/alert-rules.js");
+  const summary = alertDeliverySummary([{ channel: "email", state: "failed" }, { channel: "ntfy", state: "sent" }],
+    { enabled: false, evaluationStatus: "triggered", delivery: "both" });
+  assert.match(summary, /EMAIL FAILED/); assert.match(summary, /IPHONE SENT/);
+  assert.match(priceStreamHealth(null), /OFFLINE/);
+  const now = Date.now(), fresh = new Date(now).toISOString();
+  assert.equal(priceStreamHealth({ heartbeat_at: fresh, last_market_at: fresh, rules_refreshed_at: fresh, connected: true, pending_occurrences: 0, stale_assets: [] }, now), "LIVE PRICE STREAM HEALTHY");
+  assert.match(priceStreamHealth({ heartbeat_at: fresh, last_market_at: fresh, rules_refreshed_at: fresh, connected: false }, now), /DEGRADED/);
+});
