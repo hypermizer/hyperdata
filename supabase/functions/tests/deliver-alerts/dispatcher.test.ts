@@ -17,3 +17,8 @@ Deno.test("provider acceptance plus recoverable database failure is recorded amb
     { id: "o", occurrence_id: "x", channel: "email", attempts: 1 }, context, async () => ({ providerId: "p" }));
   assertEquals(state, "ambiguous");
 });
+Deno.test("provider outages keep retrying for about 24 hours with an explicit terminal state", async () => {
+  const sender = () => Promise.reject(new Error("provider unavailable"));
+  assertEquals(await dispatchClaim(clientWith([]) as never, { id: "o", occurrence_id: "x", channel: "ntfy", attempts: 287 }, context, sender), "retry_wait");
+  assertEquals(await dispatchClaim(clientWith([]) as never, { id: "o", occurrence_id: "x", channel: "ntfy", attempts: 288 }, context, sender), "failed");
+});

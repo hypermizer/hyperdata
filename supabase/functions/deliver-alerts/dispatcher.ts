@@ -19,7 +19,8 @@ export async function dispatchClaim(client: SupabaseClient, row: ClaimedOutbox, 
     result = await sender(buildNotification(context));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error); const ambiguous = isAmbiguous(error);
-    const retry = row.attempts < 12;
+    // Keep a detected price alert through a day-long provider outage.
+    const retry = row.attempts < 288;
     const state = retry ? "retry_wait" : ambiguous ? "ambiguous" : "failed";
     const delaySeconds = Math.min(300, 5 * 2 ** Math.max(0, row.attempts - 1));
     await finalize(client, { p_id: row.id, p_attempt: row.attempts, p_state: state, p_provider_id: null, p_error: message,
