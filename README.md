@@ -1,6 +1,6 @@
 # Hyperdata
 
-Personal Hyperliquid utility for a live watchlist and unattended alerts. Hyperdata is hosted only on the Ohio server, with [Tailscale access](https://dev-mini-ohio.tail628a67.ts.net:8446/) and [browser-certificate access](https://3.131.225.164/), both linked from the Webapp gateway. There is no separate Hyperdata sign-in. Price alerts run continuously on the server without GitHub, Supabase, or an open browser. Paper trading, watchlists, and analytics retain their existing Supabase storage behind the private owner service; the browser has no direct cloud connection or backend credentials. See [server access](docs/server-access.md).
+Personal Hyperliquid utility for a live watchlist and unattended alerts. Hyperdata is hosted only on the Ohio server, with [Tailscale access](https://dev-mini-ohio.tail628a67.ts.net:8446/) and [browser-certificate access](https://3.131.225.164/), both linked from the Webapp gateway. There is no separate Hyperdata sign-in. Price alerts run continuously on the server without GitHub, Supabase, or an open browser. Paper trading, watchlists, analytics, preferences, and account history also run in local PostgreSQL; Supabase is no longer a live dependency. See [server access](docs/server-access.md).
 
 ## Alerts
 
@@ -16,7 +16,7 @@ Detection, occurrences, and notification attempts are persisted separately. Prov
 
 The supervised server runtime evaluates Hyperliquid mark-price WebSocket updates, syncs qualifying touches to disk, and atomically records occurrences and independent delivery jobs in local PostgreSQL. A separate HTTP monitor checks every 15 seconds. Email and ntfy send directly from the server with leases, retries, health checks, and an independent external watchdog.
 
-The root volume is 240 GiB; a separate 50 GiB encrypted volume holds alert data. Backups run every 15 minutes to Ohio and Tokyo. The API uses a separate HTTPS Elastic IP, mutual TLS, CSRF protection, a restricted database role, and a Unix socket. Provider secrets stay outside the API and source tree.
+The root volume is 240 GiB; a separate 50 GiB encrypted volume holds both databases, liquidation data, and backups. Backups run every 15 minutes to Ohio and Tokyo. The API uses a separate HTTPS Elastic IP, mutual TLS, CSRF protection, a restricted database role, and a Unix socket. Provider secrets stay outside the API and source tree.
 
 The feed normally updates about once per second. Exchange outages and provider/iPhone conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, backups, and recovery.
 
@@ -32,9 +32,9 @@ Order amounts can be entered as exchange-sized shares or USDC notional; USDC inp
 
 Fidelity boundaries are explicit: public L2 snapshots cannot expose another trader's exact queue priority, public trade replay occurs on the 10-second processor cadence, and simulated orders never enter Hyperliquid's matching engine or affect its book. Resting fills therefore use a conservative queue estimate and fail closed across trade-data gaps. Staking/referral fee discounts and validator-specific matching-engine behavior are not simulated. Treat results as high-fidelity paper estimates, not exact counterfactual fills.
 
-`PAPER_TRADING_ENABLED` is independent of alert delivery and defaults to `false`; it gates authenticated trade commands. `PAPER_PROCESSOR_ENABLED` separately gates the 10-second server processor, allowing a processor-only shadow while the UI and commands remain read-only. Diagnostic pruning remains scheduled in either state. Activation requires a separate `PAPER_SCHEDULER_SECRET` and a successful shadow run. Raw paper market inputs are retained for 7 days and processor runs for 30 days. Fills, orders, ledger entries, funding, liquidations, and account epochs are never pruned by the diagnostic retention job.
+`PAPER_TRADING_ENABLED` is independent of alert delivery and gates owner trade commands. The migrated production settings preserve `PAPER_TRADING_ENABLED=true` and `PAPER_PROCESSOR_ENABLED=true`. `PAPER_PROCESSOR_ENABLED` separately gates the 10-second server processor, allowing a processor-only shadow while the UI and commands remain read-only. Diagnostic pruning remains scheduled in either state. Activation requires a separate `PAPER_SCHEDULER_SECRET` and a successful shadow run. Raw paper market inputs are retained for 7 days and processor runs for 30 days. Fills, orders, ledger entries, funding, liquidations, and account epochs are never pruned by the diagnostic retention job.
 
-Health is available in `paper_processor_health`. Disable processing by setting `PAPER_PROCESSOR_ENABLED=false` and rerunning `scripts/configure-supabase-runtime.mjs`; this preserves all account history.
+Health is available in `paper_processor_health` and the private `/api/health` response. Disable processing by setting `PAPER_PROCESSOR_ENABLED=false` in root-only `/etc/hyperdata/core.env` and restarting `hyperdata-core@paper`; this preserves all account history.
 
 For the activation shadow, keep `PAPER_TRADING_ENABLED=false`, set `PAPER_PROCESSOR_ENABLED=true`, run `select public.ensure_paper_shadow_account()` with the service role, and collect 24 hours of `paper_processor_health`. Activation requires zero reconciliation failures or duplicate economic effects, acceptable scheduler lag/API weight, and an explicit reviewed change enabling commands and the UI.
 
@@ -42,19 +42,19 @@ For the activation shadow, keep `PAPER_TRADING_ENABLED=false`, set `PAPER_PROCES
 
 Deploy the direct alert runtime with `bash scripts/deploy-alert-runtime.sh` and inspect it with `bash scripts/verify-direct-alert-runtime.sh`. Root-only configuration lives in `/etc/hyperdata/`; production data lives in `/srv/hyperdata`. See the [operations guide](docs/price-alerts.md) for initial provisioning and recovery.
 
-The existing Supabase backend still supplies other application features through the private owner service. The legacy alert scheduler and delivery flags are disabled, and a database cutover guard prevents accidental reactivation. Public GitHub Pages application files have been removed and replaced by a retirement notice. The Pages publishing workflow has been removed.
+The application backend uses a private Unix-socket PostgREST service and local function handlers. Hosted functions and production Supabase workflows are removed, all hosted schedules are disabled, and the former Data API exposes only an empty retirement schema. The former database remains fenced as a rollback archive because its paid plan does not permit pausing. Public GitHub Pages serves only a retirement notice. See [local data operations](docs/local-data.md) for the migration audit, deployment, backups, and recovery.
 
 ## Local development
 
 ```bash
 npm install
-supabase start
+bash scripts/install-postgrest.sh # pinned local data API
 npm test
 npm run test:edge
 npm run test:runtime # requires PostgreSQL binaries; uses a disposable cluster
-npm run test:db
+npm run test:db # requires PostgreSQL 16 + pgTAP; disposable cluster and Unix REST API
 npm run check
 npm run serve
 ```
 
-The browser loads locally bundled application code and holds only a private CSRF nonce and owner profile. SMTP, ntfy, upstream owner tokens, service-role, and scheduler credentials stay in protected server configuration or the existing cloud secret stores.
+The browser loads locally bundled application code and holds only a private CSRF nonce and owner profile. SMTP, ntfy, local signing/service tokens, and scheduler credentials stay in protected server configuration. The pinned Supabase protocol SDK remains as an open-source client for local PostgREST; it never contacts Supabase.

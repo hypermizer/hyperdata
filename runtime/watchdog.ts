@@ -1,3 +1,4 @@
+import { coreHealth } from "./core-health.ts";
 import { AlertStore } from "./store.ts";
 import { sendEmail } from "../supabase/functions/deliver-alerts/email.ts";
 import { sendNtfy } from "../supabase/functions/deliver-alerts/ntfy.ts";
@@ -22,6 +23,13 @@ try {
     }
     if (!fresh(fallback)) {
       issue = (issue ?? "") + " The independent backup monitor is stale.";
+    }
+    if (
+      Deno.env.get("LOCAL_CORE_ENABLED") === "true" &&
+      !(await coreHealth()).healthy
+    ) {
+      issue = (issue ?? "") +
+        " Local app data processors are stale or need reconciliation; check server health.";
     }
     const [backlog] = await store
       .sql`select count(*)::int as count from notification_outbox where (state in ('failed','ambiguous') and updated_at>now()-interval '24 hours') or (state not in ('sent','failed','ambiguous') and created_at<now()-interval '2 minutes')`;

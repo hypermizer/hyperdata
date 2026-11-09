@@ -1,4 +1,10 @@
-import { createClient, type Session } from "@supabase/supabase-js";
+import {
+  localDataFetch,
+  signLocalToken,
+} from "../supabase/functions/_shared/local-data.ts";
+import { servePaperCommand } from "../supabase/functions/paper-command/index.ts";
+import { serveAssetNews } from "../supabase/functions/asset-news/index.ts";
+import { serveAssetFundamentals } from "../supabase/functions/asset-fundamentals/index.ts";
 
 const tables = new Set([
   "watchlist_items",
@@ -44,67 +50,14 @@ export function allowedOwnerPath(path: string) {
       fn && functions.has(fn[1]),
   );
 }
-export function ownerBackend(
-  config: {
-    url: string;
-    key: string;
-    owner: string;
-    email: string;
-    origin: string;
-  },
-) {
-  const client = createClient(config.url, config.key, {
-    global: {
-      fetch: (input, init) =>
-        fetch(input, { ...init, signal: AbortSignal.timeout(15_000) }),
-    },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
-  let current: Session | null = null, pending: Promise<Session> | null = null;
-  async function session(): Promise<Session> {
-    if (current && (current.expires_at ?? 0) * 1000 > Date.now() + 60_000) {
-      return current;
-    }
-    if (!pending) {
-      pending = (async () => {
-        if (current?.refresh_token) {
-          const refreshed = await client.auth.refreshSession({
-            refresh_token: current.refresh_token,
-          });
-          if (refreshed.data.session?.user.id === config.owner) {
-            current = refreshed.data.session;
-            return current;
-          }
-        }
-        // Administrative link generation does not send email. The one-time token
-        // is consumed here; the resulting owner JWT never leaves this service.
-        const generated = await client.auth.admin.generateLink({
-          type: "magiclink",
-          email: config.email,
-        });
-        if (
-          generated.error || generated.data.user?.id !== config.owner ||
-          !generated.data.properties?.hashed_token
-        ) throw new Error("Owner access unavailable");
-        const verified = await client.auth.verifyOtp({
-          token_hash: generated.data.properties.hashed_token,
-          type: "magiclink",
-        });
-        if (
-          verified.error || verified.data.session?.user.id !== config.owner
-        ) throw new Error("Owner access unavailable");
-        current = verified.data.session;
-        return current;
-      })().finally(() => {
-        pending = null;
-      });
-    }
-    return await pending;
-  }
+export function ownerBackend(config: {
+  socket: string;
+  secret: string;
+  owner: string;
+  email: string;
+  origin: string;
+}) {
+  const dataFetch = localDataFetch(config.socket);
   return async (request: Request) => {
     const url = new URL(request.url);
     if (
@@ -116,14 +69,17 @@ export function ownerBackend(
       });
     }
     try {
-      const identity = await session();
+      const token = await signLocalToken(config.secret, {
+        role: "authenticated",
+        sub: config.owner,
+        email: config.email,
+      });
       const headers = new Headers({
-        apikey: config.key,
-        authorization: "Bearer " + identity.access_token,
+        authorization: "Bearer " + token,
         origin: config.origin,
       });
       for (
-        const key of [
+        const name of [
           "accept",
           "content-type",
           "prefer",
@@ -132,19 +88,36 @@ export function ownerBackend(
           "x-client-info",
         ]
       ) {
-        const value = request.headers.get(key);
-        if (value) headers.set(key, value);
+        const value = request.headers.get(name);
+        if (value) headers.set(name, value);
       }
-      const response = await fetch(config.url + url.pathname + url.search, {
-        method: request.method,
-        headers,
-        body: ["GET", "HEAD"].includes(request.method)
-          ? undefined
-          : await request.arrayBuffer(),
-        signal: AbortSignal.timeout(20_000),
-        redirect: "error",
-      });
-      if (response.status === 401) current = null;
+      const upstream = new Request(
+        "http://local-data" + url.pathname + url.search,
+        {
+          method: request.method,
+          headers,
+          body: ["GET", "HEAD"].includes(request.method)
+            ? undefined
+            : await request.arrayBuffer(),
+          signal: AbortSignal.timeout(25_000),
+        },
+      );
+      let response: Response;
+      if (url.pathname.startsWith("/functions/v1/")) {
+        switch (url.pathname.split("/").at(-1)) {
+          case "paper-command":
+            response = await servePaperCommand(upstream);
+            break;
+          case "asset-news":
+            response = await serveAssetNews(upstream);
+            break;
+          case "asset-fundamentals":
+            response = await serveAssetFundamentals(upstream);
+            break;
+          default:
+            return Response.json({ error: "Unavailable" }, { status: 404 });
+        }
+      } else response = await dataFetch(upstream);
       const body = await response.arrayBuffer();
       if (body.byteLength > 16_000_000) {
         throw new Error("Owner response too large");
@@ -157,10 +130,16 @@ export function ownerBackend(
         if (value) output.set(key, value);
       }
       return new Response(
-        [204, 205, 304].includes(response.status) ? null : body,
+        [204, 205, 304].includes(response.status) || request.method === "HEAD"
+          ? null
+          : body,
         { status: response.status, headers: output },
       );
-    } catch {
+    } catch (error) {
+      console.error(
+        "Local owner request failed:",
+        error instanceof Error ? error.name : "Error",
+      );
       return Response.json(
         { error: "Owner data is temporarily unavailable." },
         { status: 503 },
@@ -183,11 +162,11 @@ if (import.meta.main) {
   const server = Deno.serve(
     {
       path,
-      onListen: () => console.log("Private owner backend listening"),
+      onListen: () => console.log("Local owner backend listening"),
     },
     ownerBackend({
-      url: required("SUPABASE_URL"),
-      key: required("SUPABASE_SERVICE_ROLE_KEY"),
+      socket: required("LOCAL_DATA_SOCKET"),
+      secret: required("LOCAL_JWT_SECRET"),
       owner: required("OWNER_ID"),
       email: required("OWNER_EMAIL"),
       origin: required("PUBLIC_ORIGIN"),

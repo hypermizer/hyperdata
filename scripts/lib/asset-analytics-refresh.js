@@ -34,3 +34,21 @@ export function analyticsCacheUrl(restUrl, shardAssets) {
   url.searchParams.set("asset", `in.(${shardAssets.join(",")})`);
   return url;
 }
+
+// Reserve conservative API weight before each analytics request. Multiple assets
+// share one queue, including retries, so background refresh leaves live work room.
+export function analyticsRequestWeight(body) {
+  if (body?.type !== "candleSnapshot") return 20;
+  const intervals = { "5m":300000, "1h":3600000, "1d":86400000 };
+  const interval = intervals[body.req?.interval];
+  const rows = interval ? Math.min(5000, Math.ceil((body.req.endTime-body.req.startTime)/interval)+1) : 5000;
+  return 20 + Math.ceil(Math.max(0,rows)/60);
+}
+export function createAnalyticsRequestGate(millisecondsPerWeight = 300) {
+  let nextAt = 0;
+  return (body, now = Date.now()) => {
+    const start = Math.max(now,nextAt);
+    nextAt = start+analyticsRequestWeight(body)*millisecondsPerWeight;
+    return start-now;
+  };
+}

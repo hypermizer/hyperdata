@@ -48,3 +48,23 @@ test("analytics refresh deduplicates assets and scopes cache reads to its shard"
   const url = analyticsCacheUrl("https://example.supabase.co/rest/v1/asset_analytics_cache", shardAssets);
   assert.equal(url.searchParams.get("asset"), "in.(ETH)");
 });
+
+test("background analytics reserves weight for concurrent requests and candle result sizes", async () => {
+  const { analyticsRequestWeight, createAnalyticsRequestGate } = await import("../scripts/lib/asset-analytics-refresh.js");
+  assert.equal(analyticsRequestWeight({type:"metaAndAssetCtxs"}),20);
+  assert.equal(analyticsRequestWeight({type:"candleSnapshot",req:{interval:"1h",startTime:0,endTime:720*3600000}}),33);
+  const gate=createAnalyticsRequestGate(300);
+  assert.equal(gate({type:"perpDexs"},1000),0);
+  assert.equal(gate({type:"metaAndAssetCtxs"},1000),6000);
+  assert.equal(gate({type:"metaAndAssetCtxs"},2000),11000);
+});
+
+test("analytics transport cannot send local credentials to an unapproved backend", async () => {
+  const {localDataFetch}=await import("../scripts/lib/local-data.js");
+  let calls=0;
+  const request=localDataFetch('/unused',async()=>{calls++;return Response.json({ok:true});});
+  await assert.rejects(request('https://example.com/rest/v1/data',{headers:{authorization:'Bearer private-local'}}),/Unsupported analytics destination/);
+  assert.equal(calls,0);
+  assert.equal((await request('https://api.hyperliquid.xyz/info')).status,200);
+  assert.equal(calls,1);
+});

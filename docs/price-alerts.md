@@ -1,6 +1,6 @@
 # Price alert operations
 
-The production alert app runs at **https://3.131.225.164/#/alerts** on the Ohio server. Use the existing browser client certificate. Price alert creation, storage, detection, retries, and delivery run directly on this server; GitHub Actions and Supabase are outside this path. The remaining app services, including cloud watchlists and paper trading, still use their existing backend.
+The production alert app runs at **https://3.131.225.164/#/alerts** on the Ohio server. Use the existing browser client certificate. Price alert creation, storage, detection, retries, and delivery run directly on this server; GitHub Actions and Supabase are outside this path. All other app services now use the local core database and processors; see [local data operations](local-data.md).
 
 ## Detection and delivery
 
@@ -36,12 +36,13 @@ After changing source, run:
 npm test
 npm run test:edge
 npm run test:runtime
+npm run test:db
 npm run check
 bash scripts/deploy-alert-runtime.sh
 bash scripts/verify-direct-alert-runtime.sh
 ```
 
-The runtime tests start a disposable local PostgreSQL cluster and exercise transactions and delivery fencing. The deployer installs an immutable root-owned release under `/opt/hyperdata-runtime/releases`, atomically switches `current`, and restarts the three supervised services. It never replaces database or spool data. It also installs watchdog and backup timers. Roll back code by switching `current` to a reviewed prior release and restarting the services; do not roll back the database or reactivate the former alert engine.
+The runtime tests start a disposable local PostgreSQL cluster and exercise transactions and delivery fencing. The deployer installs an immutable root-owned release under `/opt/hyperdata-runtime/releases`, atomically switches `current`, and restarts the three supervised services. It never replaces database or spool data. It also installs local core processors, analytics, watchdog, retention, and backup timers. Roll back code by switching `current` to a reviewed prior release and restarting the services; do not roll back the database or reactivate the former alert engine.
 
 Inspect status without printing environment files:
 
@@ -54,7 +55,7 @@ sudo -u hyperdata psql -h /run/postgresql-hyperdata -p 5545 -d hyperdata \
 
 For `runtime/admin.ts`, use the restricted invocation in `scripts/verify-direct-alert-runtime.sh`, replacing `status` with `pause`, `activate`, or `revoke-client FINGERPRINT`. Pause stops rule mutations, detection commits, and new delivery claims; in-flight provider requests can finish. Never delete the spool or outbox to pause alerts. To pause only delivery, set the local `runtime_settings.delivery_enabled` JSON value to `false`; detection continues. Restore it to `true` to resume pending deliveries.
 
-The former `hyperdata-price-stream.service` is disabled. Supabase migration `202611090004_local_alert_cutover.sql` records the private origin, blocks old rule writes and occurrence creation, and prevents legacy alert cron from reactivating. Hosted and GitHub alert delivery flags are false. Existing historical records were imported with their sent states preserved. Do not re-enable the old engine: two independent databases would undermine deduplication. The public Pages app is retired; its former address serves only a retirement notice. Both current entrances and gateway links are documented in [server access](server-access.md).
+The former `hyperdata-price-stream.service` is disabled. Supabase migration `202611090004_local_alert_cutover.sql` records the private origin, blocks old rule writes and occurrence creation, and prevents legacy alert cron from reactivating. All hosted schedules are disabled, hosted functions and production cloud workflows are removed, and the former Data API exposes an empty retirement schema. Existing historical records were imported with their sent states preserved. Do not re-enable the old engine: two independent databases would undermine deduplication. The public Pages app is retired; its former address serves only a retirement notice. Both current entrances and gateway links are documented in [server access](server-access.md).
 
 ## Monitoring, backups, and recovery
 

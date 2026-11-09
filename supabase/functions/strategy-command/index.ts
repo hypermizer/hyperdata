@@ -1,3 +1,4 @@
+import { authenticateLocalOwner, localDataFetch } from "../_shared/local-data.ts";
 import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchPaperCatalog } from "../_shared/paper/market-data.ts";
@@ -10,7 +11,8 @@ const corsHeaders = {
 };
 
 function required(name: string) {
-  const value = Deno.env.get(name)?.trim();
+  const localName = ({ SUPABASE_URL: "LOCAL_DATA_URL", SUPABASE_SERVICE_ROLE_KEY: "LOCAL_SERVICE_TOKEN", SUPABASE_ANON_KEY: "LOCAL_SERVICE_TOKEN" } as Record<string,string>)[name];
+  const value = (localName ? Deno.env.get(localName) : undefined)?.trim() || Deno.env.get(name)?.trim();
   if (!value) throw new Error(`Missing ${name}`);
   return value;
 }
@@ -33,6 +35,7 @@ function dependencies(): StrategyCommandDependencies {
   return {
     enabled: Deno.env.get("STRATEGY_COMMAND_ENABLED") === "true",
     async authenticate(token) {
+      if (Deno.env.get("LOCAL_DATA_SOCKET")) return await authenticateLocalOwner(token);
       const { data, error } = await service.auth.getUser(token);
       if (error || !data.user) return null;
       return { id: data.user.id, email: data.user.email ?? null };
@@ -46,7 +49,7 @@ function dependencies(): StrategyCommandDependencies {
         if (unsupported) throw new Error(`unsupported asset: ${unsupported}`);
       }
       const client = createClient(url, anonKey, {
-        global: { headers: { Authorization: `Bearer ${token}` } },
+        global: { headers: { Authorization: `Bearer ${token}` }, ...(Deno.env.get("LOCAL_DATA_SOCKET") ? {fetch:localDataFetch(Deno.env.get("LOCAL_DATA_SOCKET")!)} : {}) },
         auth: { autoRefreshToken: false, persistSession: false },
       });
       const [name, args] = rpcFor(command);

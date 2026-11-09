@@ -1,0 +1,19 @@
+[Unit]
+Description=Hyperdata local diagnostic retention
+Requires=hyperdata-data.service
+After=hyperdata-data.service
+[Service]
+Type=oneshot
+User=hyperdata-core
+Group=hyperdata-data
+WorkingDirectory=/opt/hyperdata-runtime/current
+EnvironmentFile=/etc/hyperdata/core.env
+Environment=DENO_DIR=/opt/hyperdata-runtime/cache
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/hyperdata-data/rest.sock --allow-read=/opt/hyperdata-runtime,/run/hyperdata-data --allow-write=/run/hyperdata-data runtime/core-maintenance.ts
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=256M
+LimitCORE=0

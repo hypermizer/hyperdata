@@ -1,3 +1,4 @@
+import { authenticateLocalOwner } from "../_shared/local-data.ts";
 import { createClient } from "@supabase/supabase-js";
 import { createServiceClient } from "../_shared/database.ts";
 import { fetchMarketBatches } from "../_shared/hyperliquid.ts";
@@ -60,7 +61,8 @@ const corsHeaders = {
 };
 
 function required(name: string): string {
-  const value = Deno.env.get(name)?.trim();
+  const localName = ({ SUPABASE_URL: "LOCAL_DATA_URL", SUPABASE_SERVICE_ROLE_KEY: "LOCAL_SERVICE_TOKEN", SUPABASE_ANON_KEY: "LOCAL_SERVICE_TOKEN" } as Record<string,string>)[name];
+  const value = (localName ? Deno.env.get(localName) : undefined)?.trim() || Deno.env.get(name)?.trim();
   if (!value) throw new Error(`Missing ${name}`);
   return value;
 }
@@ -80,6 +82,7 @@ export function createPaperCommandDependencies(): PaperCommandDependencies {
   return {
     enabled: Deno.env.get("PAPER_TRADING_ENABLED") === "true",
     async authenticate(token) {
+      if (Deno.env.get("LOCAL_DATA_SOCKET")) return await authenticateLocalOwner(token);
       const client = createClient(supabaseUrl, serviceRoleKey, {
         auth: { autoRefreshToken: false, persistSession: false },
       });

@@ -1,0 +1,18 @@
+[Unit]
+Description=Refresh Hyperdata local asset analytics
+Requires=hyperdata-data.service
+After=hyperdata-data.service network-online.target
+[Service]
+Type=oneshot
+User=hyperdata-core
+Group=hyperdata-data
+WorkingDirectory=/opt/hyperdata-runtime/current
+EnvironmentFile=/etc/hyperdata/core.env
+ExecStart=/usr/bin/node scripts/refresh-asset-analytics.mjs
+TimeoutStartSec=45min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=512M
+LimitCORE=0

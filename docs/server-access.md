@@ -21,13 +21,13 @@ The bridge connects to the existing certificate entrance with a dedicated client
 
 The API permits exactly the certificate and Tailscale origins for writes and uses the shared secure CSRF nonce. The Tailscale and certificate entrances remain separate browser origins.
 
-## Owner data and remaining backend
+## Local owner data
 
-Alerts and liquidation storage/detection run locally. Paper trading, cloud watchlists, analytics, preferences, and account-history storage still use the existing Supabase project. This change retires public app hosting and browser sign-in; it does not migrate those remaining datasets or processors.
+All app storage and processors run on the Ohio server. The browser sends same-origin `/api/owner/` requests through the certificate/CSRF API to the separate `hyperdata-owner` service. That service signs a short-lived fixed-owner local JWT, forwards approved tables/RPCs to Unix-only PostgREST, and executes paper-command, news, and fundamentals handlers locally. Existing row policies and financial SQL functions still enforce ownership and ledger permissions. Hosted authentication, password login, and token refresh are not involved.
 
-The browser contacts only same-origin `/api/owner/` routes for those features. The restricted API passes approved owner requests over a Unix socket to `hyperdata-owner.service`. That separate process holds the protected upstream administrative credential, creates/refreshes the existing owner's session without sending email, verifies its fixed owner ID, and sends requests using the owner's JWT so existing row policies and command authorization still apply. Neither privileged credentials nor owner access/refresh tokens reach the browser or API process. Only app-specific tables, RPCs, and three functions are exposed; authentication/admin endpoints and the former alert engine are excluded.
+The `hyperdata_core` database holds the migrated application data; `hyperdata` continues to hold live alerts and liquidation caches. A non-inheriting PostgREST database role connects using peer authentication on the private PostgreSQL socket. Neither database nor PostgREST listens on TCP. Only the owner service and supervised core processors can reach the PostgREST socket; only the API can reach the owner-service socket. Signing and service credentials are root-protected and never reach the browser or certificate API.
 
-The browser protocol client is bundled locally from the pinned dependency. It stores no Supabase session in browser storage and performs no external backend/CDN requests. Existing five-second paper account refreshes provide updates through the private API. The original email-login endpoint returns HTTP 410, cloud account signup is disabled, and public GitHub redirect origins have been removed.
+The locally bundled protocol client stores no authentication session. Five-second paper account refreshes use the private API. Old public hosting, Supabase functions, and hosted schedules are retired; the former Data API exposes an empty schema. The paid Supabase project remains a frozen source archive, with mutation guards across all former app tables. See [local data operations](local-data.md).
 
 ## Public retirement and deployment
 

@@ -1,0 +1,10 @@
+begin;
+select plan(6);
+select function_privs_are('public','configure_listener_cron',array[]::text[],'service_role',array[]::text[],'hosted listener cannot be scheduled');
+select function_privs_are('public','configure_paper_cron',array['boolean'],'service_role',array[]::text[],'hosted paper processor cannot be scheduled');
+select function_privs_are('public','configure_hyperliquid_account_cron',array[]::text[],'service_role',array[]::text[],'hosted account sync cannot be scheduled');
+select function_privs_are('public','apply_paper_effects',array['uuid','integer','bigint','text','jsonb'],'authenticated',array[]::text[],'browser cannot directly modify ledger');
+select is(has_schema_privilege('authenticated','public','CREATE'),false,'owner cannot create database functions');
+select is((select count(*)::integer from paper_processor_lease),1,'fresh local schema seeds exactly one concurrency lease');
+select * from finish();
+rollback;

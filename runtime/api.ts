@@ -3,6 +3,7 @@ import { validateRule } from "./validation.ts";
 import { LiquidationStore } from "./liquidation-store.ts";
 import { liquidationAsset } from "./liquidation-data.ts";
 import { ownerBackendRequest } from "./unix-proxy.ts";
+import { coreHealth } from "./core-health.ts";
 
 interface ApiStore {
   revoked(fingerprint: string): Promise<boolean>;
@@ -43,6 +44,7 @@ export function alertApi(
     additionalOrigins?: string[];
     owner: string;
     ownerEmail?: string;
+    coreHealth?: typeof coreHealth;
     ownerBackend?: (request: Request) => Promise<Response>;
     fingerprints?: string[];
     healthFingerprints?: string[];
@@ -79,7 +81,16 @@ export function alertApi(
         !config.healthFingerprints?.includes(fingerprint)
       ) return json({ error: "Health certificate is not enrolled." }, 403);
       if (request.method === "GET" && url.pathname === "/api/health") {
-        return json(await store.health?.());
+        const health = await store.health?.() as
+          | Record<string, unknown>
+          | undefined;
+        if (!config.coreHealth) return json(health);
+        const core = await config.coreHealth();
+        return json({
+          ...health,
+          healthy: Boolean(health?.healthy) && core.healthy,
+          core,
+        });
       }
       if (config.healthFingerprints?.includes(fingerprint)) {
         return json({ error: "Health-only certificate." }, 403);
@@ -262,6 +273,9 @@ if (import.meta.main) {
       owner,
       ownerEmail: Deno.env.get("OWNER_EMAIL"),
       ownerBackend: ownerBackendRequest,
+      coreHealth: Deno.env.get("LOCAL_CORE_ENABLED") === "true"
+        ? coreHealth
+        : undefined,
       additionalOrigins: Deno.env.get("ADDITIONAL_ORIGINS")?.split(",").filter(
         Boolean,
       ),

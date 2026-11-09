@@ -1,16 +1,18 @@
 [Unit]
 Description=Private Hyperdata single-owner data backend
-After=network-online.target
+After=network-online.target hyperdata-data.service
+Requires=hyperdata-data.service
 Wants=network-online.target
 [Service]
 User=hyperdata-owner
 Group=hyperdata-owner-api
 WorkingDirectory=/opt/hyperdata-runtime/current
 EnvironmentFile=/etc/hyperdata/owner-backend.env
+EnvironmentFile=/etc/hyperdata/core.env
 Environment=DENO_DIR=/opt/hyperdata-runtime/cache
 RuntimeDirectory=hyperdata-owner
 RuntimeDirectoryMode=0750
-ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/hyperdata-owner/backend.sock,itheknkmuutquriojdzt.supabase.co:443 --allow-read=/opt/hyperdata-runtime,/run/hyperdata-owner --allow-write=/run/hyperdata-owner runtime/owner-backend.ts
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/hyperdata-owner/backend.sock,unix:/run/hyperdata-data/rest.sock,api.hyperliquid.xyz:443,query1.finance.yahoo.com:443,query2.finance.yahoo.com:443,en.wikipedia.org:443,www.bing.com:443,news.google.com:443 --allow-read=/opt/hyperdata-runtime,/run/hyperdata-owner,/run/hyperdata-data --allow-write=/run/hyperdata-owner,/run/hyperdata-data runtime/owner-backend.ts
 ExecStartPost=/bin/sh -c 'for attempt in 1 2 3 4 5 6 7 8 9 10; do test -S /run/hyperdata-owner/backend.sock && exit 0; sleep 0.5; done; exit 1'
 Restart=always
 RestartSec=3
@@ -26,7 +28,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 CapabilityBoundingSet=
-MemoryMax=256M
+MemoryMax=384M
 TasksMax=32
 LimitCORE=0
 [Install]

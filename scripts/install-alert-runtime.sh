@@ -28,6 +28,8 @@ sudo tee /etc/postgresql/16/hyperdata/pg_hba.conf >/dev/null <<'PGHBA'
 local all postgres peer
 local hyperdata hyperdata peer
 local hyperdata hyperdata-api peer
+local hyperdata hyperdata-liquidity peer
+local hyperdata_core hyperdata-rest peer
 local all all reject
 PGHBA
 sudo install -d /etc/systemd/system/postgresql@16-hyperdata.service.d

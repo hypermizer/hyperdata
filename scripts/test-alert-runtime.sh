@@ -3,6 +3,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 test_pg_dir=$(mktemp -d /tmp/hyperdata-runtime-test.XXXXXXXX)
 test_pg_bin=$(pg_config --bindir)
+if ! test -x "$test_pg_bin/initdb"; then
+ test_pg_bin=$(find /usr/lib/postgresql -path "*/bin/initdb" -type f | sort -V | tail -1 | xargs dirname)
+fi
 cleanup() {
   "$test_pg_bin/pg_ctl" -D "$test_pg_dir/data" -m immediate stop >/dev/null 2>&1 || true
   rm -rf "$test_pg_dir"

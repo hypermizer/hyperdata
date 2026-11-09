@@ -28,8 +28,6 @@ jobs:
           deno-version: v2.x
       - run: npm run test:edge
       - run: npm run test:runtime
-      - uses: supabase/setup-cli@v1
-        with:
-          version: 2.109.1
-      - run: supabase start
+      - run: sudo apt-get update -qq && sudo apt-get install -y postgresql-16 postgresql-16-pgtap
+      - run: bash scripts/install-postgrest.sh
       - run: npm run test:db

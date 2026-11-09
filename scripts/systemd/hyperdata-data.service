@@ -1,0 +1,31 @@
+[Unit]
+Description=Hyperdata local data API (Unix socket only)
+Requires=postgresql@16-hyperdata.service
+After=postgresql@16-hyperdata.service
+RequiresMountsFor=/srv/hyperdata
+[Service]
+User=hyperdata-rest
+Group=hyperdata-data
+EnvironmentFile=/etc/hyperdata/data.env
+RuntimeDirectory=hyperdata-data
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/bin/postgrest /etc/hyperdata-data.conf
+Restart=always
+RestartSec=3
+UMask=0007
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/hyperdata-data
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+MemoryMax=256M
+TasksMax=32
+LimitCORE=0
+[Install]
+WantedBy=multi-user.target

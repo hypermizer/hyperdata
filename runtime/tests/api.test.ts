@@ -244,3 +244,26 @@ Deno.test("liquidation cache and collection demand require owner authentication 
   );
   assertEquals(watched, 1);
 });
+Deno.test("private health reports a local core failure without exposing account data", async () => {
+  const api = alertApi({
+    ...store,
+    health: () => Promise.resolve({ healthy: true, backend: "local" }),
+  }, {
+    origin,
+    owner,
+    coreHealth: () =>
+      Promise.resolve({
+        healthy: false,
+        paperFresh: true,
+        accountSyncFresh: false,
+        backend: "local",
+      }),
+  });
+  const response = await api(
+    new Request(origin + "/api/health", { headers: base }),
+  );
+  const data = await response.json();
+  assertEquals(data.healthy, false);
+  assertEquals(data.core.accountSyncFresh, false);
+  assertEquals(Object.hasOwn(data.core, "accounts"), false);
+});

@@ -1,31 +1,18 @@
 import { fetchAverageDailyVolume, fetchDexNames, fetchMarketsForDex, fetchPriceHistory } from "../public/lib/hyperliquid.js";
 import { earliestIsoTimestamp } from "../public/lib/asset-analytics.js";
-import { analyticsCacheUrl, analyticsShardAssets, collectMarketCatalogResults, discoverAnalyticsDexes } from "./lib/asset-analytics-refresh.js";
+import { analyticsCacheUrl, analyticsShardAssets, createAnalyticsRequestGate, collectMarketCatalogResults, discoverAnalyticsDexes } from "./lib/asset-analytics-refresh.js";
 
-const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
-const projectRef = process.env.SUPABASE_PROJECT_ID;
-const shardIndex = Number(process.env.ANALYTICS_SHARD_INDEX);
-const shardCount = Number(process.env.ANALYTICS_SHARD_COUNT);
-if (!accessToken || !projectRef || !Number.isInteger(shardIndex) || !Number.isInteger(shardCount)
-  || shardIndex < 0 || shardCount < 1 || shardIndex >= shardCount) {
-  throw new Error("Valid SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_ID, ANALYTICS_SHARD_INDEX, and ANALYTICS_SHARD_COUNT are required");
+import { localDataFetch } from "./lib/local-data.js";
+const shardCount = Number(process.env.ANALYTICS_SHARD_COUNT ?? 24);
+const shardIndex = Number(process.env.ANALYTICS_SHARD_INDEX ?? new Date().getUTCHours() % shardCount);
+const reserveMarketRequest = createAnalyticsRequestGate();
+const serviceRoleKey = process.env.LOCAL_SERVICE_TOKEN;
+if (!process.env.LOCAL_DATA_SOCKET || !serviceRoleKey || !Number.isInteger(shardIndex) || !Number.isInteger(shardCount) || shardIndex < 0 || shardCount < 1 || shardIndex >= shardCount) {
+  throw new Error("Local data credentials and valid analytics shard configuration are required");
 }
-
-const managementHeaders = { authorization: `Bearer ${accessToken}` };
-const keysResponse = await fetchWithRetry(`https://api.supabase.com/v1/projects/${encodeURIComponent(projectRef)}/api-keys`, {
-  headers: managementHeaders,
-});
-if (!keysResponse.ok) throw new Error(`Unable to retrieve project API keys (${keysResponse.status})`);
-const keys = await keysResponse.json();
-const serviceRoleKey = keys.find((key) => key.name === "service_role")?.api_key;
-if (!serviceRoleKey) throw new Error("Project service-role key was unavailable");
-
-const restHeaders = {
-  apikey: serviceRoleKey,
-  authorization: `Bearer ${serviceRoleKey}`,
-  "content-type": "application/json",
-};
-const restUrl = `https://${projectRef}.supabase.co/rest/v1/asset_analytics_cache`;
+const localFetch = localDataFetch(process.env.LOCAL_DATA_SOCKET);
+const restHeaders = {authorization:`Bearer ${serviceRoleKey}`,"content-type":"application/json"};
+const restUrl = "http://local-data/rest/v1/asset_analytics_cache";
 const failures = [];
 const dexNames = await discoverAnalyticsDexes(
   () => fetchDexNames(fetchWithRetry),
@@ -92,8 +79,12 @@ async function fetchWithRetry(url, options = {}) {
   let failure;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     let response;
+    if (new URL(url).hostname === "api.hyperliquid.xyz") {
+      const wait = reserveMarketRequest(JSON.parse(options.body));
+      if (wait > 0) await delay(wait);
+    }
     try {
-      response = await fetch(url, { ...options, signal: AbortSignal.timeout(30_000) });
+      response = await localFetch(url, { ...options, signal: AbortSignal.timeout(30_000) });
     } catch (error) {
       failure = error;
     }
