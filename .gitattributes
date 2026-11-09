@@ -1,0 +1,2 @@
+# Preserve whitespace inside the SDK's generated JavaScript string literals.
+public/vendor/supabase.js -whitespace linguist-generated=true
