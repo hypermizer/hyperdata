@@ -1,0 +1,22 @@
+[Unit]
+Description=Hyperdata alert runtime watchdog
+RequiresMountsFor=/srv/hyperdata
+[Service]
+Type=oneshot
+User=hyperdata
+Group=hyperdata
+SupplementaryGroups=hyperdata-db
+WorkingDirectory=/opt/hyperdata-runtime/current
+EnvironmentFile=/etc/hyperdata/worker.env
+EnvironmentFile=/etc/hyperdata/providers.env
+Environment=DENO_DIR=/opt/hyperdata-runtime/cache
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,ntfy.sh,127.0.0.53:53,0.0.0.0/0:465 --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata,/srv/hyperdata/state --allow-write=/run/postgresql-hyperdata,/srv/hyperdata/state runtime/watchdog.ts
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/hyperdata/state
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=256M
+LimitCORE=0

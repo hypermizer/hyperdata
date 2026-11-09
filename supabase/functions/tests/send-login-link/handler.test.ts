@@ -40,7 +40,7 @@ Deno.test("login link rejects non-site browser origins before claiming", async (
 });
 
 Deno.test("login link preflight permits only the hosted app origin", async () => {
-  const response = await serveLoginLink(new Request("https://example.test/send-login-link", { method: "OPTIONS" }));
+  const response = await serveLoginLink(new Request("https://example.test/send-login-link", { method: "OPTIONS", headers: { origin: "https://hypermizer.github.io" } }));
   assertEquals(response.status, 200);
   assertEquals(response.headers.get("access-control-allow-origin"), "https://hypermizer.github.io");
 });

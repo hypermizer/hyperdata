@@ -1,15 +1,11 @@
+import { allowedBrowserOrigin, browserCors } from "../_shared/browser-origins.ts";
 import { createServiceClient } from "../_shared/database.ts";
 import { sendEmail } from "../deliver-alerts/email.ts";
 import { handleLoginLink, type LoginLinkDependencies } from "./handler.ts";
 
 const OWNER_EMAIL = "jasonblick@zohomail.com";
 const SITE_URL = "https://hypermizer.github.io/hyperdata/";
-const ALLOWED_ORIGIN = "https://hypermizer.github.io";
-const corsHeaders = {
-  "access-control-allow-origin": ALLOWED_ORIGIN,
-  "access-control-allow-headers": "authorization, content-type, apikey, x-client-info",
-  "access-control-allow-methods": "POST, OPTIONS",
-};
+
 
 function required(name: string): string {
   const value = Deno.env.get(name)?.trim();
@@ -17,11 +13,11 @@ function required(name: string): string {
   return value;
 }
 
-function dependencies(): LoginLinkDependencies {
+function dependencies(origin: string): LoginLinkDependencies {
   const service = createServiceClient(required("SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"));
   const smtpUser = required("ZOHO_SMTP_USER");
   return {
-    allowedOrigin: ALLOWED_ORIGIN,
+    allowedOrigin: origin,
     async claim() {
       const { data, error } = await service.rpc("claim_sign_in_email_delivery", {
         p_now: new Date().toISOString(),
@@ -33,7 +29,7 @@ function dependencies(): LoginLinkDependencies {
       const { data, error } = await service.auth.admin.generateLink({
         type: "magiclink",
         email: OWNER_EMAIL,
-        options: { redirectTo: SITE_URL },
+        options: { redirectTo: origin === "https://hypermizer.github.io" ? SITE_URL : `${origin}/` },
       });
       const link = data?.properties?.action_link;
       if (error || !link) throw new Error(error?.message ?? "Unable to generate sign-in link");
@@ -56,10 +52,13 @@ function dependencies(): LoginLinkDependencies {
 }
 
 export async function serveLoginLink(request: Request): Promise<Response> {
+  const origin = allowedBrowserOrigin(request);
+  if (!origin) return Response.json({ error: "forbidden_origin" }, { status: 403 });
+  const corsHeaders = browserCors(origin);
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   let response: Response;
   try {
-    response = await handleLoginLink(request, dependencies());
+    response = await handleLoginLink(request, dependencies(origin));
   } catch {
     response = Response.json({ error: "delivery_failed" }, { status: 502 });
   }

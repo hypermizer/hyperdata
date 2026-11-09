@@ -1,6 +1,6 @@
 # Hyperdata
 
-Personal Hyperliquid utility for a live watchlist and unattended alerts. It is a static GitHub Pages app backed by Supabase; no browser needs to remain open for alert evaluation.
+Personal Hyperliquid utility for a live watchlist and unattended alerts. The private server app is available at https://3.131.225.164/#/alerts with the existing browser client certificate. Price alerts run continuously on the server without GitHub, Supabase, or an open browser. Other cloud features retain their existing backend.
 
 ## Alerts
 
@@ -8,21 +8,17 @@ Personal Hyperliquid utility for a live watchlist and unattended alerts. It is a
 - Large move: recurring one-minute evaluation of an endpoint log return against a pre-move robust EWMA volatility forecast and an empirical calibration for that asset and horizon.
 - Every fixed-price alert sends both Zoho email to `jasonblick@zohomail.com` and an iPhone notification through the existing Hyprgarden ntfy topic.
 - Independent delivery records, rapid retries, and live-stream health are visible in Alerts.
-- Legacy SMS rules remain supported.
+- Historical notification records are preserved; new alerts always use email and iPhone notifications.
 
 Detection, occurrences, and notification attempts are persisted separately. Provider failure cannot erase a detected occurrence. An empirical percentile is not a Gaussian probability or a trade recommendation.
 
 ## Runtime
 
-An always-on, supervised server listener evaluates live Hyperliquid mark-price WebSocket updates and durably queues brief threshold touches. It runs without a browser, reconnects automatically, and tracks asset freshness.
+The supervised server runtime evaluates Hyperliquid mark-price WebSocket updates, syncs qualifying touches to disk, and atomically records occurrences and independent delivery jobs in local PostgreSQL. A separate HTTP monitor checks every 15 seconds. Email and ntfy send directly from the server with leases, retries, health checks, and an independent external watchdog.
 
-Supabase Edge Functions provide independent fallback and statistical evaluation through `pg_cron`:
+The root volume is 240 GiB; a separate 50 GiB encrypted volume holds alert data. Backups run every 15 minutes to Ohio and Tokyo. The API uses a separate HTTPS Elastic IP, mutual TLS, CSRF protection, a restricted database role, and a Unix socket. Provider secrets stay outside the API and source tree.
 
-- `monitor-market` every 15 seconds (large-move statistics every minute): batches Hyperliquid market context by DEX, stores observations, evaluates rules, and records health.
-- `rebuild-calibrations` every 15 minutes: drains bounded calibration jobs and refreshes versioned models.
-- `deliver-alerts` every 15 seconds: drains the durable outbox with leases, retries, and explicit terminal or ambiguous states.
-
-Market observations are retained for 30 days and monitor runs for 14 days. The WebSocket feed normally updates about once per second; notification-provider acceptance adds latency. Outages and iPhone delivery conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, and recovery.
+The feed normally updates about once per second. Exchange outages and provider/iPhone conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, backups, and recovery.
 
 ## Paper trading
 
@@ -40,23 +36,9 @@ For the activation shadow, keep `PAPER_TRADING_ENABLED=false`, set `PAPER_PROCES
 
 ## Production setup
 
-The deployment workflow requires these GitHub Actions secrets:
+Deploy the direct alert runtime with `bash scripts/deploy-alert-runtime.sh` and inspect it with `bash scripts/verify-direct-alert-runtime.sh`. Root-only configuration lives in `/etc/hyperdata/`; production data lives in `/srv/hyperdata`. See the [operations guide](docs/price-alerts.md) for initial provisioning and recovery.
 
-- `SUPABASE_ACCESS_TOKEN`
-- `MONITOR_SECRET` (a long random value)
-- `NTFY_BASE_URL`, `NTFY_TOPIC` (reuse the protected Hyprgarden configuration)
-- Existing delivery secrets: `ALERT_EMAIL`, `ALERT_SMS_TO`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`
-
-The workflow applies migrations, deploys functions, copies provider settings into Edge secrets, writes the scheduler values to Vault, configures cron, verifies monitor freshness and large-move calibration, and uses any queued notification as a controlled provider smoke test. A failed verification fails deployment without disabling durable retries. The equivalent manual scheduler recovery is:
-
-```sql
-select vault.create_secret('https://itheknkmuutquriojdzt.supabase.co', 'project_url');
-select vault.create_secret('<service-role-key>', 'service_role_key');
-select vault.create_secret('<same MONITOR_SECRET>', 'monitor_secret');
-select public.configure_listener_cron();
-```
-
-`DELIVERY_ENABLED=true` is the production setting after the completed shadow period. The supervised WebSocket listener is the primary fixed-price engine, backed by the 15-second Supabase monitor. The legacy GitHub issue monitor remains retired. Host listener changes also require `bash scripts/install-price-stream.sh`; see the operations guide.
+The existing GitHub/Supabase deployment still serves other application features. The legacy alert scheduler and delivery flags are disabled, and a database cutover guard prevents accidental reactivation. GitHub Pages links to the private alert app; it is not an intermediary for alerts.
 
 ## Local development
 
@@ -65,9 +47,10 @@ npm install
 supabase start
 npm test
 npm run test:edge
+npm run test:runtime # requires PostgreSQL binaries; uses a disposable cluster
 npm run test:db
 npm run check
 npm run serve
 ```
 
-The browser contains only the Supabase publishable key. Service-role, scheduler, SMTP, Twilio, email, and phone values must remain in Supabase/GitHub secrets.
+The browser contains only the Supabase publishable key for the remaining cloud features. SMTP, ntfy, service-role, and scheduler credentials must remain in protected server configuration or the existing cloud secret stores.

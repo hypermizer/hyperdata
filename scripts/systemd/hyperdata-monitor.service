@@ -1,0 +1,37 @@
+[Unit]
+Description=Hyperdata independent HTTP alert monitor
+After=network-online.target postgresql@16-hyperdata.service
+Wants=network-online.target
+Requires=postgresql@16-hyperdata.service
+RequiresMountsFor=/srv/hyperdata
+StartLimitIntervalSec=0
+[Service]
+User=hyperdata
+Group=hyperdata
+SupplementaryGroups=hyperdata-db
+WorkingDirectory=/opt/hyperdata-runtime/current
+EnvironmentFile=/etc/hyperdata/worker.env
+EnvironmentFile=/etc/hyperdata/providers.env
+Environment=DENO_DIR=/opt/hyperdata-runtime/cache
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,api.hyperliquid.xyz,ntfy.sh,127.0.0.53:53,0.0.0.0/0:465 --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata,/srv/hyperdata/spool --allow-write=/run/postgresql-hyperdata,/srv/hyperdata/spool runtime/monitor.ts fallback
+Restart=always
+RestartSec=2
+TimeoutStopSec=70
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/hyperdata/spool
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+MemoryMax=512M
+CPUWeight=200
+TasksMax=64
+LimitCORE=0
+[Install]
+WantedBy=multi-user.target

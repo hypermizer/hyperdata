@@ -29,3 +29,8 @@ test("separate channels expose partial delivery instead of hiding a failure", as
   assert.equal(priceStreamHealth({ heartbeat_at: fresh, last_market_at: fresh, rules_refreshed_at: fresh, connected: true, pending_occurrences: 0, stale_assets: [] }, now), "LIVE PRICE STREAM HEALTHY");
   assert.match(priceStreamHealth({ heartbeat_at: fresh, last_market_at: fresh, rules_refreshed_at: fresh, connected: false }, now), /DEGRADED/);
 });
+test("historical email-only alerts do not falsely show an iPhone notification as queued", async () => {
+  const { alertDeliverySummary } = await import("../public/lib/alert-rules.js");
+  const label = alertDeliverySummary([{ channel: "email", state: "sent" }], { enabled: false, evaluationStatus: "triggered", delivery: "both" });
+  assert.match(label, /IPHONE NOT RECORDED/); assert.doesNotMatch(label, /QUEUED/);
+});

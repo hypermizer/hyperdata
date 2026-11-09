@@ -5,7 +5,8 @@
     "jsr:@std/internal@^1.0.10": "1.0.14",
     "npm:@supabase/supabase-js@2.52.1": "2.52.1",
     "npm:decimal.js@10.6.0": "10.6.0",
-    "npm:nodemailer@7.0.5": "7.0.5"
+    "npm:nodemailer@7.0.5": "7.0.5",
+    "npm:postgres@4.1.0": "4.1.0"
   },
   "jsr": {
     "@std/assert@1.0.14": {
@@ -97,6 +98,9 @@
     "nodemailer@7.0.5": {
       "integrity": "sha512-nsrh2lO3j4GkLLXoeEksAMgAOqxOv6QumNRVQTJwKH4nuiww6iC2y7GyANs9kRAxCexg3+lTWM3PZ91iLlVjfg=="
     },
+    "postgres@4.1.0": {
+      "integrity": "sha512-s+0WH67YAyLdBQUb6XczbziBhY+C9uiQsg9S8R5RHdZhk6sdyK6202E+T2tXpiInSEEjDLRSJ3OpYBe3PN6MsQ=="
+    },
     "tr46@0.0.3": {
       "integrity": "sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw=="
     },
@@ -122,7 +126,8 @@
       "jsr:@std/assert@1.0.14",
       "npm:@supabase/supabase-js@2.52.1",
       "npm:decimal.js@10.6.0",
-      "npm:nodemailer@7.0.5"
+      "npm:nodemailer@7.0.5",
+      "npm:postgres@4.1.0"
     ]
   }
 }

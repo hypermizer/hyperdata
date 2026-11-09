@@ -45,6 +45,12 @@ async function query(sql) {
   throw lastFailure;
 }
 
+const [destination] = await query("select active,origin from public.alert_runtime_destination where id");
+if (destination?.active) {
+  console.log(`Price alerts are hosted directly at ${destination.origin}; verify them from the authenticated server runtime.`);
+  process.exit(0);
+}
+
 let monitorHealth = {};
 for (let attempt = 0; attempt < 13; attempt += 1) {
   [monitorHealth = {}] = await query(`

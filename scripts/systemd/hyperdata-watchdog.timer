@@ -1,0 +1,8 @@
+[Unit]
+Description=Check direct price alert health every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+Unit=hyperdata-watchdog.service
+[Install]
+WantedBy=timers.target

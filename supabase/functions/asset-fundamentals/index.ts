@@ -1,16 +1,12 @@
+import { allowedBrowserOrigin, browserCors } from "../_shared/browser-origins.ts";
 import { resolveAssetIdentity } from "../_shared/asset-identity.ts";
 import { fetchYahooFundamentals, type AssetFundamentals } from "./finance.ts";
 import { handleAssetFundamentals } from "./handler.ts";
 
-const ALLOWED_ORIGIN = "https://hypermizer.github.io";
 const CACHE_MS = 15 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 100;
 const cache = new Map<string, { expiresAt: number; data: AssetFundamentals }>();
-const corsHeaders = {
-  "access-control-allow-origin": ALLOWED_ORIGIN,
-  "access-control-allow-headers": "authorization, content-type, apikey, x-client-info",
-  "access-control-allow-methods": "POST, OPTIONS",
-};
+
 
 async function fetchFundamentals(asset: string): Promise<AssetFundamentals> {
   const cached = cache.get(asset);
@@ -23,8 +19,11 @@ async function fetchFundamentals(asset: string): Promise<AssetFundamentals> {
 }
 
 export async function serveAssetFundamentals(request: Request): Promise<Response> {
+  const origin = allowedBrowserOrigin(request);
+  if (!origin) return Response.json({ error: "forbidden_origin" }, { status: 403 });
+  const corsHeaders = browserCors(origin);
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const response = await handleAssetFundamentals(request, { allowedOrigin: ALLOWED_ORIGIN, fetchFundamentals });
+  const response = await handleAssetFundamentals(request, { allowedOrigin: origin, fetchFundamentals });
   const headers = new Headers(response.headers);
   Object.entries(corsHeaders).forEach(([key, value]) => headers.set(key, value));
   return new Response(response.body, { status: response.status, headers });

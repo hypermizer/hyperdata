@@ -1,16 +1,12 @@
+import { allowedBrowserOrigin, browserCors } from "../_shared/browser-origins.ts";
 import { resolveAssetIdentity } from "../_shared/asset-identity.ts";
 import { buildGoogleNewsSearchUrl, buildNewsQueries, buildNewsSearchUrl, parseNewsFeed, rankAndDeduplicateNews, type NewsItem } from "./feed.ts";
 import { handleAssetNews } from "./handler.ts";
 
-const ALLOWED_ORIGIN = "https://hypermizer.github.io";
 const CACHE_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 100;
 const cache = new Map<string, { expiresAt: number; items: NewsItem[] }>();
-const corsHeaders = {
-  "access-control-allow-origin": ALLOWED_ORIGIN,
-  "access-control-allow-headers": "authorization, content-type, apikey, x-client-info",
-  "access-control-allow-methods": "POST, OPTIONS",
-};
+
 
 async function fetchNews(asset: string): Promise<NewsItem[]> {
   const cached = cache.get(asset);
@@ -34,8 +30,11 @@ async function fetchNews(asset: string): Promise<NewsItem[]> {
 }
 
 export async function serveAssetNews(request: Request): Promise<Response> {
+  const origin = allowedBrowserOrigin(request);
+  if (!origin) return Response.json({ error: "forbidden_origin" }, { status: 403 });
+  const corsHeaders = browserCors(origin);
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const response = await handleAssetNews(request, { allowedOrigin: ALLOWED_ORIGIN, fetchNews });
+  const response = await handleAssetNews(request, { allowedOrigin: origin, fetchNews });
   const headers = new Headers(response.headers);
   Object.entries(corsHeaders).forEach(([key, value]) => headers.set(key, value));
   return new Response(response.body, { status: response.status, headers });

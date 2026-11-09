@@ -1,4 +1,5 @@
 export const APP_CONFIG = {
+  alertsRuntimeUrl: "https://3.131.225.164",
   repository: "hypermizer/hyperdata",
   initialWatchlist: ["xyz:ORCL", "xyz:XYZ100"],
   websocketUrl: "wss://api.hyperliquid.xyz/ws",

@@ -1,0 +1,13 @@
+[Unit]
+Description=Encrypted Hyperdata database backup to Ohio and Tokyo
+Requires=postgresql@16-hyperdata.service
+RequiresMountsFor=/srv/hyperdata
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/backup-hyperdata
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/hyperdata/backups /run/lock

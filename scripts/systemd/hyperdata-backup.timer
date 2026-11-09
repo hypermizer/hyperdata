@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up price alert data every 15 minutes
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+RandomizedDelaySec=30
+Persistent=true
+Unit=hyperdata-backup.service
+[Install]
+WantedBy=timers.target

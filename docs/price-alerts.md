@@ -1,45 +1,69 @@
 # Price alert operations
 
-Fixed-price rules fire once when the exact asset's Hyperliquid **mark price** is at or above/below the configured target, inclusively. A target already met when armed fires on the next received mark. Trades, oracle prices, and book mids are not substituted for mark prices. Venue prefixes remain part of asset identity. Prices and targets in notifications retain up to 12 decimal places.
+The production alert app runs at **https://3.131.225.164/#/alerts** on the Ohio server. Use the existing browser client certificate. Price alert creation, storage, detection, retries, and delivery run directly on this server; GitHub Actions and Supabase are outside this path. The remaining app services, including cloud watchlists and paper trading, still use their existing backend.
 
-## Continuous detection
+## Detection and delivery
 
-`hyperdata-price-stream.service` runs on the existing Ohio server, with outbound connections only. It subscribes to `activeAssetCtx` for armed assets and BTC as a health sentinel, reconnects with bounded backoff, checks feed freshness, and reloads rules through Supabase Realtime with a five-second polling fallback. The exchange currently sends these contexts about once per second; there is no guaranteed latency SLA. `observedAt` records local receipt time because this feed does not include an exchange event timestamp.
+Fixed-price rules fire once when the exact asset's Hyperliquid **mark price** is at or above/below the target, inclusively. A target already met when armed fires on the next received mark. Trade, oracle, and book-mid prices are not substituted. Venue prefixes remain part of asset identity. Notification prices retain up to 12 decimal places. The asset picker includes the full available market catalog.
 
-The first qualifying tick is written to a mode-0600 local spool and synced to disk before being submitted to Supabase. The spool survives worker restarts and temporary database outages. Supabase locks and rechecks the rule, its revision, observation time, and threshold, then atomically records the occurrence, creates independent email/ntfy outbox rows, disables the one-shot rule, and records its triggered state. A concurrent fallback check cannot duplicate that occurrence. Disabling, deleting, or rearming a rule invalidates candidates from its previous revision.
+`hyperdata-stream.service` subscribes directly to Hyperliquid `activeAssetCtx` for armed assets and BTC as a health sentinel. PostgreSQL notifications update subscriptions immediately, with a one-second polling fallback. The worker reconnects with bounded backoff and detects stale assets. The feed normally updates about once per second and has no guaranteed latency SLA. `observedAt` is local receipt time because this feed has no exchange event timestamp.
 
-The existing `monitor-market` function continues checking every 15 seconds, and large-move statistics still use minute buckets. A brief touch entirely inside a feed/server outage cannot be reconstructed from later mark snapshots. The backup limits outage exposure but does not remove this boundary.
+The first qualifying tick is synced to a protected local spool before database submission. PostgreSQL locks and rechecks the rule, revision, asset, observation time, and threshold. One transaction records the occurrence, creates independent email/ntfy outbox rows, and disables the fixed-price rule. Concurrent checks cannot duplicate the occurrence. Disabling, deleting, or rearming invalidates candidates from the prior revision. The spool survives worker restarts and temporary database outages.
 
-## Delivery
+`hyperdata-monitor.service` independently checks HTTP mark snapshots every 15 seconds. Recurring large-move rules retain minute-bucket evaluation using endpoint log returns, robust EWMA volatility, and per-asset/horizon empirical calibration. Empirical percentiles are not Gaussian probabilities. A brief threshold touch entirely inside a feed/server outage cannot be recovered from later snapshots.
 
-Every fixed-price alert sends to `jasonblick@zohomail.com` through Zoho SMTP and to the existing Hyprgarden ntfy topic. The listener claims ntfy deliveries before waking the email Edge Function and sends them in parallel. This uses the server's dedicated outbound address: Supabase's shared egress returned ntfy HTTP 429 during production verification. Generic Edge drains give the dedicated sender a ten-second head start, then remain available as a fallback. No ntfy topic or SMTP credential belongs in browser code or source control.
+Each new alert sends **both** Zoho email to `jasonblick@zohomail.com` and a notification to the existing Hyprgarden ntfy topic. The two channels drain independently in parallel, normally immediately after detection, with a one-second queue poll. Claims expire after two minutes, and updates must match the current lease token and attempt. Failures retry after 5, 10, 20, 40, 80, 160, then 300 seconds, up to 288 attempts (about 24 hours). An accepted channel is not resent because the other failed. Email uses a stable Message-ID; delayed notifications explicitly identify the historical trigger price.
 
-Outbox claims expire after two minutes; finalization must match the current claim attempt. Provider failures retry after 5, 10, 20, 40, 80, 160, then 300 seconds, up to 288 attempts (about 24 hours). Accepted email is never resent because the ntfy channel failed. Email retries use a stable Message-ID. After uncertain network/provider outcomes, a retry can produce a duplicate: neither SMTP nor ntfy offers an exactly-once transaction with our database. `sent` means provider acceptance, not proof of mailbox placement or an iPhone displaying the banner. iOS/Apple, ntfy availability and limits, phone connectivity, and notification settings remain delivery dependencies.
+`sent` means provider acceptance, not confirmed mailbox placement or an iPhone banner. SMTP and ntfy cannot participate in an exactly-once database transaction, so uncertain provider outcomes can cause duplicate delivery. Network, exchange, provider, phone connectivity, and iOS notification settings prevent a hard real-time guarantee.
 
-The dashboard displays both delivery states and live-stream health. A once-per-minute watchdog runs independently in Supabase and sends service notices for a stale listener, durable detections stuck over 30 seconds, or deliveries stuck over two minutes. Notices repeat at most every 15 minutes, followed by a recovery notice. It attempts both providers, so an ntfy outage can still be reported by email. A watchdog also depends on the database and at least one working provider.
+## Isolation and storage
+
+The runtime has a dedicated Elastic IP and HTTPS origin. nginx requires the existing client CA, rejects other Host values, and forwards verified certificate identity over a Unix socket. Mutations require the exact origin and a secure SameSite CSRF cookie/token. Certificate revocation is checked for every API request. The primary desktop and terminal origins, certificate checks, and session revocation remain separate.
+
+The unprivileged API has no internet sockets or provider credentials. Its PostgreSQL role can manage rules and read status, but cannot modify delivery records. Separate supervised workers have scoped network access and root-protected provider settings. Zoho's Node SMTP library resolves remote addresses before connection, so its Deno sandbox permits IPv4 port 465 plus the local DNS resolver; HTTPS destinations remain restricted. Dependencies are pinned, cached, and read-only at runtime.
+
+The root EBS volume is 240 GiB, expanded online from 140 GiB. PostgreSQL, spool, and backups use a separate 50 GiB encrypted gp3 volume mounted at `/srv/hyperdata` with `nodev,nosuid,noexec`. PostgreSQL listens only on `/run/postgresql-hyperdata/.s.PGSQL.5545`; it has no TCP listener. Services require the data mount. Credentials are root-only in `/etc/hyperdata/{api,worker,providers}.env`; never print or commit these files. The API configuration contains no SMTP, ntfy, or Supabase secrets.
+
+The IP certificate is short-lived and automatically renewed by certbot. Its deploy hook validates and reloads nginx. Keep `snap.certbot.renew.timer` running.
 
 ## Deploy and inspect
 
-Credentials are in `/home/ubuntu/.config/hyperdata/price-stream.env` (0600), including `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `MONITOR_SECRET`, `PRICE_WORKER_ID`, `PRICE_SPOOL_PATH`, `DELIVERY_ENABLED=true`, `NTFY_BASE_URL`, and `NTFY_TOPIC`. The ntfy values reuse `/home/ubuntu/.config/hypergarden/ntfy.env`. Matching ntfy secrets are stored in Supabase and GitHub Actions for the fallback. Do not print any credential file.
+Initial host setup is in `scripts/install-alert-runtime.sh`; infrastructure/origin provisioning and controlled migration scripts are in `scripts/`. Provisioning needs the existing target-account administrator session; ordinary deployment does not require AWS administrator credentials.
 
-After changing listener code, run:
+After changing source, run:
 
 ```bash
-bash scripts/install-price-stream.sh
-sudo systemctl status hyperdata-price-stream --no-pager
-sudo journalctl -u hyperdata-price-stream --since '10 minutes ago' --no-pager
+npm test
+npm run test:edge
+npm run test:runtime
+npm run check
+bash scripts/deploy-alert-runtime.sh
+bash scripts/verify-direct-alert-runtime.sh
 ```
 
-The installer copies source into `/opt/hyperdata-price-stream`, caches pinned dependencies, installs the hardened systemd unit, and enables startup/restart supervision. The spool and cache live in `/var/lib/hyperdata-price-stream`. Browser/terminal origins and authentication are unaffected; the worker opens no inbound port. GitHub's Supabase deployment does not install this host service, so deploy host changes with the installer as well.
+The runtime tests start a disposable local PostgreSQL cluster and exercise transactions and delivery fencing. The deployer installs an immutable root-owned release under `/opt/hyperdata-runtime/releases`, atomically switches `current`, and restarts the three supervised services. It never replaces database or spool data. It also installs watchdog and backup timers. Roll back code by switching `current` to a reviewed prior release and restarting the services; do not roll back the database or reactivate the former alert engine.
 
-Run `scripts/verify-alert-runtime.mjs` with protected management/scheduler credentials to verify stream freshness, fallback cadence, large-move calibration, and any due provider deliveries. It reads `price_stream_health`, `monitor_runs`, `alert_occurrences`, and `notification_outbox`. Deployment verification failures are surfaced without globally switching off retries.
+Inspect status without printing environment files:
 
-To pause delivery, set `DELIVERY_ENABLED=false` in **both** the protected worker environment (then restart the service) and Supabase Edge secrets/GitHub variable. Detection continues to persist occurrences. Stop the host service to pause continuous detection; the 15-second fallback remains active. Do not delete the spool or outbox to pause notifications.
+```bash
+sudo systemctl status hyperdata-api hyperdata-stream hyperdata-monitor --no-pager
+sudo journalctl -u hyperdata-stream -u hyperdata-monitor --since '10 minutes ago' --no-pager
+sudo -u hyperdata psql -h /run/postgresql-hyperdata -p 5545 -d hyperdata \
+  -c "select worker_id,heartbeat_at,details from runtime_health;"
+```
 
-## Verification
+For `runtime/admin.ts`, use the restricted invocation in `scripts/verify-direct-alert-runtime.sh`, replacing `status` with `pause`, `activate`, or `revoke-client FINGERPRINT`. Pause stops rule mutations, detection commits, and new delivery claims; in-flight provider requests can finish. Never delete the spool or outbox to pause alerts. To pause only delivery, set the local `runtime_settings.delivery_enabled` JSON value to `false`; detection continues. Restore it to `true` to resume pending deliveries.
 
-The change includes browser-state tests, stream/equality/transient-touch/restart tests, malformed-price rejection, independent delivery tests, and database tests for revision checks, same-bucket rearming, channel claims, lease fencing, and watchdog throttling/recovery. Database regression checks were also rehearsed against hosted PostgreSQL in rolled-back transactions, without sending messages. Controlled live GOLD and BTC rules verify HIP-3 and native asset detection and actual provider acceptance; temporary rules are soft-deleted while delivery evidence remains available.
+The former `hyperdata-price-stream.service` is disabled. Supabase migration `202611090004_local_alert_cutover.sql` records the private origin, blocks old rule writes and occurrence creation, and prevents legacy alert cron from reactivating. Hosted and GitHub alert delivery flags are false. Existing historical records were imported with their sent states preserved. Do not re-enable the old engine: two independent databases would undermine deduplication. GitHub Pages displays a link to the private server and is optional for alert operation.
+
+## Monitoring, backups, and recovery
+
+The local minute watchdog checks stream/fallback heartbeats, stuck delivery records, and database availability. It attempts both email and ntfy, throttles issue notices to 15 minutes, and sends recovery notices. The independent controller checks the public HTTPS origin every minute using a health-only client certificate. It warns through ntfy after two failed checks, repeats at most every 15 minutes, and reports recovery. Its certificate can read `/api/health` but cannot read or change alerts. Neither watchdog eliminates a complete exchange/provider outage.
+
+`hyperdata-backup.timer` runs every 15 minutes. `/usr/local/sbin/backup-hyperdata` writes a PostgreSQL custom-format dump, verifies its archive directory, calculates SHA-256, then uploads encrypted copies to the existing Ohio and Tokyo S3 backup buckets. Local dumps stay for seven days. The existing instance snapshot policy also covers attached EBS volumes. Inspect backup service failures and the timer; a successful local dump alone does not confirm remote upload.
+
+For recovery, stop all Hyperdata services first. Restore the latest verified dump into an isolated PostgreSQL database/host with delivery disabled. Set `runtime_settings.active=false` before exposing the restored API. Restore protected provider configuration and any surviving spool separately. Check counts, rules, sent/unsent outbox states, and spool revisions; old sent rows must remain sent. Validate TLS, client revocation, data mount, and backups, then activate exactly one runtime. A database restore to an earlier point can replay previously accepted messages; reconcile outbox history before activation.
+
+On 2026-11-09 a full dump was restored to a disposable database and its rule, occurrence, and notification counts matched. An Ohio download matched the local SHA-256, and the Tokyo object confirmed KMS encryption. A fresh production browser-created `xyz:GOLD` alert triggered through WebSocket 181 ms after creation; ntfy accepted its first attempt 143 ms after detection and Zoho accepted its first attempt after 1.207 seconds. These are observed timings, not guarantees. Verification rules were soft-deleted while their delivery evidence was retained.
 
 References: [Hyperliquid subscriptions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions), [heartbeats](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/timeouts-and-heartbeats), [ntfy publishing](https://docs.ntfy.sh/publish/), [ntfy iOS delivery](https://docs.ntfy.sh/config/#ios-instant-notifications).
-
-On 2026-11-09, the fresh BTC verification triggered through the WebSocket path 1.55 seconds after rule creation. Receipt-to-database time was 66 ms; ntfy accepted its first attempt 376 ms after the occurrence and Zoho accepted its first attempt after 2.64 seconds. These are observed test timings, not guaranteed delivery bounds. The earlier GOLD check also confirmed HIP-3 asset identity and that ntfy retries could recover without resending an already accepted email.
