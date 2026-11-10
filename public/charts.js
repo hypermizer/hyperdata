@@ -15,7 +15,7 @@ export function createChartGrid({ client, getAssets, getMarket }) {
   let dirty = cached?.dirty === true, revision = 0, owner = null, ready = false, saving = false;
   let active = false, socket = null, reconnectAt = 0, openedAt = 0, lastFrame = 0, lastPing = 0, connections = 0;
   let saveTimer = null, applyTimer = null, nextRequestAt = 0, requests = 0, dragged = null;
-  let subscribed = new Set();
+  let subscribed = new Set(), restoringScroll = false;
   const cards = new Map();
 
   function cache() {
@@ -95,7 +95,7 @@ export function createChartGrid({ client, getAssets, getMarket }) {
     const retry = document.createElement("button"); retry.type = "button"; retry.className = "chart-card-retry"; retry.textContent = "RETRY"; retry.hidden = true;
     header.append(link, price, actions); node.append(header, chartElement, message, retry); grid.append(node);
     const card = { asset, node, link, price, chartElement, message, retry, chart: null, bars: [], loading: false, applying: false, loadedKey: null, retryAt: 0, liveAt: 0, token: 0, gestureUntil: 0 };
-    for (const event of ["pointerdown", "wheel", "touchstart"]) chartElement.addEventListener(event, () => { card.gestureUntil = Date.now() + 2000; }, { passive: true });
+    for (const event of ["pointerdown", "wheel", "touchstart"]) chartElement.addEventListener(event, () => { card.gestureUntil = Date.now() + 2000; }, { passive: true, capture: true });
     chartElement.addEventListener("pointermove", (event) => { if (event.buttons) card.gestureUntil = Date.now() + 2000; }, { passive: true });
     retry.addEventListener("click", () => { card.retryAt = 0; pump(); });
     header.addEventListener("dragstart", (event) => { dragged = asset; event.dataTransfer.setData("text/plain", asset); event.dataTransfer.effectAllowed = "move"; node.classList.add("dragging"); });
@@ -134,6 +134,9 @@ export function createChartGrid({ client, getAssets, getMarket }) {
       card.link.href = "#/assets/" + encodeURIComponent(asset) + "/overview/" + preferences.interval;
     }
     syncSubscriptions(); connect(); pump();
+    restoringScroll = true;
+    grid.scrollTop = preferences.scroll.top; grid.scrollLeft = preferences.scroll.left;
+    requestAnimationFrame(() => { restoringScroll = false; });
   }
   function key() { return preferences.interval + ":" + preferences.window; }
   async function load(card) {
@@ -211,6 +214,10 @@ export function createChartGrid({ client, getAssets, getMarket }) {
   $("range").addEventListener("input", () => { preferences.window = chartWindows(preferences.interval)[Number($("range").value)].seconds; preferences.ranges = {}; controls(); changed(); clearTimeout(applyTimer); applyTimer = setTimeout(applyShared, 300); });
   for (const name of ["columns", "rows", "height"]) $(name).addEventListener("input", () => { preferences[name] = Number($(name).value); controls(); changed(); });
   $("reset").addEventListener("click", () => { preferences.ranges = {}; changed(); for (const card of cards.values()) resetRange(card); });
+  grid.addEventListener("scroll", () => {
+    if (!active || restoringScroll) return;
+    preferences.scroll = { top: grid.scrollTop, left: grid.scrollLeft }; changed();
+  }, { passive: true });
   window.addEventListener("hyperdata:watchlist", () => { if (active) reconcile(); });
   window.addEventListener("online", () => { if (!ready) void restore(); else void save(); reconnectAt = 0; connect(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) { close(); void save(); } else { reconnectAt = 0; connect(); pump(); } });

@@ -6,7 +6,7 @@ export const CHART_WINDOWS = [
   ["2 WEEKS", 1209600], ["1 MONTH", 2592000], ["3 MONTHS", 7776000],
   ["6 MONTHS", 15552000], ["1 YEAR", 31536000],
 ].map(([label, seconds]) => ({ label, seconds }));
-export const CHART_DEFAULTS = { interval: "1h", window: 604800, columns: 3, rows: 2, height: 300, order: [], ranges: {} };
+export const CHART_DEFAULTS = { interval: "1h", window: 604800, columns: 3, rows: 2, height: 300, order: [], ranges: {}, scroll: { top: 0, left: 0 } };
 const validAsset = (asset) => typeof asset === "string" && /^[a-zA-Z0-9_.:-]{1,100}$/.test(asset);
 const bounded = (value, fallback, min, max) => Number.isFinite(value) ? Math.max(min, Math.min(max, Math.round(value))) : fallback;
 
@@ -28,7 +28,8 @@ export function normalizeChartPreferences(input = {}) {
       ranges[asset] = { from: range.from, to: range.to };
     }
   }
-  return { interval, window, columns: bounded(input.columns, 3, 1, 6), rows: bounded(input.rows, 2, 1, 6), height: bounded(input.height, 300, 200, 700), order, ranges };
+  const scroll = { top: bounded(input.scroll?.top, 0, 0, 1000000), left: bounded(input.scroll?.left, 0, 0, 1000000) };
+  return { interval, window, columns: bounded(input.columns, 3, 1, 6), rows: bounded(input.rows, 2, 1, 6), height: bounded(input.height, 300, 200, 700), order, ranges, scroll };
 }
 
 export function orderedChartAssets(watched, order) {

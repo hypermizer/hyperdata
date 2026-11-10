@@ -71,6 +71,11 @@ export function createAssetChart(container, onCursorTime = () => {}, onLiquidati
       finally { applyingRange = false; }
     },
     setData(candles, resetView = true) {
+      const price = candles.at(-1)?.close;
+      if (price > 0) {
+        const precision = Math.max(2, Math.min(12, 6 - Math.ceil(Math.log10(price))));
+        candleSeries.applyOptions({ priceFormat: { type: "price", precision, minMove: 10 ** -precision } });
+      }
       candleSeries.setData(candles.map(candlePoint));
       liquidations.setCandles(candles);
       volumeSeries.setData(candles.map(volumePoint));
