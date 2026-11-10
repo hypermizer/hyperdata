@@ -1,11 +1,13 @@
 import { createClient } from "../vendor/supabase.js?v=2.52.1-owner";
 import {sharedOwnerSession} from './owner-session.js?v=20261109-owner';
+import {createOwnerTransport} from './owner-fetch.js?v=20261110-charts3';
 
 export function createWatchlistClient(config) {
   if(!config.runtimeOrigins?.includes(globalThis.location?.origin)) return null;
   const key = "__hyperdataSupabaseClient";
   if (!globalThis[key]) {
     const identity=sharedOwnerSession();
+    const transport=createOwnerTransport();
     const client=createClient(globalThis.location.origin+'/api/owner','private-owner',{
       auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},
       global:{fetch:async(input,init={})=>{
@@ -14,7 +16,7 @@ export function createWatchlistClient(config) {
         const session=await identity.get();
         const headers=new Headers(init.headers);
         if(!['GET','HEAD'].includes(init.method??'GET'))headers.set('x-csrf-token',session.csrf);
-        const response=await fetch(input,{...init,headers,credentials:'same-origin',cache:'no-store',signal:init.signal??AbortSignal.timeout(25_000)});
+        const response=await transport(input,{...init,headers,credentials:'same-origin',cache:'no-store'});
         if(response.status===403)identity.invalidate();
         return response;
       }},

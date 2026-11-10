@@ -1,12 +1,12 @@
-import { createAssetChart } from "./asset-chart.js?v=20261110-charts2";
+import { createAssetChart } from "./asset-chart.js?v=20261110-charts3";
 import { CANDLE_INTERVALS, mergeLiveCandle, normalizeCandle } from "./lib/hyperliquid.js?v=20261110-marks";
-import { chartRequest, chartWindows, fetchChartCandles, moveChart, normalizeChartPreferences, orderedChartAssets } from "./lib/chart-grid.js?v=20261110-charts2";
+import { chartRequest, chartWindows, fetchChartCandles, moveChart, normalizeChartPreferences, orderedChartAssets } from "./lib/chart-grid.js?v=20261110-charts3";
 import { displayAssetSymbol } from "./lib/assets.js?v=20261028-assets-hardening";
 
 const CACHE_KEY = "hyperdata.chart-grid.v1";
 const money = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 8 });
 
-export function createChartGrid({ client, getAssets, getMarket }) {
+export function createChartGrid({ client, getAssets, getMarket, getReady = () => true }) {
   const $ = (id) => document.getElementById("charts-" + id);
   const grid = $("grid"), status = $("save-status");
   let cached = {};
@@ -112,6 +112,11 @@ export function createChartGrid({ client, getAssets, getMarket }) {
   }
   function reconcile() {
     if (!active) return;
+    if (!getReady()) {
+      $("count").textContent = "LOADING WATCHLIST…";
+      if (!grid.children.length) { const loading = document.createElement("p"); loading.className = "charts-empty"; loading.textContent = "Loading your saved watched assets…"; grid.append(loading); }
+      return;
+    }
     const assets = orderedChartAssets(getAssets(), preferences.order);
     $("count").textContent = `${assets.length} WATCHED`;
     for (const [asset, card] of cards) if (!assets.includes(asset)) { card.token++; card.chart?.destroy(); card.node.remove(); cards.delete(asset); }

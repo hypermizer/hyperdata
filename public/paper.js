@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260720-paper";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { applyLiveMarketContext, postInfo } from "./lib/hyperliquid.js?v=20260722-position-controls";
-import { getMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts2";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts3";
 import {
   activePaperEpoch,
   combinePaperHistory,
@@ -36,7 +36,7 @@ import {
   projectLivePaperAccount,
   quoteIsFresh,
 } from "./lib/paper-live.js?v=20260728-paper-live";
-import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
+import { createWatchlistClient } from "./lib/supabase.js?v=20261110-charts3";
 
 const client = createWatchlistClient(APP_CONFIG);
 const state = {

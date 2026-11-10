@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20261109-owner";
 import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-owner";
 import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
 import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
-import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261110-charts2";
+import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261110-charts3";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
 import { applyAssetAnalyticsRows, applyMarkReferenceSnapshot, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261110-marks";
 import {
@@ -15,13 +15,13 @@ import {
   mergeLiveCandle,
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20261110-marks";
-import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts2";
-import { createChartGrid } from "./charts.js?v=20261110-charts2";
+import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts3";
+import { createChartGrid } from "./charts.js?v=20261110-charts3";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
-import { createWatchlistClient } from "./lib/supabase.js?v=20261109-owner";
+import { createWatchlistClient } from "./lib/supabase.js?v=20261110-charts3";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20261110-charts2";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20261110-charts3";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -85,7 +85,8 @@ const state = {
   sort: "asset-asc",
   user: null,
   watchedFirst: false,
-  watchlist: [...APP_CONFIG.initialWatchlist],
+  watchlist: [],
+  watchlistReady: false,
 };
 
 const elements = {
@@ -132,7 +133,7 @@ const elements = {
 };
 
 const liquidationView = createAssetLiquidations(state.alertClient, (asset) => state.markets.get(asset)?.markPrice);
-const chartGrid = createChartGrid({ client: state.supabase, getAssets: () => state.watchlist, getMarket: (asset) => state.markets.get(asset) });
+const chartGrid = createChartGrid({ client: state.supabase, getAssets: () => state.watchlist, getMarket: (asset) => state.markets.get(asset), getReady: () => state.watchlistReady });
 wireEvents();
 initialize();
 
@@ -140,12 +141,16 @@ async function initialize() {
   renderRoute();
   void loadAlerts();
   const marketReady = initializeMarketData();
-  try {
-    await initializeWatchlistStorage();
-  } catch (error) {
-    setAccountMessage(error instanceof Error ? error.message : "Unable to restore browser session.");
-  }
+  await restoreWatchlistStorage();
   await marketReady;
+}
+
+async function restoreWatchlistStorage() {
+  try { await initializeWatchlistStorage(); }
+  catch {
+    setAccountMessage("WATCHLIST SYNC RETRYING…");
+    window.setTimeout(restoreWatchlistStorage, 5000);
+  }
 }
 
 async function initializeMarketData() {
@@ -311,6 +316,7 @@ async function loadCloudWatchlist() {
     .order("created_at");
   if (error) throw error;
   state.watchlist = data.map((item) => item.asset);
+  state.watchlistReady = true;
   dispatchWatchlist();
 }
 
@@ -332,6 +338,7 @@ function renderAccount() {
 
 async function toggleWatchedAsset(asset) {
   if (state.favoritePending.has(asset)) return;
+  if (!state.watchlistReady) { setWatchlistMessage("Watchlist is syncing. Please wait."); return; }
   if (!state.user) {
     setWatchlistMessage("Private owner session is unavailable. Reload through the gateway.");
     return;
