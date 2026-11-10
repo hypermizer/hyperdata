@@ -1,6 +1,6 @@
-import { createAssetChart } from "./asset-chart.js?v=20261110-charts";
+import { createAssetChart } from "./asset-chart.js?v=20261110-charts2";
 import { CANDLE_INTERVALS, mergeLiveCandle, normalizeCandle } from "./lib/hyperliquid.js?v=20261110-marks";
-import { chartRequest, chartWindows, fetchChartCandles, moveChart, normalizeChartPreferences, orderedChartAssets } from "./lib/chart-grid.js?v=20261110-charts";
+import { chartRequest, chartWindows, fetchChartCandles, moveChart, normalizeChartPreferences, orderedChartAssets } from "./lib/chart-grid.js?v=20261110-charts2";
 import { displayAssetSymbol } from "./lib/assets.js?v=20261028-assets-hardening";
 
 const CACHE_KEY = "hyperdata.chart-grid.v1";
@@ -13,8 +13,9 @@ export function createChartGrid({ client, getAssets, getMarket }) {
   try { cached = JSON.parse(localStorage.getItem(CACHE_KEY) ?? "{}"); } catch { /* server restoration remains available */ }
   let preferences = normalizeChartPreferences(cached?.settings);
   let dirty = cached?.dirty === true, revision = 0, owner = null, ready = false, saving = false;
-  let active = false, socket = null, reconnectAt = 0, openedAt = 0, lastFrame = 0, lastPing = 0, connections = 0;
+  let active = false, socket = null, reconnectAt = 0, reconnectBackoff = 1000, openedAt = 0, lastFrame = 0, lastPing = 0, connections = 0;
   let saveTimer = null, applyTimer = null, nextRequestAt = 0, requests = 0, dragged = null;
+  try { nextRequestAt = Math.min(Date.now() + 30000, Number(sessionStorage.getItem("hyperdata.chart-history-next.v1")) || 0); } catch { /* memory pacing still applies */ }
   let subscribed = new Set(), restoringScroll = false;
   const cards = new Map();
 
@@ -158,8 +159,10 @@ export function createChartGrid({ client, getAssets, getMarket }) {
     if (!active || requests >= 2 || Date.now() < nextRequestAt || document.hidden) return;
     const card = [...cards.values()].filter((card) => card.chart && !card.loading && card.loadedKey !== key() && card.retryAt <= Date.now()).sort((a, b) => Number(a.node.style.order) - Number(b.node.style.order))[0];
     if (!card) return;
-    // 600 weight/minute maximum for history; leave room for other app requests.
-    nextRequestAt = Date.now() + chartRequest(preferences).weight * 100;
+    // 400 weight/minute maximum, including across refreshes. Reserve most of the
+    // public-IP allowance for market metadata and other active application work.
+    nextRequestAt = Date.now() + chartRequest(preferences, Date.now(), card.asset).weight * 150;
+    try { sessionStorage.setItem("hyperdata.chart-history-next.v1", String(nextRequestAt)); } catch { /* memory pacing still applies */ }
     void load(card);
   }
   function updateLabel(card) {
@@ -190,7 +193,7 @@ export function createChartGrid({ client, getAssets, getMarket }) {
     ws.onmessage = ({ data }) => {
       if (socket !== ws) return;
       try {
-        const message = JSON.parse(data); lastFrame = Date.now();
+        const message = JSON.parse(data); lastFrame = Date.now(); reconnectBackoff = 1000;
         if (message.channel !== "candle" || message.data?.i !== preferences.interval) return;
         const card = cards.get(message.data.s), candle = normalizeCandle(message.data);
         if (!card || !candle) return;
@@ -200,7 +203,11 @@ export function createChartGrid({ client, getAssets, getMarket }) {
         if (card.loadedKey === key()) { card.applying = true; card.chart?.update(candle); requestAnimationFrame(() => { card.applying = false; }); updateLabel(card); }
       } catch { /* malformed frame cannot replace verified candles */ }
     };
-    ws.onclose = () => { if (socket !== ws) return; socket = null; subscribed = new Set(); reconnectAt = Date.now() + 3000; };
+    ws.onclose = () => {
+      if (socket !== ws) return;
+      socket = null; subscribed = new Set(); reconnectAt = Date.now() + reconnectBackoff;
+      reconnectBackoff = Math.min(30000, reconnectBackoff * 2);
+    };
     ws.onerror = () => ws.close();
   }
   function close() { const ws = socket; socket = null; subscribed = new Set(); ws?.close(); }
@@ -233,6 +240,7 @@ export function createChartGrid({ client, getAssets, getMarket }) {
     setActive(value) {
       if (active === value) return;
       active = value;
+      document.querySelector("main").classList.toggle("charts-open", active);
       if (active) reconcile();
       else { close(); void save(); for (const card of cards.values()) { card.token++; card.chart?.destroy(); } cards.clear(); grid.replaceChildren(); }
     },

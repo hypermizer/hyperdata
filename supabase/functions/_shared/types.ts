@@ -1,5 +1,5 @@
 export type DetectorName = "fixed_price" | "large_move";
-export type DeliveryChannel = "email" | "sms" | "both";
+export type DeliveryChannel = "email" | "sms" | "both" | "ntfy";
 
 export interface AlertRule {
   id: string; user_id: string; asset: string; dex: string;

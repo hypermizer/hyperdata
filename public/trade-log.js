@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260718-listener";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { displayAssetSymbol } from "./lib/assets.js?v=20260720-stream";
-import { getMarketCatalog } from "./lib/market-catalog.js?v=20260720-assets";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts2";
 import { createWatchlistClient } from "./lib/supabase.js?v=20260728-persistent-auth";
 import { accountSyncHealth, aggregateEpisodeOrders, buildPositionEpisodes, episodeExecutionMetrics, fetchAllAccountFills, formatTradeTimestamp, normalizeAccountFill, summarizeTradePerformance } from "./lib/account-trades.js?v=20260805-performance-percentages";
 import { buildTradeLedger, normalizeTradeOrder } from "./lib/trade-log.js?v=20260804-trade-log";

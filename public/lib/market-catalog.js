@@ -1,11 +1,9 @@
 import { fetchAllMarkets } from "./hyperliquid.js?v=20260925-all-tradfi-review";
 
-let catalogPromise;
 let assetCatalogPromise;
 
 export function getMarketCatalog() {
-  catalogPromise ??= fetchAllMarkets().then(sortMarkets);
-  return catalogPromise;
+  return getAssetMarketCatalog();
 }
 
 export function getAssetMarketCatalog({ refresh = false } = {}) {

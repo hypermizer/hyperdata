@@ -1,7 +1,7 @@
 import { APP_CONFIG } from "./config.js?v=20260720-paper";
 import { AssetPicker } from "./asset-picker.js?v=20260721-audio";
 import { applyLiveMarketContext, postInfo } from "./lib/hyperliquid.js?v=20260722-position-controls";
-import { getMarketCatalog } from "./lib/market-catalog.js?v=20260722-position-controls";
+import { getMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts2";
 import {
   activePaperEpoch,
   combinePaperHistory,
@@ -84,7 +84,13 @@ const elements = {
 const paperAssetPicker = new AssetPicker($("#paper-asset-picker"));
 
 wire();
-initialize();
+function initializeWithRetry() {
+  initialize().catch(() => {
+    renderStatus("MARKET DATA UNAVAILABLE · RETRYING");
+    window.setTimeout(initializeWithRetry, 30000);
+  });
+}
+initializeWithRetry();
 
 function wire() {
   elements.account.addEventListener("change", () => selectAccount(elements.account.value));

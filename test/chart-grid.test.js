@@ -31,6 +31,15 @@ test("dragged order survives refresh, removes unwatched assets and appends new w
   assert.deepEqual(moveChart(order, "BAD", "BTC"), order);
 });
 
+test("restoring a panned view requests its older candles within provider limits", () => {
+  const now = 1800000000000;
+  const prefs = normalizeChartPreferences({ interval: "5m", window: 86400, ranges: { BTC: { from: now / 1000 - 2 * 86400, to: now / 1000 - 86400 } }, scroll: { top: 250, left: 100 } });
+  const pinned = chartRequest(prefs, now, "BTC"), shared = chartRequest(prefs, now, "ETH");
+  assert.ok(pinned.startTime <= prefs.ranges.BTC.from * 1000);
+  assert.ok(pinned.weight > shared.weight);
+  assert.equal(normalizeChartPreferences(JSON.parse(JSON.stringify(prefs))).scroll.top, 250);
+});
+
 test("chart history uses the exact venue and interval, bounds reads and normalizes real candles", async () => {
   const now = 1800000000000, prefs = normalizeChartPreferences({ interval: "5m", window: 86400 });
   const bars = await fetchChartCandles("xyz:GOLD", prefs, async (_url, options) => {

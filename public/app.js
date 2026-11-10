@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20261109-owner";
 import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-owner";
 import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
 import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
-import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261110-charts";
+import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261110-charts2";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
 import { applyAssetAnalyticsRows, applyMarkReferenceSnapshot, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261110-marks";
 import {
@@ -15,13 +15,13 @@ import {
   mergeLiveCandle,
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20261110-marks";
-import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261028-assets-hardening";
-import { createChartGrid } from "./charts.js?v=20261110-charts";
+import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts2";
+import { createChartGrid } from "./charts.js?v=20261110-charts2";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20261109-owner";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20261110-charts";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20261110-charts2";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",

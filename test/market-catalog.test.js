@@ -15,7 +15,7 @@ test("asset catalog requires both native crypto and TradFi markets", () => {
   );
 });
 
-test("asset catalog retries incomplete results without changing the shared partial catalog", async () => {
+test("all views share the complete asset catalog and retry incomplete results", async () => {
   const originalFetch = globalThis.fetch;
   let attempt = 0;
 
@@ -39,8 +39,9 @@ test("asset catalog retries incomplete results without changing the shared parti
   try {
     await assert.rejects(getAssetMarketCatalog(), /catalog incomplete \(xyz\)/);
     assert.deepEqual((await getAssetMarketCatalog()).map(({ id }) => id), ["BTC", "xyz:ORCL"]);
-    assert.deepEqual((await getMarketCatalog()).map(({ id }) => id), ["BTC"]);
-    assert.equal(attempt, 3);
+    assert.equal(getMarketCatalog(), getAssetMarketCatalog());
+    assert.deepEqual((await getMarketCatalog()).map(({ id }) => id), ["BTC", "xyz:ORCL"]);
+    assert.equal(attempt, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

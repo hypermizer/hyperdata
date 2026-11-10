@@ -47,14 +47,16 @@ export function moveChart(assets, source, target) {
   return result;
 }
 
-export function chartRequest(preferences, now = Date.now()) {
+export function chartRequest(preferences, now = Date.now(), asset = null) {
   const step = CANDLE_INTERVALS.find((item) => item.value === preferences.interval).milliseconds;
-  const count = Math.min(4900, Math.ceil(preferences.window * 1000 / step) + 10);
+  const pinnedFrom = preferences.ranges[asset]?.from;
+  const pinnedCount = pinnedFrom ? Math.ceil((now - pinnedFrom * 1000) / step) + 2 : 0;
+  const count = Math.min(4900, Math.max(pinnedCount, Math.ceil(preferences.window * 1000 / step) + 10));
   return { count, startTime: Math.max(0, now - count * step), endTime: now, weight: 20 + Math.ceil(count / 60) };
 }
 
 export async function fetchChartCandles(asset, preferences, fetchImpl = fetch, now = Date.now()) {
-  const request = chartRequest(preferences, now);
+  const request = chartRequest(preferences, now, asset);
   const response = await postInfo({ type: "candleSnapshot", req: { coin: asset, interval: preferences.interval, startTime: request.startTime, endTime: now } }, fetchImpl);
   if (!Array.isArray(response)) throw new Error("Candle history is unavailable.");
   return [...new Map(response.map(normalizeCandle).filter(Boolean).map((bar) => [bar.time, bar])).values()]
