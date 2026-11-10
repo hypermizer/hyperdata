@@ -3,7 +3,7 @@ create table if not exists alert_rules (
  id uuid primary key default gen_random_uuid(), user_id uuid not null,
  asset text not null check(asset ~ '^[a-zA-Z0-9_.:-]+$'), dex text not null default '',
  detector text not null check(detector in ('fixed_price','large_move')), detector_version integer not null default 1,
- configuration jsonb not null, delivery text not null default 'both' check(delivery='both'),
+ configuration jsonb not null, delivery text not null default 'ntfy' check(delivery='ntfy'),
  enabled boolean not null default true, deleted_at timestamptz,
  created_at timestamptz not null default clock_timestamp(), updated_at timestamptz not null default clock_timestamp()
 );

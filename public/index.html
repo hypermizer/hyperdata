@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261109-liquidations" />
+    <link rel="stylesheet" href="./styles.css?v=20261110-charts" />
   </head>
   <body>
     <main>
@@ -20,12 +20,11 @@
         <div class="tab-bar">
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
             <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">ASSETS</a>
-            <a id="heat-map-tab" href="#/heat-map" role="tab" aria-selected="false" aria-controls="heat-map-view" data-tab="heat-map">HEAT MAP</a>
+            <a id="charts-tab" href="#/charts" role="tab" aria-selected="false" aria-controls="charts-view" data-tab="charts">CHARTS</a>
             <a id="alerts-tab" href="#/alerts" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</a>
             <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
             <a id="analysis-tab" href="#/analysis/trade-log" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
             <a id="paper-tab" href="#/paper/home" role="tab" aria-selected="false" aria-controls="paper-view" data-tab="paper">Paper</a>
-            <a id="tools-tab" href="#/tools/scaling" role="tab" aria-selected="false" aria-controls="tools-view" data-tab="tools">Tools</a>
           </div>
           <div class="account-actions">
             <span id="account-status" class="hint">Connecting to private owner session…</span>
@@ -80,11 +79,21 @@
         <div id="market-list" class="market-list" aria-live="polite">Loading…</div>
       </section>
 
-      <section id="heat-map-view" role="tabpanel" aria-labelledby="heat-map-tab" hidden>
+      <section id="charts-view" role="tabpanel" aria-labelledby="charts-tab" hidden>
         <div class="section-header">
-          <div class="section-title"><h2>HEAT MAP</h2><span id="heat-map-count" class="hint">— WATCHED</span></div>
+          <div class="section-title"><h2>CHARTS</h2><span id="charts-count" class="hint">— WATCHED</span></div>
+          <span id="charts-save-status" class="hint" role="status"></span>
         </div>
-        <div id="heat-map-grid" class="heat-map-grid">LOADING…</div>
+        <div class="charts-controls" aria-label="Shared chart controls">
+          <label>CANDLE INTERVAL <output id="charts-interval-label" for="charts-interval"></output><input id="charts-interval" type="range" min="0" max="13" step="1" aria-label="Candle interval for all charts" /></label>
+          <label>VISIBLE HISTORY <output id="charts-range-label" for="charts-range"></output><input id="charts-range" type="range" min="0" max="10" step="1" aria-label="Visible history for all charts" /></label>
+          <label>COLUMNS <output id="charts-columns-label" for="charts-columns"></output><input id="charts-columns" type="range" min="1" max="6" step="1" aria-label="Grid columns" /></label>
+          <label>VISIBLE ROWS <output id="charts-rows-label" for="charts-rows"></output><input id="charts-rows" type="range" min="1" max="6" step="1" aria-label="Visible grid rows" /></label>
+          <label>CHART HEIGHT <output id="charts-height-label" for="charts-height"></output><input id="charts-height" type="range" min="200" max="700" step="25" aria-label="Chart height" /></label>
+          <button id="charts-reset" type="button">RESET VIEWS</button>
+        </div>
+        <p id="charts-note" class="hint charts-note">Shared controls apply to every chart. Longer history requires wider candles. Drag a header to reorder; use its arrow buttons on touch or keyboard. Scroll the grid for more watched assets.</p>
+        <div id="charts-grid" class="charts-grid"></div>
       </section>
 
       <section id="asset-view" role="tabpanel" aria-labelledby="watchlist-tab" hidden>
@@ -167,12 +176,12 @@
           </select>
           <input id="move-floor" name="minimumMovePercent" type="number" min="0" step="0.1" value="0" aria-label="Minimum move percent" title="Minimum move percent" data-move-field hidden />
           <select id="alert-delivery" name="delivery" aria-label="Alert delivery">
-            <option value="both">email + iPhone (ntfy)</option>
+            <option value="ntfy">iPhone (ntfy)</option>
           </select>
           <button type="submit">Create</button>
         </form>
         <p id="alert-message" class="message" role="alert"></p>
-        <p class="hint">PRICE ALERTS USE THE LIVE HYPERLIQUID MARK PRICE, INCLUDING EQUALITY. EMAIL AND IPHONE NOTIFICATIONS ARE SENT TOGETHER. A TARGET ALREADY MET FIRES ON THE FIRST LIVE CHECK.</p>
+        <p class="hint">PRICE ALERTS USE THE LIVE HYPERLIQUID MARK PRICE, INCLUDING EQUALITY. NOTIFICATIONS ARE SENT TO YOUR IPHONE THROUGH NTFY. A TARGET ALREADY MET FIRES ON THE FIRST LIVE CHECK.</p>
         <p class="hint">LARGE MOVE USES A ONE-MINUTE PRE-MOVE VOLATILITY FORECAST AND EMPIRICAL TAIL CALIBRATION.</p>
 
         <div class="section-header active-header">
@@ -385,119 +394,6 @@
           <p id="paper-message" class="message" role="alert"></p>
         </div>
       </section>
-
-      <section id="tools-view" role="tabpanel" aria-labelledby="tools-tab" hidden>
-        <div class="section-header"><h2>TOOLS</h2><span class="hint">ANALYSIS ONLY</span></div>
-        <div class="paper-subtabs tools-subtabs" role="tablist" aria-label="Tools">
-          <a id="scaling-tab" href="#/tools/scaling" role="tab" aria-selected="true" aria-controls="scaling-panel" data-tools-tab="scaling">SCALING</a>
-          <a id="levels-tab" href="#/tools/levels" role="tab" aria-selected="false" aria-controls="levels-panel" data-tools-tab="levels">LEVELS</a>
-        </div>
-
-        <div id="levels-panel" role="tabpanel" aria-labelledby="levels-tab" data-tools-panel="levels" hidden>
-          <p class="tool-intro">RANK MULTI-TIMEFRAME SUPPORT AND RESISTANCE ZONES FROM HYPERLIQUID 5-MINUTE BARS. LEVELS ARE CONTEXT; SETUPS REQUIRE CONFIRMATION.</p>
-          <form id="levels-form" class="levels-form">
-            <label>ASSET
-              <div id="levels-asset-picker" class="asset-picker" data-picker-details="none">
-                <input id="levels-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="levels-asset-list" />
-                <input data-asset-value name="asset" type="hidden" />
-                <div id="levels-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
-              </div>
-            </label>
-            <label>RISK DOLLARS <input name="riskDollars" type="number" min="0" step="1" value="500" /></label>
-            <label>SESSION <select name="sessionMode"><option value="auto">AUTO</option><option value="new_york_rth">NEW YORK RTH</option><option value="utc">UTC 24H</option></select></label>
-            <label>VISIBLE LEVELS <select name="visibleLevels"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
-            <button id="levels-refresh" type="submit">REFRESH</button>
-          </form>
-          <p id="levels-status" class="message levels-status" role="status">SELECTING ASSET…</p>
-          <div id="levels-summary" class="paper-metrics levels-summary" aria-live="polite"></div>
-          <section class="levels-card">
-            <div class="scaling-card-header"><h3>LEVEL MAP</h3><span id="levels-chart-note" class="hint">COMPLETED 5M BARS</span></div>
-            <svg id="levels-chart" class="levels-chart" viewBox="0 0 960 420" role="img" aria-label="Price candles with ranked support and resistance zones"></svg>
-          </section>
-          <div class="levels-grid">
-            <section class="levels-card"><div class="scaling-card-header"><h3>RANKED ZONES</h3><button id="levels-download-levels" type="button">CSV</button></div><div id="levels-table" class="paper-table-wrap"></div></section>
-            <section class="levels-card"><div class="scaling-card-header"><h3>CONDITIONAL SETUPS</h3><button id="levels-download-setups" type="button">CSV</button></div><div id="levels-setups" class="paper-table-wrap"></div></section>
-          </div>
-          <section class="levels-card levels-score-card"><div class="scaling-card-header"><h3>SCORE EXPLAINER</h3><span class="hint">SELECT A ZONE ROW</span></div><div id="levels-score-detail" class="levels-score-detail"></div></section>
-          <p class="ladder-note">HYPERLIQUID PERPETUAL VENUE VOLUME. PROFILE IS APPROXIMATED FROM BAR TYPICAL PRICE, NOT TICK-LEVEL VOLUME-AT-PRICE. LIVE CANDLES UPDATE THE MAP, BUT LEVELS RECOMPUTE ONLY AFTER A 5-MINUTE BAR CLOSES.</p>
-        </div>
-
-        <div id="scaling-panel" role="tabpanel" aria-labelledby="scaling-tab" data-tools-panel="scaling" hidden>
-          <p class="tool-intro">BUILD A POSITION ENTRY LADDER, THEN DRAW THE PRICE PATH TO SEE EVERY FILL, EXPOSURE CHANGE, AND P/L RESULT IN SEQUENCE.</p>
-
-          <form id="scaling-form" class="scaling-form">
-            <label>ASSET
-              <div id="scaling-asset-picker" class="asset-picker" data-picker-details="none">
-                <input id="scaling-asset-search" data-asset-input placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="scaling-asset-list" />
-                <input data-asset-value name="asset" type="hidden" />
-                <div id="scaling-asset-list" class="asset-picker-list" data-asset-list role="listbox" hidden></div>
-              </div>
-            </label>
-            <span class="scaling-live-mark"><small>LIVE MARK</small><strong id="scaling-live-mark">—</strong><em id="scaling-live-status">WAITING</em></span>
-            <fieldset class="paper-ticket-fieldset">
-              <legend>SIDE</legend>
-              <div class="paper-segmented paper-direction">
-                <label><input name="direction" type="radio" value="long" checked /><span>LONG</span></label>
-                <label><input name="direction" type="radio" value="short" /><span>SHORT</span></label>
-              </div>
-            </fieldset>
-            <label>MAX RISK <input name="maxRisk" type="number" min="0.01" step="0.01" value="5000" /></label>
-            <label>MAX LOSS
-              <span class="scaling-inline-input"><input name="maxLoss" type="number" min="0.01" step="0.01" value="500" /><select name="maxLossMode" aria-label="Max loss unit"><option value="dollars">$</option><option value="percent">% RISK</option></select></span>
-              <small id="scaling-max-loss-conversion">—</small>
-            </label>
-            <label>STARTING LOT
-              <span class="scaling-inline-input"><input name="startingLot" type="number" min="0.00000001" step="any" value="500" /><select name="startingLotMode" aria-label="Starting lot unit"><option value="dollars">USDC</option><option value="shares">SHARES</option></select></span>
-              <small id="scaling-lot-conversion">—</small>
-            </label>
-            <label>LEVELS <input name="levelCount" type="number" min="1" max="50" step="1" value="8" /></label>
-            <label>FEE BPS <input name="feeBps" type="number" min="0" max="100" step="0.1" value="0" /></label>
-            <label class="scaling-range-control"><span>CHART RANGE <output id="scaling-range-output">±20%</output></span><input name="rangePct" type="range" min="2" max="100" step="1" value="20" /></label>
-            <button id="scaling-generate" type="button">REGENERATE LADDER</button>
-          </form>
-
-          <p id="scaling-error" class="message" role="alert"></p>
-          <div id="scaling-plan-metrics" class="paper-metrics scaling-plan-metrics" aria-live="polite"></div>
-
-          <div class="scaling-workspace">
-            <section class="scaling-card" aria-labelledby="scaling-ladder-heading">
-              <div class="scaling-card-header"><h3 id="scaling-ladder-heading">PRICE LADDER</h3><span class="hint">DRAG LEVELS AND LOT BARS</span></div>
-              <svg id="scaling-ladder-chart" class="scaling-ladder-chart" viewBox="0 0 560 400" role="img" aria-label="Interactive entry price ladder"></svg>
-            </section>
-            <section class="scaling-card scaling-level-editor" aria-labelledby="scaling-levels-heading">
-              <div class="scaling-card-header"><h3 id="scaling-levels-heading">LEVELS</h3><button id="scaling-add-level" type="button">+ ADD</button></div>
-              <div class="scaling-batch-controls" role="group" aria-label="Batch level controls">
-                <button type="button" data-scaling-batch="space">EVEN SPACE</button>
-                <button type="button" data-scaling-batch="size">EQUAL SIZE</button>
-                <button type="button" data-scaling-batch="front">FRONT LOAD</button>
-                <button type="button" data-scaling-batch="back">BACK LOAD</button>
-                <button type="button" data-scaling-batch="normalize">FIT RISK</button>
-              </div>
-              <div id="scaling-level-list" class="scaling-level-list"></div>
-            </section>
-          </div>
-
-          <section class="scaling-card scaling-path-card" aria-labelledby="scaling-path-heading">
-            <div class="scaling-card-header"><h3 id="scaling-path-heading">DRAW PRICE PATH</h3><span class="hint">DRAW LEFT TO RIGHT · DRAG A POINT TO EDIT</span></div>
-            <div class="scaling-path-controls" role="group" aria-label="Price path presets">
-              <button type="button" data-path-mode="draw" aria-pressed="true">DRAW</button>
-              <button type="button" data-path-mode="inspect" aria-pressed="false">INSPECT</button>
-              <button type="button" data-path-preset="up">UP</button>
-              <button type="button" data-path-preset="down">DOWN</button>
-              <button type="button" data-path-preset="v">V</button>
-              <button type="button" data-path-preset="inverse-v">INVERSE V</button>
-              <button type="button" data-path-preset="chop">CHOP</button>
-              <button type="button" data-path-preset="clear">CLEAR</button>
-            </div>
-            <svg id="scaling-path-chart" class="scaling-path-chart" viewBox="0 0 900 360" role="img" aria-label="Drawn price path with running profit and loss"></svg>
-          </section>
-
-          <div id="scaling-result-metrics" class="paper-metrics scaling-result-metrics" aria-live="polite"></div>
-          <h3 class="paper-heading">EVENT LEDGER</h3>
-          <div id="scaling-events" class="paper-table-wrap"><p class="hint">DRAW A PRICE PATH TO SIMULATE.</p></div>
-          <p class="ladder-note">EXACT LEVEL FILLS, NO SLIPPAGE OR QUEUE MODEL. EACH ENTRY FILLS ONCE. MAX LOSS IS ENFORCED AGAINST ACTUALLY FILLED EXPOSURE AND INCLUDES CONFIGURED ENTRY AND EXIT FEES.</p>
-        </div>
-      </section>
     </main>
 
     <dialog id="paper-account-dialog" class="settings-dialog" aria-labelledby="paper-account-dialog-title">
@@ -578,11 +474,9 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20261110-marks"></script>
+    <script type="module" src="./app.js?v=20261110-charts"></script>
     <script type="module" src="./audio.js?v=20260728-persistent-auth"></script>
     <script type="module" src="./paper.js?v=20260731-authoritative-risk"></script>
     <script type="module" src="./trade-log.js?v=20260805-performance-percentages"></script>
-    <script type="module" src="./scaling.js?v=20260801-scaling"></script>
-    <script type="module" src="./levels.js?v=20260804-level-engine"></script>
   </body>
 </html>

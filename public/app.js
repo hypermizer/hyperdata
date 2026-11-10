@@ -2,7 +2,7 @@ import { APP_CONFIG } from "./config.js?v=20261109-owner";
 import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-owner";
 import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
 import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
-import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
+import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261110-charts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
 import { applyAssetAnalyticsRows, applyMarkReferenceSnapshot, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261110-marks";
 import {
@@ -16,12 +16,12 @@ import {
   normalizeCandle,
 } from "./lib/hyperliquid.js?v=20261110-marks";
 import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261028-assets-hardening";
-import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
+import { createChartGrid } from "./charts.js?v=20261110-charts";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20261109-owner";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20260828-watchlist-heat-map";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20261110-charts";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -116,8 +116,6 @@ const elements = {
   alertMessage: document.querySelector("#alert-message"),
   alertType: document.querySelector("#alert-type"),
   connectionLabel: document.querySelector("#connection-label"),
-  heatMapCount: document.querySelector("#heat-map-count"),
-  heatMapGrid: document.querySelector("#heat-map-grid"),
   lastSync: document.querySelector("#last-sync"),
   listenerHealth: document.querySelector("#listener-health"),
   marketList: document.querySelector("#market-list"),
@@ -129,13 +127,12 @@ const elements = {
   analysisPanels: [...document.querySelectorAll("[data-analysis-panel]")],
   paperTabs: [...document.querySelectorAll("[data-paper-tab]")],
   paperPanels: [...document.querySelectorAll("[data-paper-panel]")],
-  toolsTabs: [...document.querySelectorAll("[data-tools-tab]")],
-  toolsPanels: [...document.querySelectorAll("[data-tools-panel]")],
   watchlistMessage: document.querySelector("#watchlist-message"),
   watchedFirst: document.querySelector("#watched-first"),
 };
 
 const liquidationView = createAssetLiquidations(state.alertClient, (asset) => state.markets.get(asset)?.markPrice);
+const chartGrid = createChartGrid({ client: state.supabase, getAssets: () => state.watchlist, getMarket: (asset) => state.markets.get(asset) });
 wireEvents();
 initialize();
 
@@ -478,20 +475,6 @@ function render() {
   renderRoute();
 }
 
-function renderHeatMap() {
-  const watchedMarkets = state.watchlist.map((asset) => state.markets.get(asset)).filter(Boolean);
-  const tiles = watchedHeatMapTiles(watchedMarkets, state.watchlist);
-  const focusedAsset = focusedHeatMapAsset(elements.heatMapGrid, document.activeElement);
-  elements.heatMapCount.textContent = `${tiles.length} WATCHED`;
-  elements.heatMapGrid.innerHTML = tiles.length
-    ? tiles.map(({ market, tone }) => {
-      const name = displayAssetName(market.id);
-      return `<a class="heat-map-tile ${tone.direction} ${tone.intensity}" href="${routeFor("asset", market.id)}" data-heat-map-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(`${name}, ${formatPercent(market.changePercent)} over 24 hours, mark ${formatPrice(market.markPrice)}`)}"><strong>${escapeHtml(name)}</strong><span>${formatPercent(market.changePercent)}</span><small>${formatPrice(market.markPrice)}</small></a>`;
-    }).join("")
-    : '<p class="heat-map-empty">NO WATCHED ASSETS</p>';
-  restoreHeatMapFocus(elements.heatMapGrid, focusedAsset);
-}
-
 function renderMarkets() {
   const now = Date.now();
   const markets = assetUniverseMarkets();
@@ -666,10 +649,10 @@ async function loadAlerts() {
     elements.alertList.innerHTML = rules.length ? rules.map((rule) => {
       const status = rule.evaluation?.status ?? (rule.detector === "large_move" ? "warming"
         : priceStreamHealth(stream) === "LIVE PRICE STREAM HEALTHY" && Date.parse(stream.rules_refreshed_at) >= Date.parse(rule.updated_at) ? "not_triggered" : "not evaluated");
-      const meta = alertDeliverySummary(rule.deliveries, { enabled: rule.enabled, evaluationStatus: status, delivery: "both" });
+      const meta = alertDeliverySummary(rule.deliveries, { enabled: rule.enabled, evaluationStatus: status, delivery: "ntfy" });
       const errors = rule.deliveries?.map((row) => row.last_error).filter(Boolean).join("; ");
       const title = errors ? ` title="${escapeHtml(errors)}"` : "";
-      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · email + iPhone</span><br><span class="alert-meta"${title}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
+      return `<div class="alert-card"><span><span>${escapeHtml(displayRule(rule))} · iPhone (ntfy)</span><br><span class="alert-meta"${title}>${escapeHtml(meta)}</span></span><span class="alert-card-actions"><button type="button" data-rule-action="${rule.enabled ? "disable" : "enable"}" data-rule-id="${escapeHtml(rule.id)}">${rule.enabled ? "off" : "on"}</button><button type="button" data-rule-action="delete" data-rule-id="${escapeHtml(rule.id)}">×</button></span></div>`;
     }).join("") : `<p class="hint">No alerts.</p>`;
   } catch (error) {
     state.alertReady = false;
@@ -690,7 +673,7 @@ function renderAlertFields() {
 }
 
 function renderRoute() {
-  const { view, asset, assetView, interval, analysisView, paperView, toolsView } = parseRoute(window.location.hash);
+  const { view, asset, assetView, interval, analysisView, paperView } = parseRoute(window.location.hash);
   const selectedTab = view === "asset" ? "watchlist" : view;
   elements.tabs.forEach((tab) => {
     tab.setAttribute("aria-selected", String(tab.dataset.tab === selectedTab));
@@ -710,13 +693,7 @@ function renderRoute() {
   elements.analysisPanels.forEach((panel) => {
     panel.hidden = panel.dataset.analysisPanel !== analysisView;
   });
-  elements.toolsTabs.forEach((tab) => {
-    tab.setAttribute("aria-selected", String(tab.dataset.toolsTab === toolsView));
-  });
-  elements.toolsPanels.forEach((panel) => {
-    panel.hidden = panel.dataset.toolsPanel !== toolsView;
-  });
-  if (view === "heat-map") renderHeatMap();
+  chartGrid.setActive(view === "charts");
   if (view === "asset") {
     updateCandleSubscription(assetView === "overview" ? asset : null, assetView === "overview" ? interval : null);
     if (assetView !== "overview") destroyAssetChart();
@@ -729,7 +706,7 @@ function renderRoute() {
     ? routeFor("asset", asset, assetView, interval)
     : view === "analysis"
       ? routeFor("analysis", analysisView)
-      : routeFor(view, paperView, toolsView);
+      : routeFor(view, paperView);
   if (window.location.hash !== canonical) window.history.replaceState(null, "", canonical);
 }
 
@@ -1112,7 +1089,7 @@ function scheduleMarketRender() {
     renderMarkets();
     renderAlertOptions();
     const route = parseRoute(window.location.hash);
-    if (route.view === "heat-map") renderHeatMap();
+
     if (route.view === "asset") renderAssetDetail(route.asset, route.assetView, route.interval);
   }, delayMs);
 }

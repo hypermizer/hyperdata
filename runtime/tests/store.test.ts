@@ -8,7 +8,7 @@ const store = new AlertStore({
   user: Deno.env.get("TEST_PGUSER") ?? "ubuntu",
   database: "postgres",
 });
-Deno.test("local transactions preserve one occurrence and independent, fenced channel deliveries", async () => {
+Deno.test("local transactions create only ntfy jobs and preserve fenced, retryable delivery", async () => {
   await store.migrate();
   await store
     .sql`truncate audit_events,notification_outbox,alert_occurrences,rule_evaluation_state,alert_rules restart identity cascade`;
@@ -48,9 +48,8 @@ Deno.test("local transactions preserve one occurrence and independent, fenced ch
     store.claim("email"),
   ]);
   assertEquals(phone.length, 1);
-  assertEquals(email.length, 1);
+  assertEquals(email.length, 0);
   assertEquals(phone[0].channel, "ntfy");
-  assertEquals(email[0].channel, "email");
   assertEquals(
     await store.finish(
       { ...phone[0], lease_token: crypto.randomUUID() },
@@ -70,12 +69,11 @@ Deno.test("local transactions preserve one occurrence and independent, fenced ch
     "sent",
   );
   assertEquals(
-    await deliverRow(
-      store,
-      email[0],
-      () => Promise.reject(new Error("SMTP unavailable")),
-    ),
-    "retry_wait",
+    (await store
+      .sql`select count(*)::int as count from notification_outbox where channel='email'`)[
+        0
+      ].count,
+    0,
   );
   const snapshot = await store.list();
   assertEquals(
@@ -95,6 +93,24 @@ Deno.test("local transactions preserve one occurrence and independent, fenced ch
     (await store.sql`select count(*)::int as count from alert_occurrences`)[0]
       .count,
     2,
+  );
+  await store
+    .sql`insert into notification_outbox(occurrence_id,user_id,channel) values(${id},${owner},'email')`;
+  await store.sql.unsafe(
+    await Deno.readTextFile(
+      new URL("../migrations/003_ntfy_only.sql", import.meta.url),
+    ),
+  );
+  assertEquals(
+    (await store
+      .sql`select state from notification_outbox where channel='email'`)[0]
+      .state,
+    "failed",
+  );
+  assertEquals(await store.claim("email"), []);
+  assertEquals(
+    (await store.sql`select distinct delivery from alert_rules`)[0].delivery,
+    "ntfy",
   );
   await store.setActive(false);
   await store.close();

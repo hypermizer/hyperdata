@@ -3,16 +3,16 @@ import test from "node:test";
 import { parseRoute, routeFor } from "../public/lib/routes.js";
 
 test("site routes resolve top-level and nested utility views", () => {
-  assert.deepEqual(parseRoute("#/heat-map"), { view: "heat-map", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/alerts"), { view: "alerts", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/analysis"), { view: "analysis", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/analysis/trade-log"), { view: "analysis", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/principles"), { view: "principles", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/paper/order"), { view: "paper", analysisView: "trade-log", paperView: "order", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/paper"), { view: "paper", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/tools/exposure-ladder"), { view: "tools", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/tools/scaling"), { view: "tools", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/tools/levels"), { view: "tools", analysisView: "trade-log", paperView: "home", toolsView: "levels" });
+  assert.deepEqual(parseRoute("#/heat-map"), { view: "charts", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/alerts"), { view: "alerts", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/analysis"), { view: "analysis", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/analysis/trade-log"), { view: "analysis", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/principles"), { view: "principles", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/paper/order"), { view: "paper", analysisView: "trade-log", paperView: "order" });
+  assert.deepEqual(parseRoute("#/paper"), { view: "paper", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/tools/exposure-ladder"), { view: "watchlist", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/tools/scaling"), { view: "watchlist", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/tools/levels"), { view: "watchlist", analysisView: "trade-log", paperView: "home" });
 });
 
 test("asset routes preserve the canonical Hyperliquid asset id", () => {
@@ -23,7 +23,6 @@ test("asset routes preserve the canonical Hyperliquid asset id", () => {
     interval: "1h",
     analysisView: "trade-log",
     paperView: "home",
-    toolsView: "scaling",
   });
   assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/5m"), {
     view: "asset",
@@ -32,13 +31,12 @@ test("asset routes preserve the canonical Hyperliquid asset id", () => {
     interval: "5m",
     analysisView: "trade-log",
     paperView: "home",
-    toolsView: "scaling",
   });
   assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/news"), {
-    view: "asset", asset: "xyz:DRAM", assetView: "news", interval: "1h", analysisView: "trade-log", paperView: "home", toolsView: "scaling",
+    view: "asset", asset: "xyz:DRAM", assetView: "news", interval: "1h", analysisView: "trade-log", paperView: "home",
   });
   assert.deepEqual(parseRoute("#/assets/xyz%3ADRAM/financials"), {
-    view: "asset", asset: "xyz:DRAM", assetView: "financials", interval: "1h", analysisView: "trade-log", paperView: "home", toolsView: "scaling",
+    view: "asset", asset: "xyz:DRAM", assetView: "financials", interval: "1h", analysisView: "trade-log", paperView: "home",
   });
   assert.equal(routeFor("asset", "xyz:DRAM"), "#/assets/xyz%3ADRAM/overview/1h");
   assert.equal(routeFor("asset", "xyz:DRAM", "1d"), "#/assets/xyz%3ADRAM/overview/1d");
@@ -48,18 +46,17 @@ test("asset routes preserve the canonical Hyperliquid asset id", () => {
     view: "watchlist",
     analysisView: "trade-log",
     paperView: "home",
-    toolsView: "scaling",
   });
 });
 
 test("unknown routes fall back to the watchlist", () => {
-  assert.deepEqual(parseRoute(""), { view: "watchlist", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
-  assert.deepEqual(parseRoute("#/missing"), { view: "watchlist", analysisView: "trade-log", paperView: "home", toolsView: "scaling" });
+  assert.deepEqual(parseRoute(""), { view: "watchlist", analysisView: "trade-log", paperView: "home" });
+  assert.deepEqual(parseRoute("#/missing"), { view: "watchlist", analysisView: "trade-log", paperView: "home" });
   assert.equal(routeFor("paper", "order"), "#/paper/order");
   assert.equal(routeFor("watchlist"), "#/watchlist");
-  assert.equal(routeFor("heat-map"), "#/heat-map");
+  assert.equal(routeFor("heat-map"), "#/charts");
   assert.equal(routeFor("analysis"), "#/analysis/trade-log");
   assert.equal(routeFor("principles"), "#/principles");
-  assert.equal(routeFor("tools", "home", "exposure-ladder"), "#/tools/scaling");
-  assert.equal(routeFor("tools", "home", "scaling"), "#/tools/scaling");
+  assert.equal(routeFor("tools", "home", "exposure-ladder"), "#/watchlist");
+  assert.equal(routeFor("tools", "home", "scaling"), "#/watchlist");
 });

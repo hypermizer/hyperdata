@@ -11,9 +11,9 @@ Group=hyperdata
 SupplementaryGroups=hyperdata-db
 WorkingDirectory=/opt/hyperdata-runtime/current
 EnvironmentFile=/etc/hyperdata/worker.env
-EnvironmentFile=/etc/hyperdata/providers.env
+EnvironmentFile=/etc/hyperdata/ntfy.env
 Environment=DENO_DIR=/opt/hyperdata-runtime/cache
-ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,api.hyperliquid.xyz,ntfy.sh,127.0.0.53:53,0.0.0.0/0:465 --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata,/srv/hyperdata/spool --allow-write=/run/postgresql-hyperdata,/srv/hyperdata/spool runtime/monitor.ts
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/postgresql-hyperdata/.s.PGSQL.5545,api.hyperliquid.xyz,ntfy.sh,127.0.0.53:53 --allow-read=/opt/hyperdata-runtime,/run/postgresql-hyperdata,/srv/hyperdata/spool --allow-write=/run/postgresql-hyperdata,/srv/hyperdata/spool runtime/monitor.ts
 Restart=always
 RestartSec=2
 TimeoutStopSec=70

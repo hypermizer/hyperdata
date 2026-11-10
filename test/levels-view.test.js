@@ -6,13 +6,8 @@ const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf
 const script = readFileSync(new URL("../public/levels.js", import.meta.url), "utf8");
 const css = readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 
-test("tools exposes a routed levels workspace", () => {
-  assert.match(html, /href="#\/tools\/levels"/);
-  assert.match(html, /id="levels-panel"[^>]*data-tools-panel="levels"/);
-  assert.match(html, /id="levels-asset-picker"/);
-  assert.match(html, /id="levels-chart"/);
-  assert.match(html, /id="levels-table"/);
-  assert.match(html, /id="levels-setups"/);
+test("retired tools have no navigation, panel, or loaded module", () => {
+  assert.doesNotMatch(html, /data-tab="tools"|id="levels-panel"|src=".\/levels.js/);
 });
 
 test("level workspace uses closed-bar analysis, a candle stream, exports, and preferences", () => {

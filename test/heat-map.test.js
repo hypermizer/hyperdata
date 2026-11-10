@@ -77,11 +77,9 @@ test("heat map sorts unavailable moves behind a genuine zero-percent move", () =
   );
 });
 
-test("heat map is a routed top-level view between assets and alerts", () => {
-  assert.match(html, /data-tab="watchlist"[\s\S]*data-tab="heat-map"[\s\S]*data-tab="alerts"/);
-  assert.match(html, /id="heat-map-view"[^>]*role="tabpanel"/);
-  assert.match(html, /id="heat-map-grid"/);
-  assert.match(app, /function renderHeatMap\(\)/);
-  assert.match(app, /if \(view === "heat-map"\) renderHeatMap\(\)/);
-  assert.match(app, /if \(route\.view === "heat-map"\) renderHeatMap\(\)/);
+test("charts replaces the heat map in the navigation", () => {
+  assert.match(html, /data-tab="watchlist"[\s\S]*data-tab="charts"[\s\S]*data-tab="alerts"/);
+  assert.match(html, /id="charts-view"[^>]*role="tabpanel"/);
+  assert.doesNotMatch(html, /id="heat-map-view"/);
+  assert.match(app, /chartGrid.setActive\(view === "charts"\)/);
 });

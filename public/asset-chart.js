@@ -1,6 +1,6 @@
 import { LiquidationPrimitive } from "./lib/liquidations.js?v=20261109-liquidations";
 
-export function createAssetChart(container, onCursorTime = () => {}, onLiquidationHover = () => {}) {
+export function createAssetChart(container, onCursorTime = () => {}, onLiquidationHover = () => {}, options = {}) {
   const library = window.LightweightCharts;
   if (!library?.createChart || !library?.CandlestickSeries || !library?.HistogramSeries) {
     throw new Error("Chart library unavailable.");
@@ -8,7 +8,7 @@ export function createAssetChart(container, onCursorTime = () => {}, onLiquidati
 
   const chart = library.createChart(container, {
     autoSize: true,
-    height: 430,
+    height: options.height ?? 430,
     layout: {
       background: { type: "solid", color: "#101214" },
       textColor: "#a8afb7",
@@ -46,6 +46,10 @@ export function createAssetChart(container, onCursorTime = () => {}, onLiquidati
     onCursorTime(typeof parameter.time === "number" ? parameter.time : null);
     onLiquidationHover(liquidations.inspectPrice(parameter.point ? candleSeries.coordinateToPrice(parameter.point.y) : null));
   });
+  let applyingRange = false;
+  if (options.onRangeChange) chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+    if (!applyingRange && range && typeof range.from === "number" && typeof range.to === "number") options.onRangeChange(range);
+  });
 
   function candlePoint(candle) {
     const { time, open, high, low, close } = candle;
@@ -61,6 +65,11 @@ export function createAssetChart(container, onCursorTime = () => {}, onLiquidati
   }
 
   return {
+    setVisibleRange(range) {
+      applyingRange = true;
+      try { chart.timeScale().setVisibleRange(range); }
+      finally { applyingRange = false; }
+    },
     setData(candles, resetView = true) {
       candleSeries.setData(candles.map(candlePoint));
       liquidations.setCandles(candles);

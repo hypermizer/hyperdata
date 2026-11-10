@@ -1,9 +1,9 @@
 export function normalizeAlertRuleInput(input) {
   const asset = String(input.asset ?? "").trim();
-  const delivery = String(input.delivery ?? "both");
+  const delivery = String(input.delivery ?? "ntfy");
   const detector = String(input.detector ?? "fixed_price");
   if (!asset) throw new Error("Choose an asset.");
-  if (!["email", "sms", "both"].includes(delivery)) throw new Error("Invalid delivery channel.");
+  if (!["ntfy"].includes(delivery)) throw new Error("Invalid delivery channel.");
   if (detector === "fixed_price") {
     const direction = String(input.direction);
     const target = Number(input.target);
@@ -45,7 +45,7 @@ export function priceStreamHealth(stream, now = Date.now()) {
   return "LIVE PRICE STREAM HEALTHY";
 }
 
-export function alertDeliverySummary(rows, { enabled, evaluationStatus, delivery = "both" }) {
+export function alertDeliverySummary(rows, { enabled, evaluationStatus, delivery = "ntfy" }) {
   if (!rows?.length) return alertStatusLabel({ enabled, evaluationStatus, delivery });
   const expected = delivery === "both" ? ["email", "ntfy"] : [delivery];
   return expected.map((channel) => {
@@ -55,7 +55,7 @@ export function alertDeliverySummary(rows, { enabled, evaluationStatus, delivery
   }).join(" · ");
 }
 
-export function alertStatusLabel({ enabled, evaluationStatus, deliveryState = null, delivery = "email" }) {
+export function alertStatusLabel({ enabled, evaluationStatus, deliveryState = null, delivery = "ntfy" }) {
   const channel = delivery === "sms" ? "TEXT" : delivery === "ntfy" ? "IPHONE" : delivery === "both" ? "EMAIL + IPHONE" : "EMAIL";
   if (deliveryState) {
     const deliveryLabels = {

@@ -79,3 +79,51 @@ Deno.test("local REST preserves RLS, financial RPCs, empty DELETE, and forged-to
   r = await call("paper_accounts", service);
   assertEquals((await r.json()).length, 1);
 });
+
+Deno.test("chart preferences persist through REST and are isolated to the owner", async () => {
+  const settings = {
+    interval: "5m",
+    window: 86400,
+    columns: 4,
+    rows: 2,
+    height: 350,
+    order: ["ETH", "BTC"],
+    ranges: {},
+  };
+  let response = await call("chart_grid_preferences", token, "POST", {
+    user_id: owner,
+    settings,
+  });
+  assertEquals(response.status, 201);
+  await response.body?.cancel();
+  response = await call("chart_grid_preferences", token);
+  assertEquals((await response.json())[0].settings, settings);
+  const stranger = await signLocalToken(secret, {
+    role: "authenticated",
+    sub: "00000000-0000-0000-0000-000000000778",
+    email: "stranger@example.com",
+  });
+  response = await call("chart_grid_preferences", stranger);
+  assertEquals(await response.json(), []);
+  response = await call("chart_grid_preferences", stranger, "POST", {
+    user_id: owner,
+    settings,
+  });
+  assertEquals(response.status, 403);
+  await response.body?.cancel();
+  response = await call(
+    "chart_grid_preferences?user_id=eq." + owner,
+    token,
+    "PATCH",
+    { settings: { ...settings, columns: 2 } },
+  );
+  assertEquals(response.status, 200);
+  assertEquals((await response.json())[0].settings.columns, 2);
+  response = await call(
+    "chart_grid_preferences?user_id=eq." + owner,
+    token,
+    "DELETE",
+  );
+  assertEquals(response.status, 200);
+  await response.body?.cancel();
+});

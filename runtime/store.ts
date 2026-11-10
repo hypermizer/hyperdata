@@ -169,7 +169,7 @@ export class AlertStore {
         },${tx.json(evidence)},${dedupe})
     on conflict(rule_id,dedupe_key) do nothing returning id`;
       if (!created) return null;
-      await tx`insert into notification_outbox(occurrence_id,user_id,channel) values(${created.id},${rule.user_id},'email'),(${created.id},${rule.user_id},'ntfy')`;
+      await tx`insert into notification_outbox(occurrence_id,user_id,channel) values(${created.id},${rule.user_id},'ntfy')`;
       if (rule.detector === "fixed_price") {
         await tx`update alert_rules set enabled=false,updated_at=clock_timestamp() where id=${rule.id}`;
       }
@@ -181,6 +181,7 @@ export class AlertStore {
     });
   }
   async claim(channel: "email" | "ntfy", limit = 10): Promise<LocalDelivery[]> {
+    if (channel !== "ntfy") return [];
     const rows = await this.sql`with due as (
    select id from notification_outbox where channel=${channel} and ((state in ('queued','retry_wait') and next_attempt_at<=now()) or (state='claimed' and lease_until<now()))
    and (select value='true'::jsonb from runtime_settings where key='delivery_enabled')
@@ -234,8 +235,8 @@ export class AlertStore {
     );
     const [pending] = await this
       .sql`select count(*)::int as count from notification_outbox where
-   (state not in ('sent','failed','ambiguous') and created_at<now()-interval '2 minutes')
-   or (state in ('failed','ambiguous') and updated_at>now()-interval '24 hours')`;
+   channel='ntfy' and ((state not in ('sent','failed','ambiguous') and created_at<now()-interval '2 minutes')
+   or (state in ('failed','ambiguous') and updated_at>now()-interval '24 hours'))`;
     const active = await this.active();
     return {
       healthy: active && streamFresh && fallbackFresh && pending.count === 0,

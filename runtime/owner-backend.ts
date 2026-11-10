@@ -8,6 +8,7 @@ import { serveAssetFundamentals } from "../supabase/functions/asset-fundamentals
 
 const tables = new Set([
   "watchlist_items",
+  "chart_grid_preferences",
   "market_history_state",
   "new_asset_acknowledgements",
   "asset_analytics_cache",

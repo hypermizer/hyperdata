@@ -2,6 +2,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mountpoint -q /srv/hyperdata
+# Alert workers receive only their ntfy credentials; SMTP is no longer loaded.
+sudo python3 - <<'PY'
+from pathlib import Path
+source=Path('/etc/hyperdata/providers.env')
+target=Path('/etc/hyperdata/ntfy.env')
+lines=[line for line in source.read_text().splitlines() if line.split('=',1)[0] in {'NTFY_BASE_URL','NTFY_TOPIC','NTFY_TOKEN'}]
+temporary=target.with_suffix('.tmp')
+temporary.touch(mode=0o600)
+temporary.write_text('\n'.join(lines)+'\n')
+temporary.chmod(0o600)
+temporary.replace(target)
+PY
+sudo -u postgres /usr/lib/postgresql/16/bin/psql -X -h /run/postgresql-hyperdata -p5545 -d hyperdata -vON_ERROR_STOP=1 -f runtime/migrations/003_ntfy_only.sql
 if sudo test -s /etc/hyperdata/core.env; then bash scripts/apply-core-migrations.sh; fi
 release="$(git rev-parse --short HEAD)-$(date -u +%Y%m%dT%H%M%S)"
 release_path="/opt/hyperdata-runtime/releases/$release"

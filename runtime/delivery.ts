@@ -1,5 +1,4 @@
 import { AlertStore, type LocalDelivery } from "./store.ts";
-import { sendEmail } from "../supabase/functions/deliver-alerts/email.ts";
 import { sendNtfy } from "../supabase/functions/deliver-alerts/ntfy.ts";
 import { buildNotification } from "../supabase/functions/deliver-alerts/templates.ts";
 
@@ -12,28 +11,17 @@ export type LocalSender = (
   row: LocalDelivery,
   message: { subject: string; text: string },
 ) => Promise<{ providerId: string | null }>;
-export const providerSender: LocalSender = (row, message) =>
-  row.channel === "ntfy"
-    ? sendNtfy({
-      baseUrl: required("NTFY_BASE_URL"),
-      topic: required("NTFY_TOPIC"),
-      token: Deno.env.get("NTFY_TOKEN"),
-      clickUrl:
-        (Deno.env.get("NOTIFICATION_ORIGIN") ?? required("PUBLIC_ORIGIN")) +
-        "/#/alerts",
-    }, message)
-    : sendEmail(
-      {
-        host: Deno.env.get("ZOHO_SMTP_HOST") ?? "smtp.zoho.com",
-        port: 465,
-        user: required("ZOHO_SMTP_USER"),
-        password: required("ZOHO_SMTP_PASSWORD"),
-        from: `HYPERDATA <${required("ZOHO_SMTP_USER")}>`,
-        to: "jasonblick@zohomail.com",
-      },
-      message,
-      row.id,
-    );
+export const providerSender: LocalSender = (row, message) => {
+  if (row.channel !== "ntfy") throw new Error("Email delivery is disabled.");
+  return sendNtfy({
+    baseUrl: required("NTFY_BASE_URL"),
+    topic: required("NTFY_TOPIC"),
+    token: Deno.env.get("NTFY_TOKEN"),
+    clickUrl:
+      (Deno.env.get("NOTIFICATION_ORIGIN") ?? required("PUBLIC_ORIGIN")) +
+      "/#/alerts",
+  }, message);
+};
 export async function deliverRow(
   store: Pick<AlertStore, "finish">,
   row: LocalDelivery,
@@ -97,7 +85,7 @@ export async function drainDeliveries(
 ) {
   if (Deno.env.get("DELIVERY_ENABLED") !== "true") return [];
   const groups = await Promise.all(
-    (["ntfy", "email"] as const).map(async (channel) => {
+    (["ntfy"] as const).map(async (channel) => {
       const rows = await store.claim(channel);
       return await Promise.all(
         rows.map(async (row) => ({

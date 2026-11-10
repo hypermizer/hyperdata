@@ -13,7 +13,7 @@ try {
       await tx`insert into alert_rules(id,user_id,asset,dex,detector,detector_version,configuration,delivery,enabled,deleted_at,created_at,updated_at)
     values(${r.id},${r.user_id},${r.asset},${r.dex},${r.detector},${r.detector_version},${
         tx.json(r.configuration)
-      },'both',${r.enabled},${r.deleted_at},${r.created_at},${r.updated_at})
+      },'ntfy',${r.enabled},${r.deleted_at},${r.created_at},${r.updated_at})
     on conflict(id) do update set enabled=excluded.enabled,deleted_at=excluded.deleted_at,updated_at=excluded.updated_at,configuration=excluded.configuration`;
     }
     for (const item of data.tables.alert_occurrences) {

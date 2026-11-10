@@ -6,9 +6,9 @@ Personal Hyperliquid utility for a live watchlist and unattended alerts. Hyperda
 
 - Fixed price: inclusive above/below mark-price threshold, then automatically disables after the first occurrence.
 - Large move: recurring one-minute evaluation of an endpoint log return against a pre-move robust EWMA volatility forecast and an empirical calibration for that asset and horizon.
-- Every fixed-price alert sends both Zoho email to `jasonblick@zohomail.com` and an iPhone notification through the existing Hyprgarden ntfy topic.
+- Every price alert sends an iPhone notification through the existing Hyprgarden ntfy topic. Email delivery is disabled.
 - Independent delivery records, rapid retries, and live-stream health are visible in Alerts.
-- Historical notification records are preserved; new alerts always use email and iPhone notifications.
+- Historical notification records are preserved; new alerts use ntfy only.
 
 Detection, occurrences, and notification attempts are persisted separately. Provider failure cannot erase a detected occurrence. An empirical percentile is not a Gaussian probability or a trade recommendation.
 
@@ -16,9 +16,11 @@ Detection, occurrences, and notification attempts are persisted separately. Prov
 
 Dot references cover every active asset, independent of favourites or open browsers. A dedicated mark store, raw historical mark recovery, 15-second coverage audits, and automatic browser updates keep all seven windows supplied. Prices and reference timestamps are verified; trade candles are not used as mark substitutes. See [all-asset mark operations](docs/local-data.md#canonical-mark-references-for-every-asset).
 
-The supervised server runtime evaluates Hyperliquid mark-price WebSocket updates, syncs qualifying touches to disk, and atomically records occurrences and independent delivery jobs in local PostgreSQL. A separate HTTP monitor checks every 15 seconds. Email and ntfy send directly from the server with leases, retries, health checks, and an independent external watchdog.
+The supervised server runtime evaluates Hyperliquid mark-price WebSocket updates, syncs qualifying touches to disk, and atomically records occurrences and independent delivery jobs in local PostgreSQL. A separate HTTP monitor checks every 15 seconds. Ntfy sends directly from the server with leases, retries, health checks, and an independent external watchdog.
 
 The root volume is 240 GiB; a separate 50 GiB encrypted volume holds both databases, liquidation data, and backups. Backups run every 15 minutes to Ohio and Tokyo. The API uses a separate HTTPS Elastic IP, mutual TLS, CSRF protection, a restricted database role, and a Unix socket. Provider secrets stay outside the API and source tree.
+
+The CHARTS tab displays live candle charts for watched assets. Shared candle/history sliders, grid columns/rows, chart height, drag order, and individual pan/zoom views persist in local PostgreSQL with a browser cache.
 
 The feed normally updates about once per second. Exchange outages and provider/iPhone conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, backups, and recovery.
 
