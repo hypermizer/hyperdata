@@ -26,6 +26,13 @@ let catalog: ReturnType<typeof historyCatalog> = [],
 let lastError: string | null = null;
 let catalogRetryAt = 0;
 let lastCoverageScan = 0, coverageBusy = false;
+let healthBusy = false,
+  lastHealthAttempt = 0,
+  lastSampleCount = 0,
+  openedAt = 0,
+  lastPingAt = 0,
+  reconnectBackoff = 1000;
+let repairCounts = { total: 0, watched: 0 };
 const contexts = new Map<string, { price: string; at: number }>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function rpc(name: string, args: Record<string, unknown> = {}) {
@@ -60,7 +67,9 @@ function connect() {
   ws.onopen = () => {
     clearTimeout(timeout);
     connected = true;
-    lastFrame = Date.now();
+    openedAt = Date.now();
+    lastPingAt = 0;
+    console.log(JSON.stringify({ event: "history_transport_open" }));
     ws.send(
       JSON.stringify({
         method: "subscribe",
@@ -79,17 +88,26 @@ function connect() {
         contexts.set(sample.asset, { price: sample.price, at });
       }
       lastFrame = at;
+      reconnectBackoff = 1000;
     } catch {
       lastError = "Malformed market history frame";
     }
   };
   ws.onerror = () => ws.close();
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     clearTimeout(timeout);
     if (socket === ws) {
       socket = null;
       connected = false;
-      reconnectAt = Date.now() + 3000;
+      reconnectAt = Date.now() + reconnectBackoff;
+      reconnectBackoff = Math.min(30000, reconnectBackoff * 2);
+      console.log(
+        JSON.stringify({
+          event: "history_transport_closed",
+          code: event.code,
+          lastFrameAgeMs: lastFrame ? Date.now() - lastFrame : null,
+        }),
+      );
     }
   };
 }
@@ -116,28 +134,47 @@ async function persist() {
         p_samples: samples,
       });
       lastPersisted = new Date(now).toISOString();
+      lastSampleCount = samples.length;
     }
     const { data: pending, error: pendingError } = await client.from(
       "market_history_repair_queue",
     ).select("asset,watched").in("asset", catalog.map((a) => a.asset));
     if (pendingError) throw Error(pendingError.message);
+    repairCounts = {
+      total: pending?.length ?? 0,
+      watched: pending?.filter((r) => r.watched).length ?? 0,
+    };
+  } catch (e) {
+    lastError = e instanceof Error ? e.message : "Market persistence failed";
+    console.error(lastError);
+  } finally {
+    persistBusy = false;
+  }
+}
+async function publishHealth() {
+  if (healthBusy) return;
+  healthBusy = true;
+  lastHealthAttempt = Date.now();
+  try {
     const { error } = await client.from("market_history_state").update({
-      repairs_pending: pending?.length ?? 0,
-      watched_repairs_pending: pending?.filter((r) => r.watched).length ?? 0,
+      repairs_pending: repairCounts.total,
+      watched_repairs_pending: repairCounts.watched,
       heartbeat_at: new Date().toISOString(),
       last_frame_at: lastFrame ? new Date(lastFrame).toISOString() : null,
       last_persisted_at: lastPersisted,
-      assets_sampled: samples.length,
+      assets_sampled: lastSampleCount,
       assets_expected: catalog.length,
       connected,
       last_error: lastError,
     }).eq("singleton", true);
     if (error) throw Error(error.message);
   } catch (e) {
-    lastError = e instanceof Error ? e.message : "Market persistence failed";
-    console.error(lastError);
+    console.error(
+      "History telemetry:",
+      e instanceof Error ? e.message : "unavailable",
+    );
   } finally {
-    persistBusy = false;
+    healthBusy = false;
   }
 }
 async function repair() {
@@ -230,18 +267,21 @@ while (!stopped) {
   const activeSocket = socket as WebSocket | null;
   if (
     activeSocket?.readyState === WebSocket.OPEN &&
-    Date.now() - lastFrame > 30000
+    Date.now() - Math.max(lastFrame, openedAt) > 90000
   ) {
     activeSocket.close();
   }
   if (
-    activeSocket?.readyState === WebSocket.OPEN && Date.now() % 30000 < 1100
+    activeSocket?.readyState === WebSocket.OPEN &&
+    Date.now() - lastPingAt >= 20000
   ) {
     activeSocket.send(JSON.stringify({ method: "ping" }));
+    lastPingAt = Date.now();
   }
   if (!lastPersisted || Date.now() - Date.parse(lastPersisted) >= 60000) {
     void persist();
   }
+  if (Date.now() - lastHealthAttempt >= 5000) void publishHealth();
   void repair();
   if (!coverageBusy && Date.now() - lastCoverageScan > 15000) {
     coverageBusy = true;
@@ -253,4 +293,4 @@ while (!stopped) {
   }
   await sleep(1000);
 }
-while (persistBusy || repairBusy) await sleep(100);
+while (persistBusy || repairBusy || healthBusy) await sleep(100);

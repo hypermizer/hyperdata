@@ -72,7 +72,7 @@ export function marketHistoryFresh(
   now = Date.now(),
 ) {
   return Boolean(
-    row?.connected && row.last_frame_at && row.last_persisted_at &&
+    row?.last_frame_at && row.last_persisted_at &&
       now - Date.parse(row.last_frame_at) < 90000 &&
       now - Date.parse(row.last_persisted_at) < 120000 &&
       Number(row.assets_expected) > 0 &&

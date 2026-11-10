@@ -269,6 +269,7 @@ Deno.test("private health reports a local core failure without exposing account 
   );
   const data = await response.json();
   assertEquals(data.healthy, false);
+  assertEquals(data.priceAlerts, { healthy: true, backend: "local" });
   assertEquals(data.core.accountSyncFresh, false);
   assertEquals(Object.hasOwn(data.core, "accounts"), false);
 });

@@ -88,6 +88,7 @@ export function alertApi(
         const core = await config.coreHealth();
         return json({
           ...health,
+          priceAlerts: health,
           healthy: Boolean(health?.healthy) && core.healthy,
           core,
         });

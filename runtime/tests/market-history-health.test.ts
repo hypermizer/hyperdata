@@ -10,11 +10,12 @@ Deno.test("market history health requires every expected asset and fresh persist
     assets_expected: 349,
   };
   assertEquals(marketHistoryFresh(good, now), true);
+  assertEquals(marketHistoryFresh({ ...good, connected: false }, now), true);
   for (
     const bad of [
       { ...good, assets_sampled: 348 },
       { ...good, assets_expected: 0 },
-      { ...good, connected: false },
+
       { ...good, last_frame_at: new Date(now - 100000).toISOString() },
       { ...good, last_persisted_at: new Date(now - 125000).toISOString() },
       undefined,
