@@ -51,3 +51,24 @@ Deno.test("historical candle repairs exclude future bars and do not invent a fut
     22,
   );
 });
+
+Deno.test("the combined feed discovers appended markets and new DEXes without confusing delisted slots", async () => {
+  const { historyFrameExtendsCatalog } = await import(
+    "../market-history-data.ts"
+  );
+  const catalog = historyCatalog([null], [{
+    universe: [{ name: "BTC" }, { name: "OLD", isDelisted: true }],
+  }]);
+  assertEquals(
+    historyFrameExtendsCatalog({ ctxs: { "": [{}, {}] } }, catalog),
+    false,
+  );
+  assertEquals(
+    historyFrameExtendsCatalog({ ctxs: { "": [{}, {}, {}] } }, catalog),
+    true,
+  );
+  assertEquals(
+    historyFrameExtendsCatalog({ ctxs: [["xyz", [{}]]] }, catalog),
+    true,
+  );
+});

@@ -19,6 +19,7 @@ create role postgres nologin superuser;
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
+create role "hyperdata-rest" nologin noinherit;
 \i runtime/core/bootstrap.sql
 drop schema public;
 \i runtime/core/schema.sql

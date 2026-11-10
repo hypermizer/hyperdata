@@ -21,3 +21,25 @@ Deno.test("market history health requires every expected asset and fresh persist
     ]
   ) assertEquals(marketHistoryFresh(bad, now), false);
 });
+
+Deno.test("reference health requires all seven windows on every asset and a recent audit", async () => {
+  const { referenceCoverageFresh } = await import("../core-health.ts");
+  const now = Date.now();
+  const good = {
+    assets: 349,
+    total: 2443,
+    ready: 2443,
+    missing: 0,
+    oldestCheck: new Date(now - 15000).toISOString(),
+  };
+  assertEquals(referenceCoverageFresh(good, now), true);
+  for (
+    const bad of [
+      { ...good, ready: 2442, missing: 1 },
+      { ...good, total: 2442 },
+      { ...good, assets: 0 },
+      { ...good, oldestCheck: new Date(now - 70000).toISOString() },
+      null,
+    ]
+  ) assertEquals(referenceCoverageFresh(bad, now), false);
+});

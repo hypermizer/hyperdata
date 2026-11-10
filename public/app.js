@@ -4,7 +4,7 @@ import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
 import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
 import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261109-alerts";
 import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
-import { applyAssetAnalyticsRows, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261109-history";
+import { applyAssetAnalyticsRows, applyMarkReferenceSnapshot, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261110-marks";
 import {
   applyLiveMarketContext,
   buildPriceChangeSignals,
@@ -14,7 +14,7 @@ import {
   MAX_CANDLE_BARS,
   mergeLiveCandle,
   normalizeCandle,
-} from "./lib/hyperliquid.js?v=20261109-history";
+} from "./lib/hyperliquid.js?v=20261110-marks";
 import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261028-assets-hardening";
 import { focusedHeatMapAsset, restoreHeatMapFocus, watchedHeatMapTiles } from "./lib/heat-map.js?v=20260828-watchlist-heat-map";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
@@ -66,6 +66,11 @@ const state = {
   markets: new Map(),
   openDot: null,
   priceHistories: new Map(),
+  markHistories: new Map(),
+  dotReferencesLoading: false,
+  dotReferenceAsOf: 0,
+  dotReferenceMissing: 0,
+  dotVolatility: new Map(),
   supabase: createWatchlistClient(APP_CONFIG),
   stream: null,
   streamMessageAt: 0,
@@ -156,6 +161,7 @@ async function initializeMarketData() {
     ensureValidWatchlist();
     render();
     connectMarketStream();
+    void loadDotReferences();
     void loadCachedAssetAnalytics();
     void loadCachedAssetHistories(markets.map(({ id }) => id));
   } catch (error) {
@@ -249,6 +255,19 @@ function wireEvents() {
     void loadCachedAssetAnalytics();
     if (state.catalog.length) void loadCachedAssetHistories(state.catalog.map(({id}) => id));
   }, APP_CONFIG.assetAnalyticsCachePollIntervalMs);
+  setInterval(loadDotReferences,15000);
+  setInterval(async()=>{
+    if(document.hidden)return;
+    try{
+      const markets=await getAssetMarketCatalog({refresh:true});
+      state.catalog=markets;
+      for(const market of markets){
+        const current=state.markets.get(market.id);
+        state.markets.set(market.id,current?applyLiveMarketContext(market,{markPx:current.markPriceRaw??current.markPrice,prevDayPx:current.previousPrice,dayNtlVlm:current.volume24h,openInterest:current.openInterest,funding:current.funding}):market);
+      }
+      void loadDotReferences();void loadCachedAssetHistories(markets.map(m=>m.id));scheduleMarketRender();
+    }catch(error){console.warn("Asset discovery is retrying",error);}
+  },300000);
   setInterval(loadAlerts, APP_CONFIG.alertsRefreshIntervalMs);
   setInterval(checkQuoteHealth, 1_000);
   setInterval(sendStreamHeartbeat, 30_000);
@@ -372,6 +391,22 @@ async function acknowledgeNewAsset(asset) {
   }
 }
 
+async function loadDotReferences(){
+  if(!state.supabase||state.dotReferencesLoading)return;
+  state.dotReferencesLoading=true;
+  try{
+    const {data,error}=await state.supabase.rpc("asset_mark_reference_snapshot",{});
+    if(error)throw error;
+    const applied=applyMarkReferenceSnapshot(data,state.markHistories);
+    state.dotReferenceAsOf=applied.asOf;
+    state.dotVolatility=new Map(data.rows.map(row=>[row.asset,Number(row.five_minute_volatility)]));
+    state.dotReferenceMissing=data.rows.reduce((n,row)=>n+Math.max(0,7-row.mark_history.length),0);
+    renderConnectionStatus();
+    if(state.catalog.length)scheduleMarketRender();
+  }catch(error){console.warn("Mark references are retrying",error);}
+  finally{state.dotReferencesLoading=false;}
+}
+
 async function loadCachedAssetAnalytics() {
   if (!state.supabase) return 0;
   const { data, error } = await state.supabase
@@ -484,7 +519,7 @@ function renderMarkets() {
     averageVolumes: state.averageVolumes,
     dailyVolatilityValues,
     now,
-    priceHistories: state.priceHistories,
+    priceHistories: state.markHistories,
     rsiValues,
     sort: state.sort,
     watched: state.watchlist,
@@ -513,7 +548,7 @@ function renderMarkets() {
       const venue = symbolCounts.get(displayAssetSymbol(market)) > 1
         ? `<span class="asset-venue-tag" title="Hyperliquid venue">${escapeHtml(market.dexId || "CORE")}</span>`
         : "";
-      return `<tr class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a>${venue}<span class="asset-leverage-tag" title="Maximum leverage">${formatMaxLeverage(market.maxLeverage)}</span>${acknowledgement}</span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="20-day standard deviation of daily log returns, including the live mark">${formatVolatility(dailyVolatility)}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatFundingApr(market.funding)}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric" title="Open-interest notional at the current mark">${formatUsdCompact(market.openInterestNotional)}</td></tr>`;
+      return `<tr data-mark-price="${escapeHtml(String(market.markPriceRaw??market.markPrice))}" class="${isWatched ? "is-watched" : ""}"><td class="asset-cell"><span class="asset-name"><button class="watch-button" type="button" data-watch-asset="${escapeHtml(market.id)}" aria-label="${escapeHtml(watchLabel)}" title="${escapeHtml(watchLabel)}" aria-pressed="${isWatched}" ${favoritePending ? "disabled" : ""}>${isWatched ? "★" : "☆"}</button><a class="asset-link" href="${routeFor("asset", market.id)}">${escapeHtml(displayAssetName(market.id))}</a>${venue}<span class="asset-leverage-tag" title="Maximum leverage">${formatMaxLeverage(market.maxLeverage)}</span>${acknowledgement}</span></td><td class="signal-cell">${renderPriceSignals(market)}</td><td class="metric">${formatPrice(market.markPrice)}</td><td class="metric ${direction}">${formatPercent(market.changePercent)}</td><td class="metric">${formatUsdCompact(market.volume24h)}</td><td class="metric">${formatUsdCompact(state.averageVolumes.get(market.id))}</td><td class="metric" title="20-day standard deviation of daily log returns, including the live mark">${formatVolatility(dailyVolatility)}</td><td class="metric" title="Annualized from the current hourly funding rate">${formatFundingApr(market.funding)}</td><td class="metric" title="Wilder RSI(14) on one-hour closes; the live mark is the current-hour value">${formatRsi(rsi)}</td><td class="metric" title="Open-interest notional at the current mark">${formatUsdCompact(market.openInterestNotional)}</td></tr>`;
     })
     .join("");
   const body = rows || `<tr><td class="asset-cell" colspan="10">NO MATCHING ASSETS</td></tr>`;
@@ -534,7 +569,10 @@ function renderNewAssetAcknowledgement(market) {
 function renderPriceSignals(market) {
   const signals = buildPriceChangeSignals(
     market.markPrice,
-    state.priceHistories.get(market.id) ?? [],
+    state.markHistories.get(market.id) ?? [],
+    Date.now(),
+    [],
+    state.dotVolatility.get(market.id),
   );
   const dots = signals
     .map((signal) => {
@@ -980,11 +1018,16 @@ function renderConnectionStatus(detail = "") {
     lastMessageAt: state.streamMessageAt,
     detail,
   });
-  if (elements.connectionLabel.textContent !== health.label) {
-    elements.connectionLabel.textContent = health.label;
+  const referenceDetail=!state.dotReferenceAsOf ? " · LOADING REFERENCES"
+    : Date.now()-state.dotReferenceAsOf>60000 ? " · REFERENCES STALE — RETRYING"
+    : state.dotReferenceMissing ? ` · ${state.dotReferenceMissing} REFERENCES RECOVERING` : "";
+  const label=health.label+referenceDetail;
+  if (elements.connectionLabel.textContent !== label) {
+    elements.connectionLabel.textContent = label;
   }
-  if (elements.connectionLabel.className !== health.tone) {
-    elements.connectionLabel.className = health.tone;
+  const tone=referenceDetail ? "warning" : health.tone;
+  if (elements.connectionLabel.className !== tone) {
+    elements.connectionLabel.className = tone;
   }
   return health;
 }
@@ -1091,11 +1134,11 @@ function recordLivePrice(asset, price, now = Date.now()) {
   state.priceHistories.set(asset, recordLivePricePoint(state.priceHistories.get(asset), price, now));
 }
 
-function formatDotDetail({ label, referencePrice, changePercent }) {
+function formatDotDetail({ label, referencePrice, changePercent, referenceTime }) {
   if (referencePrice === null || changePercent === null) {
     return `${label.toUpperCase()} reference unavailable`;
   }
-  return `${label.toUpperCase()} reference ${formatPrice(referencePrice)} · ${formatPercent(changePercent)}`;
+  return `${label.toUpperCase()} mark reference ${formatPrice(referencePrice)}${referenceTime ? ` · ${new Date(referenceTime).toISOString().replace("T"," ").replace(".000Z"," UTC")}` : ""} · ${formatPercent(changePercent)}`;
 }
 
 function displayAssetName(asset) {

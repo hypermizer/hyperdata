@@ -33,6 +33,8 @@ const tables = new Set([
 const rpcs = new Set([
   "paper_fee_volume",
   "asset_history_updates",
+  "asset_mark_reference_snapshot",
+  "mark_reference_health",
   "create_paper_account",
   "reset_paper_account",
   "archive_paper_account",

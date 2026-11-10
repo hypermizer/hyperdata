@@ -14,7 +14,7 @@ Detection, occurrences, and notification attempts are persisted separately. Prov
 
 ## Runtime
 
-Watchlist reference prices are collected continuously for every active asset, independent of open browsers. Server-side gap recovery and minute-by-minute browser history updates keep the dot columns current; newly listed assets retain unavailable references until genuine history exists.
+Dot references cover every active asset, independent of favourites or open browsers. A dedicated mark store, raw historical mark recovery, 15-second coverage audits, and automatic browser updates keep all seven windows supplied. Prices and reference timestamps are verified; trade candles are not used as mark substitutes. See [all-asset mark operations](docs/local-data.md#canonical-mark-references-for-every-asset).
 
 The supervised server runtime evaluates Hyperliquid mark-price WebSocket updates, syncs qualifying touches to disk, and atomically records occurrences and independent delivery jobs in local PostgreSQL. A separate HTTP monitor checks every 15 seconds. Email and ntfy send directly from the server with leases, retries, health checks, and an independent external watchdog.
 

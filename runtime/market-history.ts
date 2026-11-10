@@ -3,6 +3,7 @@ import { infoRequest } from "../supabase/functions/_shared/hyperliquid.ts";
 import {
   candleHistoryPoints,
   historyCatalog,
+  historyFrameExtendsCatalog,
   historySamples,
   repairRequestWeight,
 } from "./market-history-data.ts";
@@ -24,6 +25,7 @@ let catalog: ReturnType<typeof historyCatalog> = [],
   repairBusy = false;
 let lastError: string | null = null;
 let catalogRetryAt = 0;
+let lastCoverageScan = 0, coverageBusy = false;
 const contexts = new Map<string, { price: string; at: number }>();
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function rpc(name: string, args: Record<string, unknown> = {}) {
@@ -41,7 +43,11 @@ async function loadCatalog() {
   const dexes = await limitedInfo({ type: "perpDexs" });
   const metas = await limitedInfo({ type: "allPerpMetas" });
   catalog = historyCatalog(dexes, metas);
+  await rpc("sync_mark_history_assets", {
+    p_assets: catalog.map((a) => ({ asset: a.asset, dex: a.dex })),
+  });
   catalogAt = Date.now();
+  catalogRetryAt = Date.now() + 30000;
   console.log(
     JSON.stringify({ event: "history_catalog", assets: catalog.length }),
   );
@@ -67,6 +73,7 @@ function connect() {
     try {
       const message = JSON.parse(String(e.data));
       if (message.channel !== "allDexsAssetCtxs") return;
+      if (historyFrameExtendsCatalog(message.data, catalog)) catalogAt = 0;
       const at = Date.now();
       for (const sample of historySamples(message.data, catalog)) {
         contexts.set(sample.asset, { price: sample.price, at });
@@ -104,6 +111,10 @@ async function persist() {
         p_bucket: new Date(now).toISOString(),
         p_samples: samples,
       });
+      await rpc("record_live_mark_batch", {
+        p_observed_at: new Date(now).toISOString(),
+        p_samples: samples,
+      });
       lastPersisted = new Date(now).toISOString();
     }
     const { data: pending, error: pendingError } = await client.from(
@@ -138,7 +149,7 @@ async function repair() {
       .in("asset", catalog.map((a) => a.asset)).lte(
         "retry_after",
         new Date().toISOString(),
-      ).order("watched", { ascending: false }).order("asset").limit(1);
+      ).order("asset").limit(1);
     if (error) throw Error(error.message);
     const job = data?.[0];
     if (!job) return;
@@ -202,7 +213,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 while (!stopped) {
   if (
     Date.now() >= catalogRetryAt &&
-    (!catalog.length || Date.now() - catalogAt > 3600000)
+    (!catalog.length || Date.now() - catalogAt > 300000)
   ) {
     try {
       await loadCatalog();
@@ -232,6 +243,14 @@ while (!stopped) {
     void persist();
   }
   void repair();
+  if (!coverageBusy && Date.now() - lastCoverageScan > 15000) {
+    coverageBusy = true;
+    void rpc("refresh_mark_reference_coverage").then(() => {
+      lastCoverageScan = Date.now();
+    }).catch(console.error).finally(() => {
+      coverageBusy = false;
+    });
+  }
   await sleep(1000);
 }
 while (persistBusy || repairBusy) await sleep(100);

@@ -35,5 +35,6 @@ copy_backup "$config"
 globals="/srv/hyperdata/backups/globals-${stamp}.sql"
 runuser -u postgres -- "$pg_bin/pg_dumpall" -h /run/postgresql-hyperdata -p 5545 --globals-only > "$globals"
 copy_backup "$globals"
-find /srv/hyperdata/backups -maxdepth 1 -type f \( -name 'alerts-*.dump*' -o -name 'core-*.dump*' -o -name 'config-*.tar.gz' -o -name 'globals-*.sql' \) -mtime +7 -delete
+find /srv/hyperdata/backups -maxdepth 1 -type f \( -name 'alerts-*.dump*'  -o -name 'config-*.tar.gz' -o -name 'globals-*.sql' \) -mtime +7 -delete
+find /srv/hyperdata/backups -maxdepth 1 -type f -name 'core-*.dump*' -mtime +3 -delete
 printf 'Hyperdata databases and configuration backed up to Ohio and Tokyo: %s\n' "$stamp"

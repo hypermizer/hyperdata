@@ -45,3 +45,20 @@ function mergePoints(cached, live) {
   live.forEach((point) => byTime.set(point.time, point));
   return [...byTime.values()].sort((left, right) => left.time - right.time);
 }
+
+export function applyMarkReferenceSnapshot(snapshot, histories) {
+  const asOf=Date.parse(snapshot?.asOf);
+  if(!Number.isFinite(asOf)||!Array.isArray(snapshot?.rows))throw new Error("Invalid mark reference snapshot");
+  let count=0;
+  const staged=new Map();
+  for(const row of snapshot.rows){
+    if(typeof row.asset!=="string"||!Array.isArray(row.mark_history))throw new Error("Invalid mark reference asset");
+    if(row.five_minute_volatility!==undefined&&(!Number.isFinite(Number(row.five_minute_volatility))||Number(row.five_minute_volatility)<0))throw new Error("Invalid mark volatility");
+    const points=row.mark_history.map(point=>({time:Number(point.time),price:Number(point.price),source:point.source}));
+    if(points.some(p=>!Number.isFinite(p.time)||p.time>asOf||!Number.isFinite(p.price)||p.price<=0||!["hyperliquid_mark","0xarchive_mark"].includes(p.source)))throw new Error("Unverified mark reference");
+    if(staged.has(row.asset))throw new Error("Duplicate mark reference asset");
+    staged.set(row.asset,points.sort((a,b)=>a.time-b.time));count++;
+  }
+  for(const [asset,points]of staged)histories.set(asset,points);
+  return {asOf,count};
+}

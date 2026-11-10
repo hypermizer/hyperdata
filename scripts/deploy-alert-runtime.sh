@@ -16,7 +16,7 @@ sudo cp scripts/price-stream/*.ts "$release_path/scripts/price-stream/"
 sudo install -d "$release_path/scripts/lib"
 sudo cp scripts/refresh-asset-analytics.mjs "$release_path/scripts/"
 sudo cp scripts/lib/{asset-analytics-refresh,local-data}.js "$release_path/scripts/lib/"
-sudo env DENO_DIR=/opt/hyperdata-runtime/cache /usr/local/bin/deno cache --frozen --config "$release_path/supabase/functions/deno.json" "$release_path/runtime/api.ts" "$release_path/runtime/monitor.ts" "$release_path/runtime/watchdog.ts" "$release_path/runtime/liquidation-collector.ts" "$release_path/runtime/owner-backend.ts" "$release_path/runtime/core-worker.ts" "$release_path/runtime/core-maintenance.ts" "$release_path/runtime/market-history.ts"
+sudo env DENO_DIR=/opt/hyperdata-runtime/cache /usr/local/bin/deno cache --frozen --config "$release_path/supabase/functions/deno.json" "$release_path/runtime/api.ts" "$release_path/runtime/monitor.ts" "$release_path/runtime/watchdog.ts" "$release_path/runtime/liquidation-collector.ts" "$release_path/runtime/owner-backend.ts" "$release_path/runtime/core-worker.ts" "$release_path/runtime/core-maintenance.ts" "$release_path/runtime/market-history.ts" "$release_path/runtime/archive-mark-history.ts"
 sudo chown -R root:root "$release_path" /opt/hyperdata-runtime/cache
 sudo chmod -R a+rX "$release_path" /opt/hyperdata-runtime/cache
 sudo ln -sfn "$release_path" /opt/hyperdata-runtime/current.next
@@ -25,7 +25,7 @@ sudo install -m 0644 scripts/systemd/hyperdata-{api,stream,monitor,watchdog,back
 sudo install -m 0644 scripts/systemd/hyperdata-{watchdog,backup}.timer /etc/systemd/system/
 sudo install -m 0755 scripts/backup-alert-runtime.sh /usr/local/sbin/backup-hyperdata
 if sudo test -s /etc/hyperdata/core.env; then
- sudo install -m 0644 scripts/systemd/hyperdata-data.service scripts/systemd/hyperdata-market-history.service scripts/systemd/hyperdata-core@.service scripts/systemd/hyperdata-core-maintenance.{service,timer} scripts/systemd/hyperdata-analytics.{service,timer} /etc/systemd/system/
+ sudo install -m 0644 scripts/systemd/hyperdata-data.service scripts/systemd/hyperdata-market-history.service scripts/systemd/hyperdata-archive-marks.service scripts/systemd/hyperdata-core@.service scripts/systemd/hyperdata-core-maintenance.{service,timer} scripts/systemd/hyperdata-analytics.{service,timer} /etc/systemd/system/
 fi
 sudo systemctl daemon-reload
 if sudo test -s /etc/hyperdata/owner-backend.env; then
@@ -56,5 +56,9 @@ if sudo test -s /etc/hyperdata/core.env; then
  sudo systemctl enable hyperdata-market-history hyperdata-data hyperdata-core@paper hyperdata-core@account-sync hyperdata-core-maintenance.timer hyperdata-analytics.timer
  sudo systemctl restart hyperdata-market-history hyperdata-core@paper hyperdata-core@account-sync
  sudo systemctl start hyperdata-core-maintenance.timer hyperdata-analytics.timer
+fi
+if sudo test -s /etc/hyperdata/archive-marks.env; then
+ sudo systemctl enable hyperdata-archive-marks
+ sudo systemctl restart hyperdata-archive-marks
 fi
 printf 'Deployed Hyperdata runtime release %s\n' "$release"

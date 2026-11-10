@@ -326,7 +326,7 @@ export function mergeLiveCandle(candles, candle, limit = MAX_CANDLE_BARS) {
   return [...candles, candle].slice(-limit);
 }
 
-export function buildPriceChangeSignals(markPrice, points, now = Date.now()) {
+export function buildPriceChangeSignals(markPrice, points, now = Date.now(), volatilityPoints = points, volatilityOverride = null) {
   if (!Number.isFinite(markPrice) || markPrice <= 0) {
     return PRICE_CHANGE_WINDOWS.map(({ label }) => ({
       label,
@@ -337,7 +337,8 @@ export function buildPriceChangeSignals(markPrice, points, now = Date.now()) {
     }));
   }
 
-  const volatility = estimateFiveMinuteVolatility(points);
+  const volatility = Number.isFinite(volatilityOverride) && volatilityOverride >= 0
+    ? volatilityOverride : estimateFiveMinuteVolatility(volatilityPoints);
   return PRICE_CHANGE_WINDOWS.map(({ label, milliseconds }) => {
     const change = priceChangeForWindow(markPrice, points, milliseconds, now);
     if (!change) {
@@ -350,7 +351,7 @@ export function buildPriceChangeSignals(markPrice, points, now = Date.now()) {
       };
     }
 
-    const { changePercent, referencePrice } = change;
+    const { changePercent, referencePrice, referenceTime } = change;
     const normalizedMove = Math.abs(changePercent) / Math.max(
       volatility * Math.sqrt(milliseconds / FIVE_MINUTES_MS),
       0.05 * Math.sqrt(milliseconds / (60 * 60 * 1000)),
@@ -359,6 +360,7 @@ export function buildPriceChangeSignals(markPrice, points, now = Date.now()) {
       label,
       changePercent,
       referencePrice,
+      referenceTime,
       direction: changePercent >= 0 ? "up" : "down",
       intensity: normalizedMove >= 3
         ? "strong"
@@ -378,6 +380,7 @@ export function priceChangeForWindow(markPrice, points, milliseconds, now = Date
   return {
     changePercent: ((markPrice - previous.price) / previous.price) * 100,
     referencePrice: previous.price,
+    referenceTime: previous.time,
   };
 }
 

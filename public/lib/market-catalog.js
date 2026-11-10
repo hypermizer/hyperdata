@@ -8,7 +8,8 @@ export function getMarketCatalog() {
   return catalogPromise;
 }
 
-export function getAssetMarketCatalog() {
+export function getAssetMarketCatalog({ refresh = false } = {}) {
+  if(refresh)assetCatalogPromise=null;
   assetCatalogPromise ??= fetchAllMarkets(fetch, { requireAnnotations: true, requireComplete: true })
     .then(requireAssetUniverseDexes)
     .then(sortMarkets)

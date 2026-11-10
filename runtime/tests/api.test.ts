@@ -255,6 +255,8 @@ Deno.test("private health reports a local core failure without exposing account 
       Promise.resolve({
         healthy: false,
         historyFresh: false,
+        markReferencesFresh: false,
+        dotCoverage: null,
         referenceRepairsPending: null,
         watchedReferenceRepairsPending: null,
         paperFresh: true,

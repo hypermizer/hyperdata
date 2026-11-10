@@ -82,3 +82,12 @@ test("live ticks retain actual timestamps and chronological server samples", () 
   assert.deepEqual(next,[...server,{time:now+1000,price:103}]);
   assert.ok(next.every((point,i)=>i===0||point.time>next[i-1].time));
 });
+
+test("canonical mark references replace old snapshots and reject trade/oracle substitutes", async()=>{
+ const {applyMarkReferenceSnapshot}=await import('../public/lib/asset-analytics.js');
+ const histories=new Map(),now=Date.now();const snapshot={asOf:new Date(now).toISOString(),rows:[{asset:'BTC',mark_history:[{time:now-300000,price:'100.1234',source:'0xarchive_mark'}]}]};
+ applyMarkReferenceSnapshot(snapshot,histories);assert.equal(histories.get('BTC')[0].price,100.1234);
+ assert.throws(()=>applyMarkReferenceSnapshot({...snapshot,rows:[{asset:'BTC',mark_history:[{time:now-300000,price:999,source:'trade_candle'}]}]},histories),/Unverified/);
+ applyMarkReferenceSnapshot({asOf:snapshot.asOf,rows:[{asset:'BTC',mark_history:[{time:now-299000,price:'101',source:'hyperliquid_mark'}]}]},histories);
+ assert.equal(histories.get('BTC').length,1);assert.equal(histories.get('BTC')[0].price,101);
+});

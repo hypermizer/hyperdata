@@ -2,6 +2,7 @@ export interface HistoryAsset {
   asset: string;
   dex: string;
   index: number;
+  universeSize?: number;
 }
 export function historyCatalog(dexes: unknown, metas: unknown): HistoryAsset[] {
   if (
@@ -15,7 +16,12 @@ export function historyCatalog(dexes: unknown, metas: unknown): HistoryAsset[] {
     meta.universe.forEach(
       (asset: { name?: string; isDelisted?: boolean }, index: number) => {
         if (asset.name && !asset.isDelisted) {
-          rows.push({ asset: asset.name, dex, index });
+          rows.push({
+            asset: asset.name,
+            dex,
+            index,
+            universeSize: meta.universe.length,
+          });
         }
       },
     );
@@ -68,4 +74,33 @@ export function repairRequestWeight(body: Record<string, unknown>) {
         Math.max(0, Math.ceil((req.endTime - req.startTime) / 300000) + 1),
       ) / 60,
     );
+}
+
+export function historyFrameExtendsCatalog(
+  payload: unknown,
+  catalog: HistoryAsset[],
+) {
+  const raw = (payload as { ctxs?: unknown })?.ctxs;
+  if (!raw || typeof raw !== "object") return false;
+  const sizes = new Map<string, number>();
+  for (const asset of catalog) {
+    sizes.set(
+      asset.dex,
+      Math.max(
+        sizes.get(asset.dex) ?? 0,
+        asset.universeSize ?? asset.index + 1,
+      ),
+    );
+  }
+  for (const [name, value] of Object.entries(raw)) {
+    const dex = Array.isArray(value) && typeof value[0] === "string"
+      ? value[0]
+      : name;
+    const rows = Array.isArray(value) && typeof value[0] === "string" &&
+        Array.isArray(value[1])
+      ? value[1]
+      : value;
+    if (Array.isArray(rows) && rows.length > (sizes.get(dex) ?? 0)) return true;
+  }
+  return false;
 }

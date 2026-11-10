@@ -61,4 +61,5 @@ for name in ['api.env','worker.env']:
 PY
 bash scripts/apply-core-migrations.sh
 bash scripts/install-owner-backend.sh
+if sudo test -s /etc/hyperdata/oxarchive.env;then bash scripts/install-mark-archive.sh;fi
 printf 'Local core database and identities configured. Deploy with scripts/deploy-alert-runtime.sh.\n'
