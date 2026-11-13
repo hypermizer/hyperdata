@@ -3,7 +3,7 @@ import { createAlertRuntimeClient } from "./lib/alert-client.js?v=20261109-owner
 import { createAssetChart } from "./asset-chart.js?v=20261109-owner";
 import { createAssetLiquidations } from "./asset-liquidations.js?v=20261109-owner";
 import { alertDeliverySummary, displayRule, listenerHealth, priceStreamHealth, normalizeAlertRuleInput } from "./lib/alert-rules.js?v=20261110-charts3";
-import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261028-assets-hardening";
+import { ASSET_CATEGORY_TABS, calculateDailyVolatility, calculateHourlyRsi, displayAssetSymbol, filterAssets, formatFundingApr, formatMaxLeverage, hydrateAssetUniverse, isNewAsset, nextColumnSort, sortAssets, unseenNewAssetIds } from "./lib/assets.js?v=20261113-dot-sort";
 import { applyAssetAnalyticsRows, applyMarkReferenceSnapshot, recordLivePricePoint } from "./lib/asset-analytics.js?v=20261110-marks";
 import {
   applyLiveMarketContext,
@@ -577,7 +577,13 @@ function renderPriceSignals(market) {
 function renderSignalHeaders() {
   const windows = [["1W", "1w"], ["1D", "1d"], ["6H", "6h"], ["1H", "1h"], ["30M", "30m"], ["10M", "10m"], ["5M", "5m"]];
   return `<th class="signal-cell"><span class="signal-grid signal-labels">${windows
-    .map(([label, window]) => `<button class="signal-slot" type="button" data-sort-column="move-${window}" aria-label="Sort by ${label} absolute price move">${label}</button>`)
+    .map(([label, window]) => {
+      const descending = state.sort === `move-${window}-desc`;
+      const ascending = state.sort === `move-${window}-asc`;
+      const active = descending || ascending;
+      const description = `${label} return${active ? `, ${descending ? "highest" : "lowest"} first` : ""}. Sort ${descending ? "lowest" : "highest"} return first`;
+      return `<button class="signal-slot" type="button" data-sort-column="move-${window}" aria-pressed="${active}" aria-label="${description}" title="${description}">${label}<span class="signal-sort-indicator" aria-hidden="true">${descending ? "↓" : ascending ? "↑" : ""}</span></button>`;
+    })
     .join("")}</span></th>`;
 }
 

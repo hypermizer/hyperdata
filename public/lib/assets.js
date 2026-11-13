@@ -157,9 +157,6 @@ export function assetStreamSubscriptions(markets, watchlist = []) {
 }
 
 export function nextColumnSort(currentSort, column) {
-  if (column.startsWith("move-")) {
-    return currentSort === `${column}-abs-desc` ? `${column}-abs-asc` : `${column}-abs-desc`;
-  }
   return currentSort === `${column}-desc` ? `${column}-asc` : `${column}-desc`;
 }
 

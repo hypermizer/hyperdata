@@ -284,6 +284,7 @@ input, select { min-width: 0; }
 }
 .signal-slot:last-child { border-right: 1px solid rgb(236 239 241 / 0.06); }
 .signal-labels .signal-slot {
+  position: relative;
   min-height: 44px;
   padding: 0;
   border-top: 0;
@@ -294,6 +295,8 @@ input, select { min-width: 0; }
   font-size: 10px;
   font-weight: 700;
 }
+.signal-labels .signal-slot[aria-pressed="true"] { color: #45e1c0; background: rgb(44 136 129 / 0.16); }
+.signal-sort-indicator { position: absolute; right: 2px; font-size: 10px; }
 .price-dots { align-items: center; }
 .signal-dot-button {
   display: grid;

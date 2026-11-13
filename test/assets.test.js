@@ -322,10 +322,30 @@ test("column sorting starts high-to-low and toggles direction", () => {
   assert.equal(nextColumnSort("volume-desc", "asset"), "asset-desc");
 });
 
-test("signal columns toggle between largest and smallest absolute moves", () => {
-  assert.equal(nextColumnSort("asset-asc", "move-30m"), "move-30m-abs-desc");
-  assert.equal(nextColumnSort("move-30m-abs-desc", "move-30m"), "move-30m-abs-asc");
-  assert.equal(nextColumnSort("move-30m-abs-asc", "move-30m"), "move-30m-abs-desc");
+test("each signal header toggles highest and lowest signed return independently", () => {
+  for (const window of ["1w", "1d", "6h", "1h", "30m", "10m", "5m"]) {
+    assert.equal(nextColumnSort("asset-asc", `move-${window}`), `move-${window}-desc`);
+    assert.equal(nextColumnSort(`move-${window}-desc`, `move-${window}`), `move-${window}-asc`);
+    assert.equal(nextColumnSort(`move-${window}-asc`, `move-${window}`), `move-${window}-desc`);
+    assert.equal(nextColumnSort("change-24h-asc", `move-${window}`), `move-${window}-desc`);
+  }
+});
+
+test("dot header clicks rank all visible assets by signed return and keep missing references last", () => {
+  const now = Date.UTC(2026, 10, 13, 12);
+  const markets = [
+    { id: "xyz:UP", symbol: "UP", dexId: "xyz", markPrice: 110 },
+    { id: "xyz:DOWN", symbol: "DOWN", dexId: "xyz", markPrice: 70 },
+    { id: "xyz:FLAT", symbol: "FLAT", dexId: "xyz", markPrice: 100 },
+    { id: "xyz:MISSING", symbol: "MISSING", dexId: "xyz", markPrice: 100 },
+  ];
+  for (const [window, minutes] of [["1w", 10080], ["1d", 1440], ["6h", 360], ["1h", 60], ["30m", 30], ["10m", 10], ["5m", 5]]) {
+    const priceHistories = new Map(markets.slice(0, 3).map(({ id }) => [id, [{ time: now - minutes * 60000, price: 100 }]]));
+    const options = { priceHistories, now, watched: ["xyz:DOWN"] };
+    const descending = nextColumnSort("asset-asc", `move-${window}`);
+    assert.deepEqual(filterAndSortAssets(markets, { ...options, sort: descending }).map(({ id }) => id), ["xyz:UP", "xyz:FLAT", "xyz:DOWN", "xyz:MISSING"]);
+    assert.deepEqual(filterAndSortAssets(markets, { ...options, sort: nextColumnSort(descending, `move-${window}`) }).map(({ id }) => id), ["xyz:DOWN", "xyz:FLAT", "xyz:UP", "xyz:MISSING"]);
+  }
 });
 
 test("each signal column sorts by its own time window", () => {
