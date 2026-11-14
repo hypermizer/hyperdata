@@ -20,7 +20,7 @@ export function createComparison({ client, getCatalog }) {
   let loading = false, generation = 0, loadedFrom = 0, baselineFrom = 0, baselineTime = null, renderedKey = null, retryAt = 0, refreshAt = 0;
   let socket = null, reconnectAt = 0, backoff = 1000, lastFrame = 0, lastPing = 0, streamConnected = false, connections = 0;
   let applyingRange = false, gestureUntil = 0, controlTimer = null, lastReceived = [0, 0], dataError = null;
-  let monitor = null;
+  let monitor = null, pendingMonitorPair = null, retryHistory = false;
   let liveQuotes = [null, null], paintTimer = null, swapping = false;
 
   function key() { return `${prefs.assetA}|${prefs.assetB}|${prefs.interval}|${prefs.window}|${prefs.startTime}|${prefs.basis}|${prefs.entryA}|${prefs.entryB}`; }
@@ -48,11 +48,11 @@ export function createComparison({ client, getCatalog }) {
       const { data, error } = await client.from("comparison_preferences").select("settings").eq("user_id", owner).maybeSingle();
       if (error) throw error;
       if (!dirty && data) prefs = comparisonPreferences(data.settings);
-      restored = true; initialized = true; cache(); controls(); selectSaved();
+      restored = true; initialized = true; cache(); controls(); selectSaved(); if (pendingMonitorPair) { const pair=pendingMonitorPair; pendingMonitorPair=null; applyMonitorPair(pair); }
       $("save-status").textContent = dirty ? "SAVING…" : "SAVED";
       if (active) start(); void save();
     } catch {
-      initialized = true; controls(); selectSaved();
+      initialized = true; controls(); selectSaved(); if(pendingMonitorPair){const pair=pendingMonitorPair;pendingMonitorPair=null;applyMonitorPair(pair);}
       $("save-status").textContent = "BROWSER SETTINGS · SERVER RETRYING";
       if (active) start(); setTimeout(restore, 15000);
     }
@@ -187,7 +187,7 @@ export function createComparison({ client, getCatalog }) {
       if (!Array.isArray(response)) throw new Error("Start-price history is unavailable.");
       const candles = response.map(normalizeCandle).filter(Boolean);
       if (candles.some(bar => bar.time === settings.startTime - duration)) return candles;
-      const result = await client.rpc("request_comparison_history", { p_asset: asset, p_interval: duration === 3600 ? "1h" : "1m", p_start: (settings.startTime - duration * 3) * 1000, p_end: settings.startTime * 1000 - 1 });
+      const result = await client.rpc("request_comparison_history", { p_asset: asset, p_interval: duration === 3600 ? "1h" : "1m", p_start: (settings.startTime - duration * 3) * 1000, p_end: settings.startTime * 1000 - 1, p_retry: settings.retryHistory === true });
       if (result.error) throw Error(result.error.message);
       let job = result.data;
       for (let attempt = 0; attempt < 75 && ["pending", "running"].includes(job.state); attempt++) {
@@ -199,14 +199,15 @@ export function createComparison({ client, getCatalog }) {
         job = { ...job, ...state.data };
       }
       if (job.state === "blocked") { const error = Error(job.error + " For dates such as September 1, you can explicitly choose HISTORICAL HOURLY CLOSE and a whole UTC hour, or enter your actual fills."); error.historyBlocked = true; throw error; }
-      if (job.state !== "ready") throw Error(job.error ?? "Archived history is still loading. Retry shortly.");
+      if (job.state !== "ready") { const error=Error(job.error ?? "Archived history is still loading. Retry shortly."); error.historyBlocked=job.state === "error"; throw error; }
       return job.data ?? [];
     }
     return await fetchChartCandles(asset, projected, fetch, asOf);
   }
   async function load({ reconnect = false } = {}) {
     if (!active || !initialized || !validPair() || loading) return;
-    const token = ++generation, settings = structuredClone(prefs), asOf = Date.now(), loadKey = key();
+    const token = ++generation, settings = { ...structuredClone(prefs), retryHistory }, asOf = Date.now(), loadKey = key();
+    retryHistory = false;
     if (reconnect && baselineTime !== null && !settings.startTime) settings.range = { from: Math.min(settings.range?.from ?? baselineTime, baselineTime), to: asOf / 1000 };
     loading = true; retryAt = 0; $("retry").hidden = true; $("status").textContent = "LOADING MATCHED CANDLE HISTORY…";
     if (!reconnect) { bars = [[], []]; baselineTime = null; model = null; renderedKey = null; cursor = null; $("baseline").textContent = ""; $("readout").textContent = ""; $("legend-a").replaceChildren(); $("legend-b").replaceChildren(); $("chart").dataset.sharedPoints = "0"; }
@@ -342,7 +343,7 @@ export function createComparison({ client, getCatalog }) {
     if (model?.baseline && renderedKey === key()) { makeChart(); paint(true); } else start();
   });
   $("reset").addEventListener("click", () => { prefs.range = null; prefs.followNow = true; $("follow").checked = true; changed(); fit(); series.forEach((line) => line.priceScale().applyOptions({ autoScale: true })); });
-  $("retry").addEventListener("click", start);
+  $("retry").addEventListener("click", () => { retryHistory=true; start(); });
   for (const event of ["pointerdown", "touchstart", "wheel"]) $("chart").addEventListener(event, () => {
     gestureUntil = Date.now() + 2000;
     if (prefs.startTime && prefs.followNow) { prefs.followNow = false; $("follow").checked = false; applyingRange = false; changed(); }
@@ -359,11 +360,13 @@ export function createComparison({ client, getCatalog }) {
     if (!loading && (retryAt && Date.now() >= retryAt || renderedKey && Date.now() >= refreshAt)) void load({ reconnect: Boolean(renderedKey) });
     status(); if (model) readout();
   }, 1000);
-  monitor = createPairMonitor({ client, getCatalog, getSettings: () => structuredClone(prefs), onSelect: (pair) => {
+  function applyMonitorPair(pair) {
+    if(!initialized){pendingMonitorPair=pair;return;}
     if (prefs.assetA === pair.assetA && prefs.assetB === pair.assetB) return;
     prefs = comparisonPreferences({ ...prefs, assetA: pair.assetA, assetB: pair.assetB, anchor: null, range: null, basis: "market", entryA: null, entryB: null });
     changed(); controls(); selectSaved(); if (active) start();
-  } });
+  }
+  monitor = createPairMonitor({ client, getCatalog, getSettings: () => structuredClone(prefs), onSelect: applyMonitorPair });
   controls(); void restore();
   return { setActive(value) {
     syncCatalog();

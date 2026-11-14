@@ -186,6 +186,9 @@ Deno.test('pair monitor persistence, private snapshots, history bounds and notif
  r=await call('rpc/pair_account_snapshot',token,'POST',{p_assets:['BTC','ETH'],p_user:'00000000-0000-0000-0000-000000000778'});assertEquals(r.status,400);await r.body?.cancel();
  r=await call('rpc/pair_mark_history',token,'POST',{p_assets:['BTC','ETH'],p_start:new Date(Date.now()-3600000).toISOString(),p_end:new Date().toISOString(),p_interval:60});assertEquals(r.status,200);assertEquals((await r.json()).basis,'mark');
  r=await call('rpc/request_comparison_history',token,'POST',{p_asset:'xyz:NVDA',p_interval:'1m',p_start:1788286500000,p_end:1788286620000});assertEquals(r.status,200);const job=await r.json();assertEquals(job.state,'pending');
+ r=await call('comparison_history_cache?key=eq.'+job.key,service,'PATCH',{state:'error',error:'Temporary failure',updated_at:new Date(Date.now()-60000).toISOString()});assertEquals(r.status,200);await r.body?.cancel();
+ r=await call('rpc/request_comparison_history',token,'POST',{p_asset:'xyz:NVDA',p_interval:'1m',p_start:1788286500000,p_end:1788286620000});assertEquals((await r.json()).state,'error');
+ r=await call('rpc/request_comparison_history',token,'POST',{p_asset:'xyz:NVDA',p_interval:'1m',p_start:1788286500000,p_end:1788286620000,p_retry:true});assertEquals((await r.json()).state,'pending');
  r=await call('comparison_history_cache?key=eq.'+job.key,token);assertEquals((await r.json()).length,1);
  r=await call('comparison_history_cache',stranger);assertEquals(await r.json(),[]);
  r=await call('rpc/request_comparison_history',token,'POST',{p_asset:'BTC',p_interval:'1m',p_start:null,p_end:1});assertEquals(r.status,400);await r.body?.cancel();
