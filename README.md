@@ -24,6 +24,8 @@ The CHARTS tab displays live candle charts for watched assets. Shared candle/his
 
 The COMPARE tab overlays two exact-venue assets on one timeline. Percentage mode uses one shared completed candle as the baseline; price mode clearly separates the left and right axes. Only matching trade-candle observations are compared, with visible gaps for missing data. The pair, display mode, candle/history settings, and time viewport persist on the private server with a browser cache. Reconnects resynchronize both histories without changing the active baseline.
 
+PAIR START fixes both legs at 0% at a chosen UTC time and runs forward to live trade prices. Use the shared one-minute candle ending at the selected minute, or enter both actual fill prices for second-level entry times. Unavailable market baselines are reported instead of approximated. Starting prices persist across refreshes, resampling, and reconnects. FOLLOW TO NOW keeps the left edge anchored; manual zoom pauses following. These are price returns, excluding fees, funding, and leverage.
+
 The feed normally updates about once per second. Exchange outages and provider/iPhone conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, backups, and recovery.
 
 ## Liquidation visualization
