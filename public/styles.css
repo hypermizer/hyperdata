@@ -937,6 +937,7 @@ main.comparison-open { max-width: 1440px; }
 .compare-legend span { margin-top: 8px; font-size: 17px; font-variant-numeric: tabular-nums; }
 .compare-chart { height: 520px; width: 100%; }
 .compare-readout, .compare-method { margin: 10px 0; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.compare-status { min-height: 20px; margin: 12px 0; color: #a8afb7; font-size: 11px; line-height: 1.6; }
 @media (max-width: 600px) {
   .compare-form { flex-wrap: wrap; }
   .compare-form > label { flex: 1 1 calc(100% - 60px); }

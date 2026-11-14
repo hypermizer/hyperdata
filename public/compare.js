@@ -115,7 +115,7 @@ export function createComparison({ client, getCatalog }) {
   function fit() {
     if (!chart || !model?.baseline) return;
     applyingRange = true;
-    try { chart.timeScale().setVisibleRange(prefs.range ?? { from: loadedFrom, to: Date.now() / 1000 }); }
+    try { chart.timeScale().setVisibleRange(prefs.range ?? { from: Date.now() / 1000 - prefs.window, to: Date.now() / 1000 }); }
     finally { requestAnimationFrame(() => { applyingRange = false; }); }
   }
   function readout() {

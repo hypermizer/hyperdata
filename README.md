@@ -22,6 +22,8 @@ The root volume is 240 GiB; a separate 50 GiB encrypted volume holds both databa
 
 The CHARTS tab displays live candle charts for watched assets. Shared candle/history sliders, grid columns/rows, chart height, drag order, and individual pan/zoom views persist in local PostgreSQL with a browser cache.
 
+The COMPARE tab overlays two exact-venue assets on one timeline. Percentage mode uses one shared completed candle as the baseline; price mode clearly separates the left and right axes. Only matching trade-candle observations are compared, with visible gaps for missing data. The pair, display mode, candle/history settings, and time viewport persist on the private server with a browser cache. Reconnects resynchronize both histories without changing the active baseline.
+
 The feed normally updates about once per second. Exchange outages and provider/iPhone conditions prevent a hard real-time guarantee. See [price alert operations](docs/price-alerts.md) for semantics, deployment, verification, backups, and recovery.
 
 ## Liquidation visualization
