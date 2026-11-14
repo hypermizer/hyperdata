@@ -1,0 +1,12 @@
+begin;
+select plan(5);
+insert into mark_price_samples(asset,bucket,observed_at,price,source) values('PAIR_TEST_A',now()-interval '10 days',now()-interval '10 days',100,'hyperliquid_mark'),('PAIR_TEST_B',now()-interval '10 days',now()-interval '10 days',200,'hyperliquid_mark');
+select is(seed_pair_marks(array['PAIR_TEST_A','PAIR_TEST_B'],now()-interval '11 days'),2,'initial setup preserves all available pair marks');
+select is(seed_pair_marks(array['PAIR_TEST_A','PAIR_TEST_B'],now()-interval '11 days'),0,'repeated seeding is idempotent');
+delete from mark_price_samples where asset in('PAIR_TEST_A','PAIR_TEST_B');
+select set_config('request.jwt.claims','{"sub":"00000000-0000-0000-0000-000000000123","email":"jasonblick@zohomail.com","role":"authenticated"}',true);
+select is(jsonb_array_length(pair_mark_history(array['PAIR_TEST_A','PAIR_TEST_B'],now()-interval '11 days',now(),3600)->'rows'),1,'pair history remains available after rolling all-asset marks are pruned');
+select is(has_table_privilege('authenticated','pair_mark_samples','INSERT'),false,'browser cannot fabricate retained prices');
+select function_privs_are('public','seed_pair_marks',array['text[]','timestamp with time zone'],'authenticated',array[]::text[],'browser cannot invoke service backfill');
+select * from finish();
+rollback;

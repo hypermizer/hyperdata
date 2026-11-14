@@ -9,11 +9,11 @@ export function comparisonPreferences(input = {}) {
   const { interval, window } = normalizeChartPreferences(input);
   const range = input.range;
   const startTime = Number.isFinite(input.startTime) && input.startTime > 0 ? input.startTime : null;
-  const basis = input.basis === "entry" ? "entry" : "market";
+  const basis = input.basis === "entry" ? "entry" : input.basis === "hourly" ? "hourly" : "market";
   const positive = (value) => Number.isFinite(value) && value > 0 ? value : null;
   const candidate = input.anchor;
-  const anchor = candidate && candidate.time === startTime && candidate.assetA === input.assetA && candidate.assetB === input.assetB && candidate.basis === basis && positive(candidate.priceA) && positive(candidate.priceB) && (basis === "market" ? startTime % 60 === 0 && candidate.source === "1m_close" : candidate.priceA === input.entryA && candidate.priceB === input.entryB)
-    ? { time: candidate.time, assetA: candidate.assetA, assetB: candidate.assetB, basis, priceA: candidate.priceA, priceB: candidate.priceB, source: basis === "entry" ? "entry" : "1m_close" } : null;
+  const anchor = candidate && candidate.time === startTime && candidate.assetA === input.assetA && candidate.assetB === input.assetB && candidate.basis === basis && positive(candidate.priceA) && positive(candidate.priceB) && (basis !== "entry" ? startTime % (basis === "hourly" ? 3600 : 60) === 0 && candidate.source === (basis === "hourly" ? "1h_close" : "1m_close") : candidate.priceA === input.entryA && candidate.priceB === input.entryB)
+    ? { time: candidate.time, assetA: candidate.assetA, assetB: candidate.assetB, basis, priceA: candidate.priceA, priceB: candidate.priceB, source: basis === "entry" ? "entry" : basis === "hourly" ? "1h_close" : "1m_close" } : null;
   return {
     assetA: validAsset(input.assetA) ? input.assetA : "BTC",
     assetB: validAsset(input.assetB) ? input.assetB : "ETH",
@@ -35,12 +35,13 @@ export function intervalForStart(interval, start, now = Date.now() / 1000) {
 }
 
 export function marketStartAnchor(barsA, barsB, settings) {
-  if (!settings.startTime || settings.startTime % 60 !== 0) throw new Error("Market baselines use full UTC minutes. Select an exact minute, or enter your fill prices for second precision.");
-  const reference = settings.startTime - 60;
+  const duration = settings.basis === "hourly" ? 3600 : 60;
+  if (!settings.startTime || settings.startTime % duration !== 0) throw new Error(duration === 3600 ? "Historical hourly baselines require whole UTC hours." : "Market baselines use full UTC minutes. Select an exact minute, or enter your fill prices for second precision.");
+  const reference = settings.startTime - duration;
   const find = (bars) => bars.find((bar) => bar.time === reference && Number.isFinite(bar.close) && bar.close > 0);
   const a = find(barsA), b = find(barsB);
-  if (!a || !b) throw new Error("The shared one-minute baseline is unavailable at this start. Choose another minute or enter your actual fill prices; an approximate price will not be substituted.");
-  return { time: settings.startTime, assetA: settings.assetA, assetB: settings.assetB, priceA: a.close, priceB: b.close, basis: "market", source: "1m_close" };
+  if (!a || !b) throw new Error(`The shared ${duration === 3600 ? "hourly" : "one-minute"} baseline is unavailable at this start. Choose another time or enter your actual fill prices; an approximate price will not be substituted.`);
+  return { time: settings.startTime, assetA: settings.assetA, assetB: settings.assetB, priceA: a.close, priceB: b.close, basis: settings.basis === "hourly" ? "hourly" : "market", source: duration === 3600 ? "1h_close" : "1m_close" };
 }
 
 export function entryStartAnchor(settings) {

@@ -1,7 +1,8 @@
+import { createPairMonitor } from "./pair-monitor.js?v=20261114-monitor1";
 import { AssetPicker } from "./asset-picker.js?v=20261114-compare";
 import { CANDLE_INTERVALS, mergeLiveCandle, normalizeCandle, postInfo } from "./lib/hyperliquid.js?v=20261110-marks";
 import { chartRequest, chartWindows, fetchChartCandles } from "./lib/chart-grid.js?v=20261110-charts3";
-import { anchoredComparisonModel, candleEnd, comparisonModel, comparisonPreferences, comparisonSeries, entryStartAnchor, intervalForStart, latestTradeQuote, marketStartAnchor, parseComparisonStart } from "./lib/comparison.js?v=20261114-pair-start";
+import { anchoredComparisonModel, candleEnd, comparisonModel, comparisonPreferences, comparisonSeries, entryStartAnchor, intervalForStart, latestTradeQuote, marketStartAnchor, parseComparisonStart } from "./lib/comparison.js?v=20261114-monitor1";
 
 const CACHE = "hyperdata.comparison.v1";
 const price = new Intl.NumberFormat("en-US", { maximumSignificantDigits: 8 });
@@ -19,12 +20,13 @@ export function createComparison({ client, getCatalog }) {
   let loading = false, generation = 0, loadedFrom = 0, baselineFrom = 0, baselineTime = null, renderedKey = null, retryAt = 0, refreshAt = 0;
   let socket = null, reconnectAt = 0, backoff = 1000, lastFrame = 0, lastPing = 0, streamConnected = false, connections = 0;
   let applyingRange = false, gestureUntil = 0, controlTimer = null, lastReceived = [0, 0], dataError = null;
+  let monitor = null;
   let liveQuotes = [null, null], paintTimer = null, swapping = false;
 
   function key() { return `${prefs.assetA}|${prefs.assetB}|${prefs.interval}|${prefs.window}|${prefs.startTime}|${prefs.basis}|${prefs.entryA}|${prefs.entryB}`; }
   function cache() { try { localStorage.setItem(CACHE, JSON.stringify({ settings: prefs, dirty })); } catch { /* server persistence remains available */ } }
   function changed() {
-    dirty = true; revision++; cache(); $("save-status").textContent = "SAVING…";
+    dirty = true; revision++; cache(); monitor?.settingsChanged(); $("save-status").textContent = "SAVING…";
     clearTimeout(saveTimer); saveTimer = setTimeout(save, 500);
   }
   async function save() {
@@ -81,10 +83,10 @@ export function createComparison({ client, getCatalog }) {
     if (prefs.startTime) $("method").textContent = "Both legs begin at 0% at the selected UTC start: (latest price ÷ starting price − 1) × 100. Historical points use completed candle closes; the live endpoint updates from each leg's latest observed trade. Source ages are shown separately. Price returns exclude fees, funding and leverage.";
   }
   function baselineControls() {
-    const entry = $("basis").value === "entry";
+    const entry = $("basis").value === "entry", hourly = $("basis").value === "hourly";
     $("entry-a-field").hidden = !entry; $("entry-b-field").hidden = !entry;
-    $("start-time").step = entry ? "1" : "60";
-    $("start-help").textContent = entry ? "Use your actual fill price for each leg. The time is UTC, including seconds; both returns begin at zero there." : "Market start prices use the shared one-minute candle ending at your chosen UTC minute. If that exact baseline is unavailable, enter your fill prices instead; no approximate price is substituted.";
+    $("start-time").step = entry ? "1" : hourly ? "3600" : "60";
+    $("start-help").textContent = entry ? "Use your actual fill price for each leg. The time is UTC, including seconds; both returns begin at zero there." : hourly ? "Historical hourly baselines require a whole UTC hour (for example September 1 at 00:00 UTC). Both prices are the actual hourly candle closes ending at that exact hour. This uses Hyperliquid’s longer native history and never substitutes a nearby time." : "Market start prices use the shared one-minute candle ending at your chosen UTC minute. If that exact baseline is unavailable, enter your fill prices instead; no approximate price is substituted.";
   }
   function syncCatalog() {
     const next = getCatalog();
@@ -114,7 +116,7 @@ export function createComparison({ client, getCatalog }) {
       grid: { vertLines: { color: "rgba(236,239,241,.06)" }, horzLines: { color: "rgba(236,239,241,.06)" } },
       leftPriceScale: { visible: prefs.mode === "price", borderColor: "#34383d", textColor: "#20d6a5" },
       rightPriceScale: { visible: true, borderColor: "#34383d", textColor: prefs.mode === "price" ? "#b799ff" : "#a8afb7" },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: "#34383d", shiftVisibleRangeOnNewBar: !prefs.startTime },
+      timeScale: { minBarSpacing: 0.01, timeVisible: true, secondsVisible: false, borderColor: "#34383d", shiftVisibleRangeOnNewBar: !prefs.startTime },
       crosshair: { mode: library.CrosshairMode.Normal },
     });
     series = ["#20d6a5", "#b799ff"].map((color, index) => chart.addSeries(library.LineSeries, {
@@ -137,7 +139,7 @@ export function createComparison({ client, getCatalog }) {
     if (!chart || !model?.baseline) return;
     applyingRange = true;
     try { chart.timeScale().setVisibleRange(prefs.startTime && prefs.followNow ? { from: prefs.startTime, to: Math.max(prefs.startTime + 1, Date.now() / 1000) } : prefs.range ?? { from: prefs.startTime ?? Date.now() / 1000 - prefs.window, to: Date.now() / 1000 }); }
-    finally { requestAnimationFrame(() => { applyingRange = false; }); }
+    finally { requestAnimationFrame(() => { applyingRange = false; const range = chart?.timeScale().getVisibleRange(); if(range){ $("chart").dataset.visibleFrom = range.from; $("chart").dataset.visibleTo = range.to; } }); }
   }
   function readout() {
     const rows = model?.rows.filter((row) => row.priceA !== undefined || prefs.startTime && row.priceB !== undefined) ?? [];
@@ -163,7 +165,7 @@ export function createComparison({ client, getCatalog }) {
     $("chart").dataset.mode = prefs.mode;
     $("chart").dataset.baselineTime = model.baseline.time;
     $("chart").dataset.baselineA = model.baseline.priceA; $("chart").dataset.baselineB = model.baseline.priceB;
-    $("baseline").textContent = `${prefs.startTime ? "FIXED START" : "BASE CANDLE"} · ${utc(baselineTime)} · ${prefs.assetA}: ${price.format(model.baseline.priceA)} · ${prefs.assetB}: ${price.format(model.baseline.priceB)}${prefs.startTime ? prefs.basis === "entry" ? " · YOUR FILL PRICES" : " · ONE-MINUTE CANDLE ENDING AT START" : ""}${model.gaps ? ` · ${model.gaps} missing observations shown as gaps` : ""}`;
+    $("baseline").textContent = `${prefs.startTime ? "FIXED START" : "BASE CANDLE"} · ${utc(baselineTime)} · ${prefs.assetA}: ${price.format(model.baseline.priceA)} · ${prefs.assetB}: ${price.format(model.baseline.priceB)}${prefs.startTime ? prefs.basis === "entry" ? " · YOUR FILL PRICES" : prefs.basis === "hourly" ? " · HOURLY CANDLE ENDING AT START" : " · ONE-MINUTE CANDLE ENDING AT START" : ""}${model.gaps ? ` · ${model.gaps} missing observations shown as gaps` : ""}`;
     if (reset || prefs.startTime && prefs.followNow) fit(); else requestAnimationFrame(() => { applyingRange = false; });
     readout(); status();
   }
@@ -180,9 +182,25 @@ export function createComparison({ client, getCatalog }) {
     if (scheduled > Date.now()) await new Promise((resolve) => setTimeout(resolve, scheduled - Date.now()));
     if (token !== generation || !active) return [];
     if (reference) {
-      const response = await postInfo({ type: "candleSnapshot", req: { coin: asset, interval: "1m", startTime: (settings.startTime - 180) * 1000, endTime: settings.startTime * 1000 - 1 } });
+      const duration = settings.basis === "hourly" ? 3600 : 60;
+      const response = await postInfo({ type: "candleSnapshot", req: { coin: asset, interval: settings.basis === "hourly" ? "1h" : "1m", startTime: (settings.startTime - duration * 3) * 1000, endTime: settings.startTime * 1000 - 1 } });
       if (!Array.isArray(response)) throw new Error("Start-price history is unavailable.");
-      return response.map(normalizeCandle).filter(Boolean);
+      const candles = response.map(normalizeCandle).filter(Boolean);
+      if (candles.some(bar => bar.time === settings.startTime - duration)) return candles;
+      const result = await client.rpc("request_comparison_history", { p_asset: asset, p_interval: duration === 3600 ? "1h" : "1m", p_start: (settings.startTime - duration * 3) * 1000, p_end: settings.startTime * 1000 - 1 });
+      if (result.error) throw Error(result.error.message);
+      let job = result.data;
+      for (let attempt = 0; attempt < 75 && ["pending", "running"].includes(job.state); attempt++) {
+        if (token !== generation || !active) return [];
+        $("status").textContent = `LOADING VERIFIED ARCHIVED START PRICE · ${asset}`;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const state = await client.from("comparison_history_cache").select("state,data,error,source").eq("key", job.key).single();
+        if (state.error) throw Error(state.error.message);
+        job = { ...job, ...state.data };
+      }
+      if (job.state === "blocked") { const error = Error(job.error + " For dates such as September 1, you can explicitly choose HISTORICAL HOURLY CLOSE and a whole UTC hour, or enter your actual fills."); error.historyBlocked = true; throw error; }
+      if (job.state !== "ready") throw Error(job.error ?? "Archived history is still loading. Retry shortly.");
+      return job.data ?? [];
     }
     return await fetchChartCandles(asset, projected, fetch, asOf);
   }
@@ -222,8 +240,8 @@ export function createComparison({ client, getCatalog }) {
     } catch (error) {
       if (token !== generation || !active) return;
       dataError = error.message ?? "Comparison data unavailable";
-      $("status").textContent = `${error.message ?? "Comparison unavailable"} · RETRYING`;
-      $("retry").hidden = false; retryAt = Date.now() + 30000;
+      $("status").textContent = `${error.message ?? "Comparison unavailable"}${error.historyBlocked ? "" : " · RETRYING"}`;
+      $("retry").hidden = false; retryAt = error.historyBlocked ? 0 : Date.now() + 30000;
       if (!reconnect) { renderedKey = null; model = null; series.forEach((line) => line.setData([])); }
     } finally { if (token === generation) loading = false; }
   }
@@ -293,6 +311,7 @@ export function createComparison({ client, getCatalog }) {
     if (!validPair(a, b)) return;
     if (!time || time > Date.now() / 1000) { $("error").textContent = "Choose a valid UTC start at or before now."; return; }
     const basis = $("basis").value;
+    if (basis === "hourly" && time % 3600 !== 0) { $("error").textContent = "Historical hourly closes require a whole UTC hour, such as September 1 at 00:00 UTC. Your chosen minute has not been changed."; return; }
     if (basis === "market" && time % 60 !== 0) { $("error").textContent = "For a market baseline, select an exact UTC minute."; return; }
     const next = comparisonPreferences({ ...prefs, assetA: a, assetB: b, startTime: time, basis, entryA: Number($("entry-a").value), entryB: Number($("entry-b").value), interval: intervalForStart("1m", time), mode: "percent", anchor: null, range: null, followNow: true });
     try { if (basis === "entry") next.anchor = entryStartAnchor(next); }
@@ -340,11 +359,16 @@ export function createComparison({ client, getCatalog }) {
     if (!loading && (retryAt && Date.now() >= retryAt || renderedKey && Date.now() >= refreshAt)) void load({ reconnect: Boolean(renderedKey) });
     status(); if (model) readout();
   }, 1000);
+  monitor = createPairMonitor({ client, getCatalog, getSettings: () => structuredClone(prefs), onSelect: (pair) => {
+    if (prefs.assetA === pair.assetA && prefs.assetB === pair.assetB) return;
+    prefs = comparisonPreferences({ ...prefs, assetA: pair.assetA, assetB: pair.assetB, anchor: null, range: null, basis: "market", entryA: null, entryB: null });
+    changed(); controls(); selectSaved(); if (active) start();
+  } });
   controls(); void restore();
   return { setActive(value) {
     syncCatalog();
     if (active === value) { if (active && initialized && catalog?.length && !chart && !loading) start(); return; }
-    active = value;
+    active = value; monitor?.setActive(value);
     document.querySelector("main").classList.toggle("comparison-open", active);
     if (active) start();
     else { generation++; loading = false; clearTimeout(controlTimer); clearTimeout(paintTimer); paintTimer = null; closeStream(); disposeChart(); renderedKey = null; void save(); }

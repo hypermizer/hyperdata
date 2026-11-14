@@ -127,3 +127,12 @@ test("live trade data rejects other venues, out-of-order values, invalid prices 
   const next = latestTradeQuote(previous, { coin: "BTC", px: "111", time: (start + 60) * 1000 }, "BTC", start, start + 90);
   assert.equal(next.price, 111); assert.equal(next.time, start + 60);
 });
+
+test('September 1 hourly fallback is explicit, timestamp-exact, persistent, and never substitutes a minute baseline',()=>{
+ const time=Date.UTC(2026,8,1)/1000,settings=comparisonPreferences({assetA:'xyz:NVDA',assetB:'xyz:AMD',startTime:time,basis:'hourly'});
+ const anchor=marketStartAnchor([bar(time-3600,100)],[bar(time-3600,200)],settings);
+ assert.equal(anchor.time,time);assert.equal(anchor.source,'1h_close');assert.equal(anchor.basis,'hourly');
+ assert.deepEqual(comparisonPreferences({...settings,anchor}).anchor,anchor);
+ assert.throws(()=>marketStartAnchor([bar(time-3600,100)],[bar(time-3600,200)],{...settings,basis:'market'}),/unavailable/);
+ assert.throws(()=>marketStartAnchor([bar(time-3600,100)],[bar(time-3600,200)],{...settings,startTime:time+60}),/UTC/);
+});

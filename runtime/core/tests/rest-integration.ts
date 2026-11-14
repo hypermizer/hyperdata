@@ -174,3 +174,23 @@ Deno.test("comparison preferences persist privately and cannot be forged by anot
   assertEquals(response.status, 200);
   await response.body?.cancel();
 });
+
+Deno.test('pair monitor persistence, private snapshots, history bounds and notification privileges',async()=>{
+ const config={name:'REST pair',source:'manual',assetA:'BTC',assetB:'ETH',openedAt:Date.now()-10000,legs:[{side:'long',quantity:'1',entry:'100',leverage:2,marginMode:'isolated'},{side:'short',quantity:'2',entry:'50',leverage:2,marginMode:'isolated'}],costs:{fees:'0',funding:null,realized:'0'},alerts:{}};
+ let r=await call('pair_trades',token,'POST',{user_id:owner,config});assertEquals(r.status,201);const id=(await r.json())[0].id;
+ r=await call('pair_trades?id=eq.'+id,token);assertEquals((await r.json())[0].config,config);
+ const stranger=await signLocalToken(secret,{role:'authenticated',sub:'00000000-0000-0000-0000-000000000778',email:'stranger@example.com'});
+ r=await call('pair_trades',stranger);assertEquals(await r.json(),[]);
+ r=await call('pair_trades',stranger,'POST',{user_id:owner,config});assertEquals(r.status,403);await r.body?.cancel();
+ r=await call('rpc/pair_account_snapshot',token,'POST',{p_assets:['BTC','ETH']});assertEquals(r.status,200);const snapshot=await r.json();assert(Array.isArray(snapshot.fills));assert(Array.isArray(snapshot.live));
+ r=await call('rpc/pair_account_snapshot',token,'POST',{p_assets:['BTC','ETH'],p_user:'00000000-0000-0000-0000-000000000778'});assertEquals(r.status,400);await r.body?.cancel();
+ r=await call('rpc/pair_mark_history',token,'POST',{p_assets:['BTC','ETH'],p_start:new Date(Date.now()-3600000).toISOString(),p_end:new Date().toISOString(),p_interval:60});assertEquals(r.status,200);assertEquals((await r.json()).basis,'mark');
+ r=await call('rpc/request_comparison_history',token,'POST',{p_asset:'xyz:NVDA',p_interval:'1m',p_start:1788286500000,p_end:1788286620000});assertEquals(r.status,200);const job=await r.json();assertEquals(job.state,'pending');
+ r=await call('comparison_history_cache?key=eq.'+job.key,token);assertEquals((await r.json()).length,1);
+ r=await call('comparison_history_cache',stranger);assertEquals(await r.json(),[]);
+ r=await call('rpc/request_comparison_history',token,'POST',{p_asset:'BTC',p_interval:'1m',p_start:null,p_end:1});assertEquals(r.status,400);await r.body?.cancel();
+ r=await call('rpc/observe_pair_alert',token,'POST',{p_pair:id,p_metric:'profit',p_breached:true,p_message:'forbidden'});assertEquals(r.status,403);await r.body?.cancel();
+ r=await call('rpc/claim_comparison_history',service,'POST',{});assertEquals(r.status,200);assertEquals((await r.json())[0].key,job.key);
+ r=await call('pair_trades?id=eq.'+id,token,'PATCH',{config:{...config,name:'Updated REST pair'}});assertEquals(r.status,200);assertEquals((await r.json())[0].config.name,'Updated REST pair');
+ r=await call('pair_trades?id=eq.'+id,token,'PATCH',{archived:true});assertEquals(r.status,200);assertEquals((await r.json())[0].archived,true);
+});
