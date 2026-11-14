@@ -921,3 +921,27 @@ main.charts-open { max-width: 1920px; }
 .chart-card.drop-target { border-color: #20d6a5; outline: 1px solid #20d6a5; }
 .charts-empty { grid-column: 1 / -1; color: #929aa3; padding: 30px 8px; }
 @media (max-width: 600px) { .charts-controls { gap: 12px; } .charts-controls label { min-width: 130px; } .charts-grid { grid-template-columns: repeat(var(--chart-columns, 3), minmax(260px, 1fr)); } #charts-save-status { font-size: 9px; } }
+
+main.comparison-open { max-width: 1440px; }
+.compare-form { display: flex; align-items: end; gap: 12px; margin: 14px 0; }
+.compare-form > label { flex: 1; min-width: 0; font-size: 11px; letter-spacing: .06em; }
+.compare-form .asset-picker { margin-top: 8px; }
+.compare-controls select { grid-column: 1 / -1; width: 100%; min-height: 32px; }
+.compare-controls label { min-width: 180px; }
+.compare-asset-a { color: #20d6a5; }
+.compare-asset-b { color: #b799ff; }
+.compare-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0 10px; }
+.compare-legend > div { padding: 12px; border: 1px solid #34383d; background: #15191c; min-width: 0; }
+.compare-legend strong, .compare-legend span { display: block; overflow-wrap: anywhere; }
+.compare-legend strong { font-size: 12px; }
+.compare-legend span { margin-top: 8px; font-size: 17px; font-variant-numeric: tabular-nums; }
+.compare-chart { height: 520px; width: 100%; }
+.compare-readout, .compare-method { margin: 10px 0; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .compare-form { flex-wrap: wrap; }
+  .compare-form > label { flex: 1 1 calc(100% - 60px); }
+  #compare-swap { align-self: end; }
+  .compare-legend { gap: 8px; }
+  .compare-legend span { font-size: 14px; }
+  .compare-chart { height: 420px; }
+}

@@ -3,6 +3,8 @@ import test from "node:test";
 import { parseRoute, routeFor } from "../public/lib/routes.js";
 
 test("site routes resolve top-level and nested utility views", () => {
+  assert.deepEqual(parseRoute("#/compare"), { view: "compare", analysisView: "trade-log", paperView: "home" });
+  assert.equal(routeFor("compare"), "#/compare");
   assert.deepEqual(parseRoute("#/heat-map"), { view: "charts", analysisView: "trade-log", paperView: "home" });
   assert.deepEqual(parseRoute("#/alerts"), { view: "alerts", analysisView: "trade-log", paperView: "home" });
   assert.deepEqual(parseRoute("#/analysis"), { view: "analysis", analysisView: "trade-log", paperView: "home" });

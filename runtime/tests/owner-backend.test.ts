@@ -4,6 +4,7 @@ Deno.test("owner backend exposes only app data and commands, excluding auth/admi
   for (
     const path of [
       "/rest/v1/watchlist_items",
+      "/rest/v1/comparison_preferences",
       "/rest/v1/paper_positions",
       "/rest/v1/rpc/create_paper_account",
       "/functions/v1/paper-command",

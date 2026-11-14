@@ -17,11 +17,12 @@ import {
 } from "./lib/hyperliquid.js?v=20261110-marks";
 import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts3";
 import { createChartGrid } from "./charts.js?v=20261110-charts3";
+import { createComparison } from "./compare.js?v=20261114-compare";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20261110-charts3";
 import { deriveStreamHealth } from "./lib/stream-health.js?v=20260720-stream";
-import { parseRoute, routeFor } from "./lib/routes.js?v=20261110-charts3";
+import { parseRoute, routeFor } from "./lib/routes.js?v=20261114-compare";
 
 const UTC_MINUTE_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -134,6 +135,7 @@ const elements = {
 
 const liquidationView = createAssetLiquidations(state.alertClient, (asset) => state.markets.get(asset)?.markPrice);
 const chartGrid = createChartGrid({ client: state.supabase, getAssets: () => state.watchlist, getMarket: (asset) => state.markets.get(asset), getReady: () => state.watchlistReady });
+const comparison = createComparison({ client: state.supabase, getCatalog: () => state.catalog });
 wireEvents();
 initialize();
 
@@ -707,6 +709,7 @@ function renderRoute() {
     panel.hidden = panel.dataset.analysisPanel !== analysisView;
   });
   chartGrid.setActive(view === "charts");
+  comparison.setActive(view === "compare");
   if (view === "asset") {
     updateCandleSubscription(assetView === "overview" ? asset : null, assetView === "overview" ? interval : null);
     if (assetView !== "overview") destroyAssetChart();

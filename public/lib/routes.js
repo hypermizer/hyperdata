@@ -1,4 +1,4 @@
-const SITE_VIEWS = new Set(["watchlist", "charts", "alerts", "audio", "analysis", "paper", "principles"]);
+const SITE_VIEWS = new Set(["watchlist", "charts", "compare", "alerts", "audio", "analysis", "paper", "principles"]);
 const ANALYSIS_VIEWS = new Set(["trade-log"]);
 const PAPER_VIEWS = new Set(["home", "order"]);
 const CANDLE_INTERVALS = new Set(["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M"]);

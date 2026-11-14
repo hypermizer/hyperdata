@@ -127,3 +127,50 @@ Deno.test("chart preferences persist through REST and are isolated to the owner"
   assertEquals(response.status, 200);
   await response.body?.cancel();
 });
+
+Deno.test("comparison preferences persist privately and cannot be forged by another user", async () => {
+  const settings = {
+    assetA: "BTC",
+    assetB: "xyz:GOLD",
+    interval: "1h",
+    window: 604800,
+    mode: "percent",
+    range: null,
+  };
+  let response = await call("comparison_preferences", token, "POST", {
+    user_id: owner,
+    settings,
+  });
+  assertEquals(response.status, 201);
+  await response.body?.cancel();
+  response = await call("comparison_preferences", token);
+  assertEquals((await response.json())[0].settings, settings);
+  const stranger = await signLocalToken(secret, {
+    role: "authenticated",
+    sub: "00000000-0000-0000-0000-000000000778",
+    email: "stranger@example.com",
+  });
+  response = await call("comparison_preferences", stranger);
+  assertEquals(await response.json(), []);
+  response = await call("comparison_preferences", stranger, "POST", {
+    user_id: owner,
+    settings,
+  });
+  assertEquals(response.status, 403);
+  await response.body?.cancel();
+  response = await call(
+    "comparison_preferences?user_id=eq." + owner,
+    token,
+    "PATCH",
+    { settings: { ...settings, mode: "price" } },
+  );
+  assertEquals(response.status, 200);
+  assertEquals((await response.json())[0].settings.mode, "price");
+  response = await call(
+    "comparison_preferences?user_id=eq." + owner,
+    token,
+    "DELETE",
+  );
+  assertEquals(response.status, 200);
+  await response.body?.cancel();
+});

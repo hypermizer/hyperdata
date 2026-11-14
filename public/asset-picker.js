@@ -116,6 +116,12 @@ export class AssetPicker {
     const symbol = document.createElement("strong");
     symbol.textContent = displayAssetSymbol(asset);
     button.append(symbol);
+    if (this.details === "venue") {
+      const venue = document.createElement("span");
+      venue.className = "asset-picker-leverage";
+      venue.textContent = asset.dexId || "CORE";
+      button.append(venue);
+    }
     if (this.details === "leverage") {
       const leverage = document.createElement("span");
       leverage.className = "asset-picker-leverage";
