@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { candleEnd, comparisonModel, comparisonPreferences, comparisonSeries } from "../public/lib/comparison.js";
+import { anchoredComparisonModel, candleEnd, comparisonModel, comparisonPreferences, comparisonSeries, entryStartAnchor, intervalForStart, latestTradeQuote, marketStartAnchor, parseComparisonStart } from "../public/lib/comparison.js";
 const hour = 3600, start = 1800000000;
 const bar = (time, close) => ({ time, close });
 
@@ -56,4 +56,74 @@ test("settings preserve exact venues, mode and viewport and reject malformed per
 test("monthly candle completion follows calendar months rather than a fixed 30-day estimate", () => {
   const february = Date.UTC(2026, 1, 1) / 1000;
   assert.equal(candleEnd(february, "1M"), Date.UTC(2026, 2, 1) / 1000);
+});
+
+test("the chosen UTC start is parsed without browser timezone shifts or invalid dates", () => {
+  assert.equal(parseComparisonStart("2026-11-01T01:30"), Date.UTC(2026, 10, 1, 1, 30) / 1000);
+  assert.equal(parseComparisonStart("2026-11-01T01:30:22"), Date.UTC(2026, 10, 1, 1, 30, 22) / 1000);
+  assert.equal(parseComparisonStart("2026-02-30T12:00"), null);
+  assert.equal(parseComparisonStart("2026-11-01T01:30-05:00"), null);
+});
+
+test("market entry uses exactly the shared completed minute ending at the selected start", () => {
+  const settings = { startTime: start, assetA: "BTC", assetB: "ETH" };
+  const anchor = marketStartAnchor([bar(start - 60, 100), bar(start, 999)], [bar(start - 60, 200), bar(start, 999)], settings);
+  assert.equal(anchor.time, start); assert.equal(anchor.priceA, 100); assert.equal(anchor.priceB, 200);
+  assert.throws(() => marketStartAnchor([bar(start - 120, 99)], [bar(start - 60, 200)], settings), /unavailable/);
+  assert.throws(() => marketStartAnchor([], [], { ...settings, startTime: start + 5 }), /full UTC minutes/);
+});
+
+test("both fixed-start lines begin at zero, exclude pre-start data, and timestamp closed candles correctly", () => {
+  const anchor = entryStartAnchor({ startTime: start, assetA: "BTC", assetB: "ETH", entryA: 100, entryB: 200 });
+  const model = anchoredComparisonModel([bar(start - 120, 999), bar(start, 110)], [bar(start - 120, 999), bar(start, 190)], { anchor, interval: "1m", to: start + 90 });
+  assert.equal(model.rows[0].time, start); assert.equal(model.rows[0].returnA, 0); assert.equal(model.rows[0].returnB, 0);
+  assert.equal(model.rows[1].time, start + 60);
+  assert.ok(Math.abs(model.rows[1].returnA - 10) < 1e-10); assert.ok(Math.abs(model.rows[1].returnB + 5) < 1e-10);
+  assert.ok(model.rows.every((row) => row.time >= start));
+});
+
+test("live trade returns update immediately against the original fills without using a future candle close", () => {
+  const anchor = entryStartAnchor({ startTime: start, assetA: "BTC", assetB: "ETH", entryA: 100, entryB: 200 });
+  const live = [{ time: start + 85, price: 104, source: "trade" }, { time: start + 70, price: 190, source: "trade" }];
+  const model = anchoredComparisonModel([bar(start + 60, 999)], [bar(start + 60, 999)], { anchor, interval: "1m", to: start + 90, live });
+  const row = model.rows.at(-1); assert.equal(row.time, start + 90); assert.equal(row.live, true);
+  assert.ok(Math.abs(row.returnA - 4) < 1e-10); assert.ok(Math.abs(row.returnB + 5) < 1e-10);
+  assert.equal(model.rows.length, 2);
+  const coarse = anchoredComparisonModel([], [], { anchor, interval: "1h", to: start + 90, live });
+  assert.equal(coarse.rows.at(-1).returnA, row.returnA); assert.equal(coarse.rows.at(-1).returnB, row.returnB);
+});
+
+test("a missing leg does not block the other leg or fabricate a historical price", () => {
+  const anchor = { time: start, priceA: 100, priceB: 200 };
+  const model = anchoredComparisonModel([bar(start, 110)], [], { anchor, interval: "1m", to: start + 90, live: [{ time: start + 85, price: 115 }] });
+  const [a, b] = comparisonSeries(model);
+  assert.ok(a.at(-1).value > 14.99); assert.deepEqual(b.at(-1), { time: start + 90 });
+  assert.equal(model.rows[1].priceB, undefined);
+});
+
+test("fixed baseline, fill prices and follow mode survive serialization and reject stale pair anchors", () => {
+  const settings = comparisonPreferences({ assetA: "BTC", assetB: "ETH", startTime: start, basis: "entry", entryA: 100, entryB: 200, mode: "price", followNow: false });
+  settings.anchor = entryStartAnchor(settings);
+  assert.deepEqual(comparisonPreferences(JSON.parse(JSON.stringify(settings))), settings);
+  assert.equal(settings.mode, "percent");
+  assert.equal(comparisonPreferences({ ...settings, assetB: "xyz:GOLD" }).anchor, null);
+  assert.equal(comparisonPreferences({ ...settings, entryA: 101 }).anchor, null);
+  assert.throws(() => entryStartAnchor({ entryA: 0, entryB: 200 }), /positive fill price/);
+});
+
+test("longer fixed-start histories increase sampling interval rather than silently truncate the start", () => {
+  assert.equal(intervalForStart("1m", start, start + 8 * 86400), "3m");
+  assert.equal(intervalForStart("1h", start, start + 86400), "1h");
+});
+
+test("live trade data rejects other venues, out-of-order values, invalid prices and future timestamps", () => {
+  const previous = { price: 100, time: start + 50, source: "trade" };
+  for (const trade of [
+    { coin: "xyz:BTC", px: "110", time: (start + 60) * 1000 },
+    { coin: "BTC", px: "110", time: (start + 40) * 1000 },
+    { coin: "BTC", px: "NaN", time: (start + 60) * 1000 },
+    { coin: "BTC", px: "110", time: (start + 6000) * 1000 },
+  ]) assert.equal(latestTradeQuote(previous, trade, "BTC", start, start + 90), previous);
+  const next = latestTradeQuote(previous, { coin: "BTC", px: "111", time: (start + 60) * 1000 }, "BTC", start, start + 90);
+  assert.equal(next.price, 111); assert.equal(next.time, start + 60);
 });

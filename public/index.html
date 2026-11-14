@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261114-compare" />
+    <link rel="stylesheet" href="./styles.css?v=20261114-pair-start" />
   </head>
   <body>
     <main>
@@ -115,6 +115,16 @@
           </label>
           <button type="submit">COMPARE</button>
         </form>
+        <div id="compare-start-controls" class="compare-start-controls">
+          <label>PAIR START · UTC <input id="compare-start-time" type="datetime-local" step="60" aria-label="Pair start time in UTC" /></label>
+          <label>STARTING PRICES <select id="compare-basis"><option value="market">MARKET · 1-MINUTE CLOSE</option><option value="entry">MY FILL PRICES</option></select></label>
+          <label id="compare-entry-a-field" hidden>A FILL PRICE <input id="compare-entry-a" type="number" min="0" step="any" aria-label="Asset A fill price" /></label>
+          <label id="compare-entry-b-field" hidden>B FILL PRICE <input id="compare-entry-b" type="number" min="0" step="any" aria-label="Asset B fill price" /></label>
+          <button id="compare-start-apply" type="button">START FROM THIS TIME</button>
+          <button id="compare-start-clear" type="button" hidden>ROLLING HISTORY</button>
+          <label class="compare-follow"><input id="compare-follow" type="checkbox" checked /> FOLLOW TO NOW</label>
+        </div>
+        <p id="compare-start-help" class="hint compare-method"></p>
         <div class="charts-controls compare-controls">
           <label>CANDLE INTERVAL <output id="compare-interval-label" for="compare-interval"></output><input id="compare-interval" type="range" min="0" max="13" step="1" aria-label="Comparison candle interval" /></label>
           <label>VISIBLE HISTORY <output id="compare-window-label" for="compare-window"></output><input id="compare-window" type="range" min="0" step="1" aria-label="Comparison visible history" /></label>
@@ -509,7 +519,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20261114-compare"></script>
+    <script type="module" src="./app.js?v=20261114-pair-start"></script>
     <script type="module" src="./audio.js?v=20261110-charts3"></script>
     <script type="module" src="./paper.js?v=20261110-charts3"></script>
     <script type="module" src="./trade-log.js?v=20261110-charts3"></script>

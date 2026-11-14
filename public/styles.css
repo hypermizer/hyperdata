@@ -946,3 +946,10 @@ main.comparison-open { max-width: 1440px; }
   .compare-legend span { font-size: 14px; }
   .compare-chart { height: 420px; }
 }
+.compare-start-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 18px 0 10px; padding: 14px; border: 1px solid #34383d; background: #15191c; }
+.compare-start-controls > label { display: grid; gap: 8px; min-width: 170px; font-size: 10px; color: #a8afb7; }
+.compare-start-controls > [hidden] { display: none; }
+.compare-start-controls input, .compare-start-controls select { min-height: 34px; max-width: 100%; }
+.compare-start-controls .compare-follow { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.compare-follow input { width: 16px; min-height: 16px; margin: 0; accent-color: #20d6a5; }
+@media (max-width: 600px) { .compare-start-controls > label { width: 100%; min-width: 0; } .compare-start-controls input, .compare-start-controls select { width: 100%; } .compare-start-controls .compare-follow input { width: 16px; } }

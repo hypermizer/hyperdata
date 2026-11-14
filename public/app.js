@@ -17,7 +17,7 @@ import {
 } from "./lib/hyperliquid.js?v=20261110-marks";
 import { getAssetMarketCatalog } from "./lib/market-catalog.js?v=20261110-charts3";
 import { createChartGrid } from "./charts.js?v=20261110-charts3";
-import { createComparison } from "./compare.js?v=20261114-compare";
+import { createComparison } from "./compare.js?v=20261114-pair-start";
 import { fetchAssetFundamentals } from "./lib/fundamentals.js?v=20260801";
 import { fetchAssetNews } from "./lib/news.js?v=20260801-ranked";
 import { createWatchlistClient } from "./lib/supabase.js?v=20261110-charts3";
