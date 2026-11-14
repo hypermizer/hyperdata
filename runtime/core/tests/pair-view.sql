@@ -1,0 +1,13 @@
+begin;
+select plan(8);
+select is(has_table_privilege('anon','pair_view_preferences','SELECT'),false,'pair view settings are private');
+select is(has_table_privilege('service_role','pair_view_preferences','UPDATE'),false,'worker cannot rewrite owner chart controls');
+insert into pair_mark_samples(asset,bucket,observed_at,price,source) values('PAIR_VIEW_A','2026-01-01T00:00:00Z','2026-01-01T00:00:01Z',100,'hyperliquid_mark'),('PAIR_VIEW_B','2026-01-01T00:00:00Z','2026-01-01T00:00:03Z',200,'hyperliquid_mark'),('PAIR_VIEW_A','2026-01-01T00:00:15Z','2026-01-01T00:00:16Z',101,'hyperliquid_mark');
+select set_config('request.jwt.claims','{"sub":"00000000-0000-0000-0000-000000000123","email":"jasonblick@zohomail.com","role":"authenticated"}',true);
+select is(jsonb_array_length(pair_mark_history(array['PAIR_VIEW_A','PAIR_VIEW_B'],'2026-01-01','2026-01-01T00:01:00Z',15)->'rows'),2,'incomplete buckets remain explicit observations');
+select is((pair_mark_history(array['PAIR_VIEW_A','PAIR_VIEW_B'],'2026-01-01','2026-01-01T00:01:00Z',15)->'rows'->0->>'observedA')::numeric,extract(epoch from timestamptz '2026-01-01T00:00:01Z'),'first leg keeps its own observation time');
+select is((pair_mark_history(array['PAIR_VIEW_A','PAIR_VIEW_B'],'2026-01-01','2026-01-01T00:01:00Z',15)->'rows'->0->>'observedB')::numeric,extract(epoch from timestamptz '2026-01-01T00:00:03Z'),'second leg keeps its own observation time');
+select is(pair_mark_history(array['PAIR_VIEW_A','PAIR_VIEW_B'],'2026-01-01','2026-01-01T00:01:00Z',15)->'rows'->1->>'priceB',null::text,'absent mark is not carried forward');
+select throws_ok($$select pair_mark_history(array['PAIR_VIEW_A','PAIR_VIEW_B'],'2026-01-01','2026-01-03',15)$$,'P0001','Choose a wider sample interval','oversized history cannot silently return an old truncated chart');
+select throws_ok($$select pair_mark_history(array['PAIR_VIEW_A','PAIR_VIEW_A'],'2026-01-01','2026-01-01T00:01:00Z',15)$$,'P0001','Invalid history','same-asset pairs are rejected');
+select * from finish();rollback;

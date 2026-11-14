@@ -1,5 +1,5 @@
 [Unit]
-Description=Hyperdata pair position monitoring, archived history and ntfy alerts
+Description=Hyperdata pair position monitoring, mark retention and ntfy alerts
 After=network-online.target hyperdata-data.service
 Requires=hyperdata-data.service
 [Service]
@@ -8,9 +8,8 @@ Group=hyperdata-data
 WorkingDirectory=/opt/hyperdata-runtime/current
 EnvironmentFile=/etc/hyperdata/core.env
 EnvironmentFile=/etc/hyperdata/ntfy.env
-EnvironmentFile=/etc/hyperdata/oxarchive.env
 Environment=DENO_DIR=/opt/hyperdata-runtime/cache
-ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/hyperdata-data/rest.sock,api.hyperliquid.xyz:443,api.0xarchive.io:443,ntfy.sh:443 --allow-read=/opt/hyperdata-runtime,/run/hyperdata-data --allow-write=/run/hyperdata-data runtime/pair-worker.ts
+ExecStart=/usr/local/bin/deno run --cached-only --frozen --config supabase/functions/deno.json --allow-env --allow-net=unix:/run/hyperdata-data/rest.sock,api.hyperliquid.xyz:443,ntfy.sh:443 --allow-read=/opt/hyperdata-runtime,/run/hyperdata-data --allow-write=/run/hyperdata-data runtime/pair-worker.ts
 Restart=always
 RestartSec=3
 TimeoutStopSec=90

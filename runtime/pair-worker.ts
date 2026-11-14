@@ -54,6 +54,7 @@ function connect() {
     }
   };
   ws.onmessage = ({ data }) => {
+    if (socket !== ws) return;
     try {
       const value = JSON.parse(String(data));
       lastMessage = Date.now();
@@ -189,116 +190,23 @@ async function accountSnapshot(pair: any) {
   ) => state.freshDexes.has(asset.includes(":") ? asset.split(":")[0] : ""));
   return state;
 }
-async function historyJob() {
-  const jobs = await rpc("claim_comparison_history");
-  const job = jobs?.[0];
-  if (!job) return;
-  try {
-    const key = Deno.env.get("OXARCHIVE_API_KEY");
-    if (!key) throw Error("Historical provider is not configured");
-    const rows: any[] = [];
-    let cursor: string | null = null;
-    for (let page = 0; page < 8; page++) {
-      if (!await rpc("reserve_mark_archive_request")) {
-        throw Error(
-          "Historical request budget is reserved for market-data recovery",
-        );
-      }
-      const url = new URL(
-        "https://api.0xarchive.io/v1/hyperliquid/" +
-          (job.asset.includes(":") ? "hip3/" : "") + "candles/" +
-          encodeURIComponent(job.asset),
-      );
-      for (
-        const [k, v] of Object.entries({
-          start: job.start_ms,
-          end: job.end_ms,
-          interval: job.interval,
-          limit: 10000,
-        })
-      ) url.searchParams.set(k, String(v));
-      if (cursor) url.searchParams.set("cursor", cursor);
-      const response = await fetch(url, {
-        headers: { "X-API-Key": key, "0xArchive-Version": "2026-10-01" },
-        signal: AbortSignal.timeout(20000),
-        redirect: "error",
-      });
-      if (response.status === 403) {
-        throw Error(
-          "HISTORY_ACCESS: The current archive plan is limited to 30 days. Exact older data needs full-history access or the public Hyperliquid archive; no substitute baseline has been used.",
-        );
-      }
-      if (!response.ok) {
-        throw Error("Historical provider returned " + response.status);
-      }
-      const body = await response.json();
-      if (
-        body.success !== true || !Array.isArray(body.data) ||
-        body.meta?.symbol !== job.asset
-      ) throw Error("Historical response could not be verified");
-      for (const row of body.data) {
-        const t = Date.parse(row.timestamp);
-        if (
-          !Number.isFinite(t) || t < Number(job.start_ms) ||
-          t > Number(job.end_ms) ||
-          ![row.open, row.high, row.low, row.close, row.volume].every((v) =>
-            Number.isFinite(Number(v))
-          ) || Number(row.close) <= 0
-        ) throw Error("Invalid historical candle");
-        rows.push({
-          time: t / 1000,
-          open: Number(row.open),
-          high: Number(row.high),
-          low: Number(row.low),
-          close: Number(row.close),
-          volume: Number(row.volume),
-          trades: Number(row.trade_count ?? 0),
-        });
-      }
-      if (!body.meta?.has_more) {
-        cursor = null;
-        break;
-      }
-      if (
-        typeof body.meta.next_cursor !== "string" ||
-        body.meta.next_cursor === cursor
-      ) throw Error("Historical pagination could not be verified");
-      cursor = body.meta.next_cursor;
-      await sleep(200);
-    }
-    if (cursor) throw Error("Choose a coarser history interval");
-    await client.from("comparison_history_cache").update({
-      state: "ready",
-      data: rows,
-      source: "0xarchive_trade_candles",
-      error: null,
-      lease_until: null,
-      updated_at: new Date().toISOString(),
-    }).eq("key", job.key);
-  } catch (error) {
-    const message = error instanceof Error
-      ? error.message
-      : "Historical data unavailable";
-    await client.from("comparison_history_cache").update({
-      state: message.startsWith("HISTORY_ACCESS") ? "blocked" : "error",
-      error: message,
-      lease_until: null,
-      updated_at: new Date().toISOString(),
-    }).eq("key", job.key);
-  }
-}
 const getSocket = (): WebSocket | null => socket;
 const seededPairs = new Set<string>();
+const seedKey = (pair: any) =>
+  JSON.stringify([
+    pair.id,
+    pair.config.assetA,
+    pair.config.assetB,
+    pair.config.openedAt,
+  ]);
 let seedBusy = false, lastSeed = 0;
 let accountBusy = false,
-  historyBusy = false,
   marksBusy = false,
   lastHttpMarks = 0;
 let pairs: any[] = [],
   lastRefresh = 0,
   lastAccounts = 0,
   lastEvaluate = 0,
-  lastHistory = 0,
   lastDrain = 0,
   accountCache = new Map<string, any>();
 while (!stopped) {
@@ -323,18 +231,18 @@ while (!stopped) {
     }
     if (
       !seedBusy && Date.now() - lastSeed > 60000 &&
-      pairs.some((pair) => !seededPairs.has(pair.id))
+      pairs.some((pair) => !seededPairs.has(seedKey(pair)))
     ) {
       seedBusy = true;
       lastSeed = Date.now();
       void (async () => {
         for (const pair of pairs) {
-          if (!seededPairs.has(pair.id)) {
+          if (!seededPairs.has(seedKey(pair))) {
             await rpc("seed_pair_marks", {
               p_assets: [pair.config.assetA, pair.config.assetB],
               p_start: new Date(pair.config.openedAt).toISOString(),
             });
-            seededPairs.add(pair.id);
+            seededPairs.add(seedKey(pair));
           }
         }
       })().catch(() => console.error("Pair mark backfill unavailable")).finally(
@@ -414,13 +322,25 @@ while (!stopped) {
             marks.has(asset) &&
             Date.now() - Date.parse(marks.get(asset)!.observed_at) < 15000
           );
-          if (!fresh) continue;
           const value = pairValuation(
             pair,
             Object.fromEntries(
-              assets.map((a) => [a, marks.get(a)!.mark_price]),
+              assets.map((a) => [a, marks.get(a)?.mark_price]),
             ),
-            { ...(accountCache.get(row.id) ?? {}), marksFresh: fresh },
+            {
+              ...(accountCache.get(row.id) ?? {}),
+              marksFresh: fresh,
+              markFreshness: Object.fromEntries(
+                assets.map(
+                  (asset) => [
+                    asset,
+                    marks.has(asset) &&
+                    Date.now() - Date.parse(marks.get(asset)!.observed_at) <
+                      15000,
+                  ],
+                ),
+              ),
+            },
           );
           if (
             !value.fresh ||
@@ -473,7 +393,7 @@ while (!stopped) {
             baseUrl: Deno.env.get("NTFY_BASE_URL")!,
             topic: Deno.env.get("NTFY_TOPIC")!,
             token: Deno.env.get("NTFY_TOKEN"),
-            clickUrl: "https://dev-mini-ohio.tail628a67.ts.net:8446/#/compare",
+            clickUrl: "https://dev-mini-ohio.tail628a67.ts.net:8446/#/pair",
           }, { subject: "HYPERDATA · pair trade", text: notice.message });
         } catch {
           error = "ntfy acceptance unconfirmed; retry scheduled";
@@ -485,15 +405,6 @@ while (!stopped) {
         });
       }
       lastDrain = Date.now();
-    }
-    if (!historyBusy && Date.now() - lastHistory > 1000) {
-      historyBusy = true;
-      lastHistory = Date.now();
-      void historyJob().catch(() =>
-        console.error("Historical queue unavailable")
-      ).finally(() => {
-        historyBusy = false;
-      });
     }
   } catch (error) {
     console.error(

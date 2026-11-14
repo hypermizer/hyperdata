@@ -5,7 +5,7 @@ export function createOwnerTransport({ fetchImpl = globalThis.fetch, wait = (ms)
   return async (input, init = {}) => {
     const target = new URL(input instanceof Request ? input.url : input);
     const method = init.method ?? (input instanceof Request ? input.method : "GET");
-    const read = ["GET", "HEAD"].includes(method) || method === "POST" && /\/rest\/v1\/rpc\/(asset_history_updates|asset_mark_reference_snapshot|mark_reference_health|paper_fee_volume)$/.test(target.pathname);
+    const read = ["GET", "HEAD"].includes(method) || method === "POST" && /\/rest\/v1\/rpc\/(pair_account_snapshot|pair_mark_history|asset_history_updates|asset_mark_reference_snapshot|mark_reference_health|paper_fee_volume)$/.test(target.pathname);
     for (let attempt = 0; ; attempt++) {
       if (read) {
         const scheduled = Math.max(now(), nextReadAt); nextReadAt = scheduled + 125;

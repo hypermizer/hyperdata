@@ -31,6 +31,16 @@ export function normalizePair(input) {
     if (!d(leg.quantity).gt(0) || !d(leg.entry).gt(0)) {
       throw Error("Quantity and entry price must be positive");
     }
+    if (
+      result.source === "account" &&
+      (!Number.isFinite(leg.openedAt) || leg.openedAt <= 0 ||
+        typeof leg.episodeKey !== "string" || !leg.episodeKey.length ||
+        leg.episodeKey.length > 100)
+    ) {
+      throw Error(
+        "Re-import linked positions to restore verified trade identity",
+      );
+    }
     const leverage = Number(leg.leverage);
     if (!Number.isInteger(leverage) || leverage < 1 || leverage > 100) {
       throw Error("Invalid leverage");
@@ -65,6 +75,82 @@ export function normalizePair(input) {
   return result;
 }
 
+// Millisecond timestamps alone do not order partial fills. Use the reported
+// position chain; ambiguous branches cannot establish verified accounting.
+function chronologicalFills(rows, asset, cutoff) {
+  const unique = new Map(), groups = new Map();
+  for (const fill of rows) {
+    if (fill.asset !== asset) continue;
+    const at = Number(fill.occurred_at_ms ?? Date.parse(fill.occurred_at));
+    if (!Number.isFinite(at) || at <= 0) throw Error("Invalid fill timestamp");
+    if (at > cutoff) continue;
+    if (!["buy", "sell"].includes(fill.side)) throw Error("Invalid fill side");
+    if (fill.trade_id != null) {
+      const key = String(fill.trade_id), prior = unique.get(key);
+      if (prior) {
+        for (
+          const field of [
+            "side",
+            "size",
+            "price",
+            "start_position",
+            "closed_pnl",
+            "fee",
+            "fee_token",
+          ]
+        ) {
+          if (String(prior[field]) !== String(fill[field])) {
+            throw Error("Conflicting fill records");
+          }
+        }
+        continue;
+      }
+      unique.set(key, fill);
+    }
+    if (!groups.has(at)) groups.set(at, []);
+    groups.get(at).push(fill);
+  }
+  let expected = d(0);
+  const result = [];
+  const end = (fill) =>
+    d(fill.start_position ?? expected).plus(
+      d(fill.size).times(fill.side === "buy" ? 1 : -1),
+    );
+  for (const [, group] of [...groups].sort((a, b) => a[0] - b[0])) {
+    const remaining = [...group], ordered = [];
+    let ambiguous = false;
+    while (remaining.length) {
+      let candidates = remaining.filter((f) =>
+        f.start_position != null && d(f.start_position).eq(expected)
+      );
+      if (!candidates.length) {
+        candidates = remaining.filter((f) =>
+          f.start_position != null &&
+          !remaining.some((other) =>
+            other !== f && end(other).eq(f.start_position)
+          )
+        );
+      }
+      if (candidates.length !== 1) {
+        if (remaining.length > 1) ambiguous = true;
+        candidates = [...remaining].sort((a, b) =>
+          String(a.trade_id ?? a.order_id).localeCompare(
+            String(b.trade_id ?? b.order_id),
+            undefined,
+            { numeric: true },
+          )
+        );
+      }
+      const fill = candidates[0];
+      remaining.splice(remaining.indexOf(fill), 1);
+      ordered.push(fill);
+      expected = end(fill);
+    }
+    result.push(...ordered.map((fill) => ({ fill, ambiguous })));
+  }
+  return result;
+}
+
 // Replay the CURRENT position episode, not all historical trades in an asset.
 // Quantities, weighted entry, reversal fees and realized P&L use decimal math.
 export function replayPairLeg(
@@ -74,31 +160,7 @@ export function replayPairLeg(
   targetOpenedAt = null,
   onState = null,
 ) {
-  const fills = rows.filter((fill) =>
-    fill.asset === asset &&
-    Number(fill.occurred_at_ms ?? Date.parse(fill.occurred_at)) <= cutoff
-  ).sort((a, b) => {
-    const time = Number(a.occurred_at_ms ?? Date.parse(a.occurred_at)) -
-      Number(b.occurred_at_ms ?? Date.parse(b.occurred_at));
-    if (time) return time;
-    if (a.start_position != null && b.start_position != null) {
-      const ae = d(a.start_position).plus(
-          d(a.size).times(a.side === "buy" ? 1 : -1),
-        ),
-        be = d(b.start_position).plus(
-          d(b.size).times(b.side === "buy" ? 1 : -1),
-        );
-      if (ae.eq(b.start_position) && !be.eq(a.start_position)) return -1;
-      if (be.eq(a.start_position) && !ae.eq(b.start_position)) return 1;
-      if (a.side === b.side) {
-        return d(a.start_position).cmp(b.start_position) *
-          (a.side === "buy" ? 1 : -1);
-      }
-    }
-    return String(a.order_id).localeCompare(String(b.order_id), undefined, {
-      numeric: true,
-    });
-  });
+  const fills = chronologicalFills(rows, asset, cutoff);
   let size = d(0),
     entry = d(0),
     realized = d(0),
@@ -125,16 +187,30 @@ export function replayPairLeg(
     complete: complete && currencyKnown,
     currencyKnown,
   });
-  for (const fill of fills) {
+  for (const { fill, ambiguous } of fills) {
     const start = fill.start_position == null ? size : d(fill.start_position),
       amount = d(fill.size),
       price = d(fill.price),
       delta = fill.side === "buy" ? amount : amount.neg(),
       end = start.plus(delta);
-    if (!amount.gt(0) || !price.gt(0)) throw Error("Invalid fill");
+    if (!["buy", "sell"].includes(fill.side) || !amount.gt(0) || !price.gt(0)) {
+      throw Error("Invalid fill");
+    }
     const opening = start.isZero() || side(start) === side(delta);
     if (start.isZero()) {
-      if (openedAt !== null) episodes.push(snapshot());
+      if (openedAt !== null) {
+        // A reported flat start cannot silently erase a missing closing fill.
+        if (!size.isZero()) {
+          complete = false;
+          if (onState && matches()) {
+            onState({
+              at: Number(fill.occurred_at_ms ?? Date.parse(fill.occurred_at)),
+              ...snapshot(),
+            });
+          }
+        }
+        episodes.push(snapshot());
+      }
       entry = d(0);
       realized = d(0);
       fees = d(0);
@@ -150,6 +226,9 @@ export function replayPairLeg(
         openedAt = Number(fill.occurred_at_ms ?? Date.parse(fill.occurred_at));
       }
     }
+    if (ambiguous || fill.start_position == null || fill.fee == null) {
+      complete = false;
+    }
     const fee = d(fill.fee ?? 0),
       token = String(fill.fee_token ?? "").trim().toUpperCase();
     if (!["USDC", "USD"].includes(token)) currencyKnown = false;
@@ -160,10 +239,11 @@ export function replayPairLeg(
     } else {
       const closing = Decimal.min(start.abs(), amount);
       if (!entry.gt(0)) complete = false;
+      // Reported closedPnl is a convenience/display field and can use a
+      // rounded entry. Derive realized P&L from the same full-precision fill
+      // cost basis as unrealized P&L; fees are charged exactly once below.
       realized = realized.plus(
-        fill.closed_pnl == null
-          ? closing.times(price.minus(entry)).times(side(start))
-          : d(fill.closed_pnl),
+        closing.times(price.minus(entry)).times(side(start)),
       );
       if (!end.isZero() && side(end) !== side(start)) {
         // The remaining size begins a new episode at the reversal's fill price.
@@ -180,7 +260,8 @@ export function replayPairLeg(
         fees = fee.times(end.abs()).div(amount);
         closedAt = null;
         direction = side(end);
-        complete = true;
+        complete = !ambiguous && fill.start_position != null &&
+          fill.fee != null;
         currencyKnown = ["USDC", "USD"].includes(token);
       } else fees = fees.plus(fee);
     }
@@ -216,6 +297,36 @@ export function replayPairLeg(
   return latest;
 }
 
+function episodeFunding(funding, fills, asset, episode) {
+  return funding.filter((row) =>
+    row.asset === asset &&
+    Number(row.occurred_at_ms ?? Date.parse(row.occurred_at)) >=
+      episode.openedAt &&
+    (episode.closedAt == null ||
+      Number(row.occurred_at_ms ?? Date.parse(row.occurred_at)) <=
+        episode.closedAt) &&
+    side(row.position_size ?? episode.direction) === episode.direction
+  ).map((row) => {
+    const time = Number(row.occurred_at_ms ?? Date.parse(row.occurred_at));
+    if (time !== episode.openedAt && time !== episode.closedAt) return row;
+    const boundary = fills.filter((f) =>
+      f.asset === asset &&
+      Number(f.occurred_at_ms ?? Date.parse(f.occurred_at)) === time
+    );
+    // The API has no ordering between a funding event and a same-ms close/reopen.
+    // Do not count that payment in both position episodes or invent an order.
+    const opens = boundary.some((f) =>
+      f.start_position != null && d(f.start_position).isZero()
+    );
+    const closes = boundary.some((f) =>
+      f.start_position != null && !d(f.start_position).isZero() &&
+      d(f.start_position).plus(d(f.size).times(f.side === "buy" ? 1 : -1))
+        .isZero()
+    );
+    return opens && closes ? { ...row, usdc: null } : row;
+  });
+}
+
 export function pairValuation(
   pairInput,
   marks,
@@ -225,6 +336,7 @@ export function pairValuation(
     funding = [],
     accountFresh = false,
     marksFresh = true,
+    markFreshness = null,
   } = {},
 ) {
   const pair = normalizePair(pairInput);
@@ -277,17 +389,7 @@ export function pairValuation(
         legFees = d(episode.fees);
         realized = realized.plus(legRealized);
         fees = fees.plus(legFees);
-        for (
-          const payment of funding.filter((row) =>
-            row.asset === asset &&
-            Number(row.occurred_at_ms ?? Date.parse(row.occurred_at)) >=
-              episode.openedAt &&
-            (episode.closedAt === null ||
-              Number(row.occurred_at_ms ?? Date.parse(row.occurred_at)) <=
-                episode.closedAt) &&
-            side(row.position_size ?? episode.direction) === episode.direction
-          )
-        ) {
+        for (const payment of episodeFunding(funding, fills, asset, episode)) {
           if (payment.usdc == null) {
             complete = false;
             legCostsKnown = false;
@@ -299,15 +401,20 @@ export function pairValuation(
       }
     }
     const markInput = marks[asset],
-      mark = markInput == null ? null : d(markInput);
-    if (!mark?.gt(0)) complete = false;
-    const notional = mark ? qty.abs().times(mark) : null;
+      candidate = markInput == null ? null : d(markInput),
+      mark = candidate?.gt(0) ? candidate : null;
+    if (!qty.isZero() && !mark?.gt(0)) complete = false;
+    const notional = qty.isZero() ? d(0) : mark ? qty.abs().times(mark) : null;
     if (notional) {
       gross = gross.plus(notional);
       if (qty.gt(0)) long = long.plus(notional);
       else short = short.plus(notional);
     }
-    const pnl = mark ? qty.times(mark.minus(entry)) : null;
+    const pnl = qty.isZero()
+      ? d(0)
+      : mark
+      ? qty.times(mark.minus(entry))
+      : null;
     if (pnl) unrealized = unrealized.plus(pnl);
     const liq = qty.isZero() || position?.liquidation_price == null
       ? null
@@ -355,7 +462,9 @@ export function pairValuation(
     distances = legs.filter((leg) => leg.distance !== null).map((leg) =>
       d(leg.distance)
     );
-  const priceKnown = legs.every((leg) => leg.mark !== null);
+  const priceKnown = legs.every((leg) =>
+    d(leg.quantity).isZero() || leg.mark !== null
+  );
   return {
     legs,
     unrealized: priceKnown ? text(unrealized) : null,
@@ -363,7 +472,11 @@ export function pairValuation(
     fees: text(fees),
     funding: text(cashFunding),
     costsComplete: complete,
-    fresh: marksFresh &&
+    fresh: legs.every((leg) =>
+      d(leg.quantity).isZero() ||
+      leg.mark !== null &&
+        (markFreshness ? markFreshness[leg.asset] === true : marksFresh)
+    ) &&
       (pair.source === "manual" ||
         accountFresh && legs.every((leg) => leg.reconciled)),
     net: complete && priceKnown
@@ -389,12 +502,10 @@ export function pairValuation(
 // each timestamp in the caller; current size must never be projected backwards.
 export function manualPairCurve(pairInput, rows) {
   const pair = normalizePair(pairInput);
-  return rows.filter((row) =>
-    row.time * 1000 >= pair.openedAt && row.priceA != null && row.priceB != null
-  ).map((row) => ({
+  return rows.filter((row) => row.time * 1000 >= pair.openedAt).map((row) => ({
     time: row.time,
     slot: row.slot,
-    value: Number(
+    value: row.priceA == null || row.priceB == null ? undefined : Number(
       d(pair.legs[0].quantity).times(pair.legs[0].side === "long" ? 1 : -1)
         .times(d(row.priceA).minus(pair.legs[0].entry)).plus(
           d(pair.legs[1].quantity).times(pair.legs[1].side === "long" ? 1 : -1)
@@ -404,7 +515,7 @@ export function manualPairCurve(pairInput, rows) {
   }));
 }
 
-export function accountPairCurve(pairInput, rows, fills, funding) {
+export function createAccountPairCurve(pairInput, fills, funding) {
   const pair = normalizePair(pairInput);
   const states = [[], []],
     finals = pair.legs.map((leg, index) =>
@@ -417,59 +528,71 @@ export function accountPairCurve(pairInput, rows, fills, funding) {
       )
     );
   const payments = finals.map((episode, index) =>
-    funding.filter((row) =>
-      row.asset === (index === 0 ? pair.assetA : pair.assetB) &&
-      Number(row.occurred_at_ms ?? Date.parse(row.occurred_at)) >=
-        episode.openedAt &&
-      (episode.closedAt === null ||
-        Number(row.occurred_at_ms ?? Date.parse(row.occurred_at)) <=
-          episode.closedAt) &&
-      side(row.position_size ?? episode.direction) === episode.direction
+    episodeFunding(
+      funding,
+      fills,
+      index === 0 ? pair.assetA : pair.assetB,
+      episode,
     ).sort((a, b) =>
       Number(a.occurred_at_ms ?? Date.parse(a.occurred_at)) -
       Number(b.occurred_at_ms ?? Date.parse(b.occurred_at))
     )
   );
-  const stateIndex = [0, 0],
-    paymentIndex = [0, 0],
-    cash = [d(0), d(0)],
-    fundingKnown = [true, true];
-  return rows.filter((row) => row.time * 1000 >= pair.openedAt).map((row) => {
-    const values = [0, 1].map((index) => {
-      const timeline = states[index],
-        price = row[index === 0 ? "priceA" : "priceB"];
-      while (
-        stateIndex[index] + 1 < timeline.length &&
-        timeline[stateIndex[index] + 1].at <= row.time * 1000
-      ) stateIndex[index]++;
-      while (
-        paymentIndex[index] < payments[index].length &&
-        Number(
-            payments[index][paymentIndex[index]].occurred_at_ms ??
-              Date.parse(payments[index][paymentIndex[index]].occurred_at),
-          ) <= row.time * 1000
-      ) {
-        const payment = payments[index][paymentIndex[index]++];
-        if (payment.usdc == null) fundingKnown[index] = false;
-        else cash[index] = cash[index].plus(payment.usdc);
-      }
-      const state = timeline[stateIndex[index]];
-      if (!state || state.at > row.time * 1000) return d(0);
-      if (!state.complete || !fundingKnown[index] || price == null) return null;
-      return d(state.size).times(d(price).minus(state.entry)).plus(
-        state.realized,
-      ).minus(state.fees).plus(cash[index]);
+  return (rows) => {
+    const stateIndex = [0, 0],
+      paymentIndex = [0, 0],
+      cash = [d(0), d(0)],
+      fundingKnown = [true, true];
+    return rows.filter((row) => row.time * 1000 >= pair.openedAt).map((row) => {
+      const values = [0, 1].map((index) => {
+        const timeline = states[index],
+          price = row[index === 0 ? "priceA" : "priceB"];
+        while (
+          stateIndex[index] + 1 < timeline.length &&
+          timeline[stateIndex[index] + 1].at <= row.time * 1000
+        ) stateIndex[index]++;
+        while (
+          paymentIndex[index] < payments[index].length &&
+          Number(
+              payments[index][paymentIndex[index]].occurred_at_ms ??
+                Date.parse(payments[index][paymentIndex[index]].occurred_at),
+            ) <= row.time * 1000
+        ) {
+          const payment = payments[index][paymentIndex[index]++];
+          if (payment.usdc == null) fundingKnown[index] = false;
+          else cash[index] = cash[index].plus(payment.usdc);
+        }
+        const state = timeline[stateIndex[index]];
+        if (!state || state.at > row.time * 1000) {
+          const opening = pair.legs[index].openedAt;
+          return Number.isFinite(opening) && row.time * 1000 < opening
+            ? d(0)
+            : null;
+        }
+        if (!state.complete || !fundingKnown[index]) return null;
+        if (!d(state.size).isZero() && (price == null || !d(price).gt(0))) {
+          return null;
+        }
+        return d(state.size).times(d(price ?? state.entry).minus(state.entry))
+          .plus(
+            state.realized,
+          ).minus(state.fees).plus(cash[index]);
+      });
+      return {
+        time: row.time,
+        slot: row.slot,
+        valueA: values[0] ? Number(values[0]) : undefined,
+        valueB: values[1] ? Number(values[1]) : undefined,
+        value: values.every((value) => value !== null)
+          ? Number(values[0].plus(values[1]))
+          : undefined,
+      };
     });
-    return {
-      time: row.time,
-      slot: row.slot,
-      valueA: values[0] ? Number(values[0]) : undefined,
-      valueB: values[1] ? Number(values[1]) : undefined,
-      value: values.every((value) => value !== null)
-        ? Number(values[0].plus(values[1]))
-        : undefined,
-    };
-  });
+  };
+}
+
+export function accountPairCurve(pair, rows, fills, funding) {
+  return createAccountPairCurve(pair, fills, funding)(rows);
 }
 
 // A fresh clearinghouse snapshot replaces its entire venue, including closures.
@@ -491,6 +614,9 @@ export function pairAccountState(snapshot, now = Date.now()) {
     positions: [...latest.values()],
     fills: snapshot.fills ?? [],
     funding: snapshot.funding ?? [],
+    asOf: Number.isFinite(Date.parse(source?.last_success_at ?? ""))
+      ? Date.parse(source.last_success_at) / 1000
+      : null,
     accountFresh: Boolean(
       source && !source.last_error &&
         now - Date.parse(source.last_success_at) < 120000,

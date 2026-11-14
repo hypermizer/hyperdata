@@ -197,3 +197,10 @@ Deno.test('pair monitor persistence, private snapshots, history bounds and notif
  r=await call('pair_trades?id=eq.'+id,token,'PATCH',{config:{...config,name:'Updated REST pair'}});assertEquals(r.status,200);assertEquals((await r.json())[0].config.name,'Updated REST pair');
  r=await call('pair_trades?id=eq.'+id,token,'PATCH',{archived:true});assertEquals(r.status,200);assertEquals((await r.json())[0].archived,true);
 });
+
+Deno.test('PAIR view selection, viewport and controls persist privately across requests',async()=>{
+ const settings={assetA:'xyz:NVDA',assetB:'xyz:AMD',selectedPairId:null,selectionSet:true,period:'6h',sampling:15,follow:false,ranges:{'00000000-0000-0000-0000-000000000123':{from:1794613000,to:1794616600}}};
+ let r=await call('pair_view_preferences',token,'POST',{user_id:owner,settings});assertEquals(r.status,201);await r.body?.cancel();r=await call('pair_view_preferences',token);assertEquals((await r.json())[0].settings,settings);
+ const stranger=await signLocalToken(secret,{role:'authenticated',sub:'00000000-0000-0000-0000-000000000778',email:'stranger@example.com'});r=await call('pair_view_preferences',stranger);assertEquals(await r.json(),[]);r=await call('pair_view_preferences',stranger,'POST',{user_id:owner,settings});assertEquals(r.status,403);await r.body?.cancel();
+ r=await call('pair_view_preferences?user_id=eq.'+owner,token,'PATCH',{settings:{...settings,sampling:60}});assertEquals(r.status,200);assertEquals((await r.json())[0].settings.sampling,60);
+});

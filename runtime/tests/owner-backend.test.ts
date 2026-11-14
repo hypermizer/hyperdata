@@ -5,6 +5,8 @@ Deno.test("owner backend exposes only app data and commands, excluding auth/admi
     const path of [
       "/rest/v1/watchlist_items",
       "/rest/v1/comparison_preferences",
+      "/rest/v1/pair_view_preferences",
+      "/rest/v1/rpc/pair_mark_history",
       "/rest/v1/paper_positions",
       "/rest/v1/rpc/create_paper_account",
       "/functions/v1/paper-command",
@@ -14,6 +16,9 @@ Deno.test("owner backend exposes only app data and commands, excluding auth/admi
     const path of [
       "/auth/v1/admin/users",
       "/rest/v1/alert_rules",
+      "/rest/v1/comparison_history_cache",
+      "/rest/v1/rpc/request_comparison_history",
+      "/rest/v1/rpc/claim_pair_alerts",
       "/rest/v1/rpc/configure_listener_cron",
       "/functions/v1/send-login-link",
       "/rest/v1/users/../watchlist_items",

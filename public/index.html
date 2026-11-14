@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#101214" />
     <title>HYPERDATA</title>
     <link rel="icon" href="./favicon.svg?v=20260718-listener" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css?v=20261114-monitor1" />
+    <link rel="stylesheet" href="./styles.css?v=20261114-pair2" />
   </head>
   <body>
     <main>
@@ -21,7 +21,7 @@
           <div class="tabs" role="tablist" aria-label="Hyperdata views">
             <a id="watchlist-tab" href="#/watchlist" role="tab" aria-selected="true" aria-controls="watchlist-view" data-tab="watchlist">ASSETS</a>
             <a id="charts-tab" href="#/charts" role="tab" aria-selected="false" aria-controls="charts-view" data-tab="charts">CHARTS</a>
-            <a id="compare-tab" href="#/compare" role="tab" aria-selected="false" aria-controls="compare-view" data-tab="compare">COMPARE</a>
+            <a id="pair-tab" href="#/pair" role="tab" aria-selected="false" aria-controls="pair-view" data-tab="pair">PAIR</a>
             <a id="alerts-tab" href="#/alerts" role="tab" aria-selected="false" aria-controls="alerts-view" data-tab="alerts">Alerts</a>
             <a id="audio-tab" href="#/audio" role="tab" aria-selected="false" aria-controls="audio-view" data-tab="audio">Audio</a>
             <a id="analysis-tab" href="#/analysis/trade-log" role="tab" aria-selected="false" aria-controls="analysis-view" data-tab="analysis">Analysis</a>
@@ -97,49 +97,13 @@
         <div id="charts-grid" class="charts-grid"></div>
       </section>
 
-      <section id="compare-view" role="tabpanel" aria-labelledby="compare-tab" hidden>
-        <div class="section-header"><div class="section-title"><h2>COMPARE</h2><span class="hint">TWO ASSETS · ONE TIMELINE</span></div><span id="compare-save-status" class="hint" role="status"></span></div>
-        <form id="compare-form" class="compare-form">
-          <label class="compare-asset-a">ASSET A
-            <div id="compare-picker-a" class="asset-picker">
-              <input data-asset-input aria-label="First comparison asset" placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="compare-options-a" />
-              <input data-asset-value type="hidden" /><div id="compare-options-a" data-asset-list class="asset-picker-list" role="listbox" hidden></div>
-            </div>
-          </label>
-          <button id="compare-swap" type="button" aria-label="Swap comparison assets">⇄</button>
-          <label class="compare-asset-b">ASSET B
-            <div id="compare-picker-b" class="asset-picker">
-              <input data-asset-input aria-label="Second comparison asset" placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="compare-options-b" />
-              <input data-asset-value type="hidden" /><div id="compare-options-b" data-asset-list class="asset-picker-list" role="listbox" hidden></div>
-            </div>
-          </label>
-          <button type="submit">COMPARE</button>
-        </form>
+      <section id="pair-view" role="tabpanel" aria-labelledby="pair-tab" hidden>
+        <div class="section-header"><div class="section-title"><h2>PAIR</h2><span class="hint">POSITION P&amp;L · EXPOSURE · RISK</span></div><span id="pair-save-status" class="hint" role="status"></span></div>
+        <div class="pair-assets">
+          <label>ASSET A · FOR NEW MONITORS<div id="pair-picker-a" class="asset-picker"><input data-asset-input aria-label="First pair asset" placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pair-options-a" /><input data-asset-value type="hidden" /><div id="pair-options-a" data-asset-list class="asset-picker-list" role="listbox" hidden></div></div></label>
+          <label>ASSET B · FOR NEW MONITORS<div id="pair-picker-b" class="asset-picker"><input data-asset-input aria-label="Second pair asset" placeholder="SEARCH ASSET" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="pair-options-b" /><input data-asset-value type="hidden" /><div id="pair-options-b" data-asset-list class="asset-picker-list" role="listbox" hidden></div></div></label>
+        </div>
         <section id="pair-monitor" class="pair-monitor" aria-label="Saved pair trade monitor"></section>
-        <div id="compare-start-controls" class="compare-start-controls">
-          <label>CHART START · UTC <input id="compare-start-time" type="datetime-local" step="60" aria-label="Pair start time in UTC" /></label>
-          <label>STARTING PRICES <select id="compare-basis"><option value="market">MARKET · 1-MINUTE CLOSE</option><option value="hourly">MARKET · HISTORICAL HOURLY CLOSE</option><option value="entry">MY FILL PRICES</option></select></label>
-          <label id="compare-entry-a-field" hidden>A FILL PRICE <input id="compare-entry-a" type="number" min="0" step="any" aria-label="Asset A fill price" /></label>
-          <label id="compare-entry-b-field" hidden>B FILL PRICE <input id="compare-entry-b" type="number" min="0" step="any" aria-label="Asset B fill price" /></label>
-          <button id="compare-start-apply" type="button">START FROM THIS TIME</button>
-          <button id="compare-start-clear" type="button" hidden>ROLLING HISTORY</button>
-          <label class="compare-follow"><input id="compare-follow" type="checkbox" checked /> FOLLOW TO NOW</label>
-        </div>
-        <p id="compare-start-help" class="hint compare-method"></p>
-        <div class="charts-controls compare-controls">
-          <label>CANDLE INTERVAL <output id="compare-interval-label" for="compare-interval"></output><input id="compare-interval" type="range" min="0" max="13" step="1" aria-label="Comparison candle interval" /></label>
-          <label>VISIBLE HISTORY <output id="compare-window-label" for="compare-window"></output><input id="compare-window" type="range" min="0" step="1" aria-label="Comparison visible history" /></label>
-          <label>DISPLAY <select id="compare-mode" aria-label="Comparison display mode"><option value="percent">% RETURN · SHARED SCALE</option><option value="price">PRICE · SEPARATE AXES</option></select></label>
-          <button id="compare-reset" type="button">RESET VIEW</button>
-          <button id="compare-retry" type="button" hidden>RETRY DATA</button>
-        </div>
-        <p id="compare-error" class="message" role="alert"></p>
-        <p id="compare-status" class="compare-status" role="status">LOADING COMPARISON…</p>
-        <div class="compare-legend"><div id="compare-legend-a" class="compare-asset-a"></div><div id="compare-legend-b" class="compare-asset-b"></div></div>
-        <p id="compare-readout" class="hint compare-readout"></p>
-        <div id="compare-chart" class="compare-chart" aria-label="Two asset comparison chart"></div>
-        <p id="compare-baseline" class="hint compare-method"></p>
-        <p id="compare-method" class="hint compare-method"></p>
       </section>
 
       <section id="asset-view" role="tabpanel" aria-labelledby="watchlist-tab" hidden>
@@ -520,7 +484,7 @@
     </dialog>
     <script type="module" src="./transient-messages.js?v=20260801"></script>
     <script src="./vendor/lightweight-charts.standalone.production.js?v=5.2.0"></script>
-    <script type="module" src="./app.js?v=20261114-monitor1"></script>
+    <script type="module" src="./app.js?v=20261114-pair2"></script>
     <script type="module" src="./audio.js?v=20261110-charts3"></script>
     <script type="module" src="./paper.js?v=20261110-charts3"></script>
     <script type="module" src="./trade-log.js?v=20261110-charts3"></script>

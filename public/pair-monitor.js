@@ -1,11 +1,10 @@
 import {
-  accountPairCurve,
-  manualPairCurve,
   normalizePair,
   pairAccountState,
   pairValuation,
   replayPairLeg,
-} from "./lib/pair-trade.js?v=20261114-monitor1";
+} from "./lib/pair-trade.js?v=20261114-pair2";
+import { createPairPnlChart } from "./pair-chart.js?v=20261114-pair2";
 const dollars = (value) =>
   value == null ? "—" : new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -30,11 +29,11 @@ const el = (tag, text, cls) => {
 const utcInput = (value) => new Date(value).toISOString().slice(0, 19);
 
 export function createPairMonitor(
-  { client, getCatalog, getSettings, onSelect },
+  { client, getCatalog, getSettings, updateSettings, onSelect },
 ) {
   const root = document.getElementById("pair-monitor");
   root.innerHTML =
-    `<div class="pair-toolbar"><label>SAVED TRADE <select id="pair-select"><option value="">No trade selected</option></select></label><button id="pair-import" type="button">IMPORT LINKED POSITIONS</button><button id="pair-manual" type="button">NEW MANUAL TRADE</button><button id="pair-edit" type="button" hidden>EDIT / ALERTS</button><button id="pair-archive" type="button" hidden>ARCHIVE</button></div><p id="pair-message" class="hint" role="status">Import your linked Hyperliquid positions, or enter a trade manually. Monitoring never places orders.</p><div id="pair-summary" hidden><div class="pair-metrics" id="pair-metrics"></div><p id="pair-freshness" class="hint"></p><details id="pair-details"><summary>POSITIONS, COSTS & RISK</summary><div id="pair-legs" class="pair-legs"></div><p id="pair-costs" class="hint"></p><p class="hint">Liquidation prices come from Hyperliquid. Cross-margin risk depends on the whole account and can change as collateral and other positions change. Leverage changes margin requirements; price P&amp;L uses signed quantity × price change.</p></details><details id="pair-pnl-details"><summary>PAIR P&amp;L HISTORY · USD</summary><p id="pair-pnl-status" class="hint" role="status"></p><div id="pair-pnl-chart" class="pair-pnl-chart" aria-label="Pair profit and loss history"></div></details></div><dialog id="pair-editor"><form id="pair-editor-form"><h3 id="pair-editor-title">PAIR TRADE</h3><label>NAME <input name="name" required maxlength="80" /></label><label>TRADE ENTRY · UTC <input name="openedAt" type="datetime-local" step="1" required /></label><div id="pair-editor-legs" class="pair-legs"></div><fieldset id="pair-manual-costs"><legend>ACTUAL CUMULATIVE COSTS · USD</legend><p class="hint">Leave unknown amounts empty. Enter 0 only when verified zero. Funding is signed cash received (+) or paid (−). Update these totals after fills or funding payments.</p><label>FEES PAID <input name="fees" type="number" step="any" /></label><label>FUNDING RECEIVED / PAID <input name="funding" type="number" step="any" /></label><label>REALIZED P&amp;L <input name="realized" type="number" step="any" /></label></fieldset><fieldset><legend>OPTIONAL PAIR ALERTS · NTFY ONLY</legend><p class="hint">Blank = off. Alerts trigger on a threshold crossing, with a 30-minute cooldown and at most four per metric per day. Three clear observations rearm a threshold. No recovery notifications.</p><label>NET PROFIT ≥ USD <input name="profit" type="number" min="0.01" step="any" /></label><label>NET LOSS ≥ USD <input name="loss" type="number" min="0.01" step="any" /></label><label>NEAREST LIQUIDATION BUFFER ≤ % <input name="liquidation" type="number" min="0.01" step="any" /></label><label>ABSOLUTE NET / GROSS EXPOSURE ≥ % <input name="exposure" type="number" min="0.01" max="100" step="any" /></label></fieldset><p id="pair-editor-error" class="message" role="alert"></p><div class="pair-toolbar"><button type="submit">SAVE TRADE</button><button id="pair-editor-cancel" type="button">CANCEL</button></div></form></dialog>`;
+    `<div class="pair-toolbar"><label>SAVED TRADE <select id="pair-select"><option value="">No trade selected</option></select></label><button id="pair-import" type="button">IMPORT LINKED POSITIONS</button><button id="pair-manual" type="button">NEW MANUAL TRADE</button><button id="pair-edit" type="button" hidden>EDIT / ALERTS</button><button id="pair-archive" type="button" hidden>ARCHIVE</button></div><p id="pair-message" class="hint" role="status">Import your linked Hyperliquid positions, or enter a trade manually. Monitoring never places orders.</p><div id="pair-summary" hidden><div class="pair-metrics" id="pair-metrics"></div><p id="pair-freshness" class="hint"></p><section id="pair-pnl-panel"><div class="pair-chart-heading"><h3>PAIR P&amp;L · USD</h3><div class="pair-chart-controls"><label>HISTORY <select id="pair-pnl-period"><option value="trade">SINCE ENTRY</option><option value="1h">1 HOUR</option><option value="6h">6 HOURS</option><option value="24h">24 HOURS</option><option value="7d">7 DAYS</option><option value="custom">CUSTOM START</option></select></label><label id="pair-pnl-start-field" hidden>START · UTC <input id="pair-pnl-start" type="datetime-local" step="1" /></label><label>SAMPLE INTERVAL <select id="pair-pnl-sampling"><option value="0">AUTO</option><option value="15">15 SECONDS</option><option value="60">1 MINUTE</option><option value="300">5 MINUTES</option><option value="900">15 MINUTES</option><option value="3600">1 HOUR</option><option value="86400">1 DAY</option></select></label><label class="pair-follow"><input id="pair-pnl-follow" type="checkbox" checked /> FOLLOW LIVE</label><button id="pair-pnl-reset" type="button">RESET VIEW</button><button id="pair-pnl-retry" type="button">REFRESH DATA</button></div></div><div id="pair-pnl-readout" class="pair-pnl-readout" aria-live="off"></div><p id="pair-pnl-time" class="hint"></p><div id="pair-pnl-chart" class="pair-pnl-chart" aria-label="Pair profit and loss in US dollars"></div><p id="pair-pnl-status" class="hint" role="status"></p><p id="pair-pnl-coverage" class="hint"></p></section><details id="pair-details"><summary>POSITIONS, COSTS & RISK</summary><div id="pair-legs" class="pair-legs"></div><p id="pair-costs" class="hint"></p><p class="hint">Liquidation prices come from Hyperliquid. Cross-margin risk depends on the whole account and can change as collateral and other positions change. Leverage changes margin requirements; price P&amp;L uses signed quantity × price change.</p></details></div><dialog id="pair-editor"><form id="pair-editor-form"><h3 id="pair-editor-title">PAIR TRADE</h3><label>NAME <input name="name" required maxlength="80" /></label><label>TRADE ENTRY · UTC <input name="openedAt" type="datetime-local" step="1" required /></label><div id="pair-editor-legs" class="pair-legs"></div><fieldset id="pair-manual-costs"><legend>ACTUAL CUMULATIVE COSTS · USD</legend><p class="hint">Leave unknown amounts empty. Enter 0 only when verified zero. Funding is signed cash received (+) or paid (−). Update these totals after fills or funding payments.</p><label>FEES PAID <input name="fees" type="number" step="any" /></label><label>FUNDING RECEIVED / PAID <input name="funding" type="number" step="any" /></label><label>REALIZED P&amp;L <input name="realized" type="number" step="any" /></label></fieldset><fieldset><legend>OPTIONAL PAIR ALERTS · NTFY ONLY</legend><p class="hint">Blank = off. Alerts trigger on a threshold crossing, with a 30-minute cooldown and at most four per metric per day. Three clear observations rearm a threshold. No recovery notifications.</p><label>NET PROFIT ≥ USD <input name="profit" type="number" min="0.01" step="any" /></label><label>NET LOSS ≥ USD <input name="loss" type="number" min="0.01" step="any" /></label><label>NEAREST LIQUIDATION BUFFER ≤ % <input name="liquidation" type="number" min="0.01" step="any" /></label><label>ABSOLUTE NET / GROSS EXPOSURE ≥ % <input name="exposure" type="number" min="0.01" max="100" step="any" /></label></fieldset><p id="pair-editor-error" class="message" role="alert"></p><div class="pair-toolbar"><button type="submit">SAVE TRADE</button><button id="pair-editor-cancel" type="button">CANCEL</button></div></form></dialog>`;
   const $ = (id) => document.getElementById("pair-" + id),
     form = $("editor-form");
   let active = false,
@@ -52,18 +51,10 @@ export function createPairMonitor(
     backoff = 1000,
     lastRefresh = 0,
     refreshBusy = false,
-    chart = null,
-    lines = [],
-    historyRows = [],
-    historyBusy = false,
-    lastHistory = 0,
     editing = null,
     version = 0;
-  let lastChartTime = 0;
-  let savedId = null;
-  try {
-    savedId = localStorage.getItem("hyperdata.pair.selected.v1");
-  } catch { /* optional browser selection */ }
+  const pnl = createPairPnlChart({ client, getSettings, updateSettings });
+  let savedId = getSettings().selectedPairId;
   const settings = () => getSettings();
   const selectedAssets = () =>
     selected
@@ -72,13 +63,10 @@ export function createPairMonitor(
   function message(text) {
     $("message").textContent = text;
   }
-  function choose(id) {
+  function choose(id, syncAssets = true) {
     selected = records.find((r) => r.id === id) ?? null;
     savedId = selected?.id ?? null;
-    try {
-      if (savedId) localStorage.setItem("hyperdata.pair.selected.v1", savedId);
-      else localStorage.removeItem("hyperdata.pair.selected.v1");
-    } catch { /* saved configurations remain on server */ }
+    updateSettings({ selectedPairId: savedId, selectionSet: true });
     $("select").value = savedId ?? "";
     $("summary").hidden = !selected;
     $("edit").hidden = !selected;
@@ -88,24 +76,23 @@ export function createPairMonitor(
     account = null;
     value = null;
     marks = {};
-    historyRows = [];
-    lastHistory = 0;
+
     closeStream();
-    disposeChart();
+    pnl.setPair(selected);
     if (selected) {
       message(
         `${
           selected.config.source === "account" ? "LINKED ACCOUNT" : "MANUAL"
         } · ${selected.config.name} · trade entry ${
           date(selected.config.openedAt)
-        }. Chart rebasing does not change trade cost basis. ${
+        }. Chart ranges preserve this trade's cost basis. ${
           Object.keys(selected.config.alerts ?? {}).length
             ? "NTFY ALERTS: " +
               Object.keys(selected.config.alerts).join(", ").toUpperCase()
             : "NTFY ALERTS OFF"
         }.`,
       );
-      onSelect?.(selected.config);
+      if (syncAssets) onSelect?.(selected.config);
       void refresh();
       connect();
     } else {message(
@@ -130,7 +117,13 @@ export function createPairMonitor(
       option.value = row.id;
       select.append(option);
     }
-    choose(savedId);
+    choose(
+      getSettings().selectedPairId ??
+        (!getSettings().selectionSet && records.length === 1
+          ? records[0].id
+          : null),
+      false,
+    );
   }
   async function readSnapshot(assets) {
     const r = await client.rpc("pair_account_snapshot", { p_assets: assets });
@@ -140,6 +133,7 @@ export function createPairMonitor(
   async function refresh() {
     if (!selected || refreshBusy || !active || document.hidden) return;
     refreshBusy = true;
+    lastRefresh = Date.now();
     const token = version, assets = selectedAssets();
     try {
       const data = await readSnapshot(assets);
@@ -159,7 +153,6 @@ export function createPairMonitor(
       }
       lastRefresh = Date.now();
       render();
-      if ($("pnl-details").open) void loadHistory();
     } catch (error) {
       if (token === version) {
         $("freshness").textContent =
@@ -184,6 +177,14 @@ export function createPairMonitor(
         accountFresh: account.accountFresh &&
           venues.every((dex) => account.freshDexes.has(dex)),
         marksFresh: fresh,
+        markFreshness: Object.fromEntries(
+          selectedAssets().map(
+            (asset) => [
+              asset,
+              Boolean(marks[asset] && Date.now() - marks[asset].time < 15000),
+            ],
+          ),
+        ),
       };
       value = pairValuation(
         selected.config,
@@ -267,22 +268,7 @@ export function createPairMonitor(
           ? " · position has unreconciled fills; net P&L unavailable"
           : ""
       }`;
-      if (chart && value.fresh) {
-        const time = Math.floor(Date.now() / 1000);
-        if (time >= lastChartTime) {
-          if (selected.config.source === "account" && value.net !== null) {
-            const values = [...value.legs.map((l) => l.net), value.net];
-            lines.forEach((line, i) => {
-              if (values[i] != null) {
-                line.update({ time, value: Number(values[i]) });
-              }
-            });
-          } else if (
-            selected.config.source === "manual" && value.unrealized !== null
-          ) lines[0]?.update({ time, value: Number(value.unrealized) });
-          lastChartTime = time;
-        }
-      }
+      pnl.update(account, value, marks);
       $("summary").dataset.net = value.net ?? "";
       $("summary").dataset.fresh = String(value.fresh);
       $("summary").dataset.source = selected.config.source;
@@ -331,11 +317,12 @@ export function createPairMonitor(
       } · signed funding ${dollars(value.funding)}. ${
         selected.config.source === "account"
           ? "Totals belong to the imported position episodes, including partial closes."
-          : "Manual totals are not updated automatically; the history chart shows gross price P&L because cost timing is unknown."
+          : "Manual totals are not updated automatically. The chart is a gross P&L scenario using the fixed quantities and entries you entered; execution and cost timing are unknown."
       }`;
     } catch (error) {
       $("freshness").textContent = `VALUATION UNAVAILABLE · ${error.message}`;
       value = null;
+      pnl.invalidate(error.message);
     }
   }
   function closeStream() {
@@ -391,7 +378,7 @@ export function createPairMonitor(
     for (
       const [key, label, type] of [
         ["side", "DIRECTION", "select"],
-        ["quantity", "QUANTITY", "number"],
+        ["quantity", locked ? "CURRENT QUANTITY" : "QUANTITY", "number"],
         ["entry", "AVERAGE ENTRY PRICE", "number"],
         ["leverage", "LEVERAGE", "number"],
         ["marginMode", "MARGIN MODE", "select"],
@@ -437,7 +424,16 @@ export function createPairMonitor(
     $("editor-legs").replaceChildren(
       ...config.legs.map((leg, i) =>
         legEditor(
-          leg,
+          config.source === "account" && id === selected?.id &&
+            value?.legs[i]?.reconciled
+            ? {
+              ...leg,
+              quantity: value.legs[i].quantity,
+              entry: value.legs[i].entry,
+              leverage: value.legs[i].leverage ?? leg.leverage,
+              marginMode: value.legs[i].marginMode ?? leg.marginMode,
+            }
+            : leg,
           i,
           i ? config.assetB : config.assetA,
           config.source === "account",
@@ -605,6 +601,7 @@ export function createPairMonitor(
         : await client.from("pair_trades").insert(row).select().single();
       if (result.error) throw result.error;
       savedId = result.data.id;
+      updateSettings({ selectedPairId: savedId, selectionSet: true });
       $("editor").close();
       await list();
     } catch (error) {
@@ -623,129 +620,12 @@ export function createPairMonitor(
       }).eq("id", selected.id);
       if (r.error) throw r.error;
       savedId = null;
+      updateSettings({ selectedPairId: null, selectionSet: true });
       await list();
     } catch (error) {
       message(error.message);
     }
   };
-  function disposeChart() {
-    chart?.remove();
-    chart = null;
-    lines = [];
-    $("pnl-chart").replaceChildren();
-  }
-  async function loadHistory(force = false) {
-    if (
-      !active || !selected || !account || historyBusy ||
-      !$("pnl-details").open || !force && Date.now() - lastHistory < 60000
-    ) return;
-    historyBusy = true;
-    const token = version, pair = selected.config, s = settings();
-    $("pnl-status").textContent =
-      "LOADING RECORDED MARKS AND ACTUAL POSITION HISTORY…";
-    try {
-      const start = Math.max(
-        pair.openedAt,
-        s.startTime ? s.startTime * 1000 : Date.now() - s.window * 1000,
-      );
-      const interval = Math.max(
-        60,
-        Math.ceil((Date.now() - start) / 1000 / 4800 / 60) * 60,
-      );
-      const result = await client.rpc("pair_mark_history", {
-        p_assets: [pair.assetA, pair.assetB],
-        p_start: new Date(start).toISOString(),
-        p_end: new Date().toISOString(),
-        p_interval: Math.min(86400, interval),
-      });
-      if (result.error) throw result.error;
-      if (token !== version) return;
-      historyRows = result.data.rows ?? [];
-      const rows = pair.source === "account"
-        ? accountPairCurve(pair, historyRows, account.fills, account.funding)
-        : manualPairCurve(pair, historyRows);
-      if (!rows.some((row) => row.value !== undefined)) {
-        throw Error(
-          "No verified mark-price P&L history in this range. Saved pairs retain observed marks from setup; older all-asset observations cover approximately eight days. Trade candles are not substituted for marks.",
-        );
-      }
-      disposeChart();
-      const lib = window.LightweightCharts;
-      chart = lib.createChart($("pnl-chart"), {
-        autoSize: true,
-        height: 320,
-        layout: {
-          background: { type: "solid", color: "#101214" },
-          textColor: "#a8afb7",
-        },
-        grid: {
-          vertLines: { color: "#ffffff0a" },
-          horzLines: { color: "#ffffff0a" },
-        },
-        timeScale: { timeVisible: true, minBarSpacing: 0.01 },
-      });
-      const metrics = pair.source === "account"
-        ? [["valueA", "#20d6a5", pair.assetA], [
-          "valueB",
-          "#b799ff",
-          pair.assetB,
-        ], ["value", "#e7edf3", "NET PAIR"]]
-        : [["value", "#e7edf3", "GROSS PAIR"]];
-      for (const [key, color, title] of metrics) {
-        const line = chart.addSeries(lib.LineSeries, {
-          color,
-          lineWidth: key === "value" ? 3 : 1,
-          title,
-          priceFormat: { type: "custom", minMove: 0.01, formatter: dollars },
-        });
-        line.setData(rows.map((row, i) => {
-          const point = {
-            time: Math.floor(row.time),
-            ...(row[key] === undefined ? {} : { value: row[key] }),
-          };
-          if (
-            rows[i + 1] &&
-            ((row.slot != null && rows[i + 1].slot != null
-              ? rows[i + 1].slot - row.slot > 1
-              : rows[i + 1].time - row.time > interval * 1.5) ||
-              rows[i + 1][key] === undefined)
-          ) point.color = "transparent";
-          return point;
-        }));
-        lines.push(line);
-      }
-      chart.timeScale().fitContent();
-      lastChartTime = Math.floor(rows.at(-1).time);
-      const first = rows.find((row) => row.value !== undefined),
-        last = rows.findLast((row) => row.value !== undefined);
-      $("pnl-status").textContent = `${
-        pair.source === "account"
-          ? "ACTUAL QUANTITIES, REALIZED P&L, FEES & FUNDING"
-          : "GROSS PRICE P&L · MANUAL COST TIMING UNKNOWN"
-      } · Recorded marks ${date(first.time * 1000)} → ${
-        date(last.time * 1000)
-      } · ${interval}s sampling. ${
-        first.time * 1000 > start + interval * 1000
-          ? "Earlier mark history unavailable. "
-          : ""
-      }Each leg uses its actual mark observation in the same time bucket. No synthetic history.`;
-      $("pnl-chart").dataset.points = rows.filter((row) =>
-        row.value !== undefined
-      ).length;
-      lastHistory = Date.now();
-    } catch (error) {
-      if (token === version) {
-        disposeChart();
-        $("pnl-status").textContent = error.message;
-        lastHistory = Date.now();
-      }
-    } finally {
-      historyBusy = false;
-    }
-  }
-  $("pnl-details").addEventListener("toggle", () => {
-    if ($("pnl-details").open) void loadHistory(true);
-  });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) closeStream();
     else if (active) {
@@ -766,11 +646,17 @@ export function createPairMonitor(
     }
     if (Date.now() - lastRefresh > 10000) void refresh();
     render();
-    if ($("pnl-details").open) void loadHistory();
   }, 1000);
   return {
     setActive(next) {
+      if (active === next) {
+        if (next && !owner) {
+          void list().catch((error) => message(error.message));
+        }
+        return;
+      }
       active = next;
+      pnl.setActive(next);
       if (next) {
         if (!owner) void list().catch((error) => message(error.message));
         else {
@@ -780,8 +666,7 @@ export function createPairMonitor(
       } else closeStream();
     },
     settingsChanged() {
-      lastHistory = 0;
-      if (active && $("pnl-details").open) void loadHistory(true);
+      pnl.settingsChanged();
     },
   };
 }
