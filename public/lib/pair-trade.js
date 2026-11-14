@@ -363,7 +363,9 @@ export function pairValuation(
     fees: text(fees),
     funding: text(cashFunding),
     costsComplete: complete,
-    fresh: marksFresh && (pair.source === "manual" || accountFresh),
+    fresh: marksFresh &&
+      (pair.source === "manual" ||
+        accountFresh && legs.every((leg) => leg.reconciled)),
     net: complete && priceKnown
       ? text(unrealized.plus(realized).plus(cashFunding).minus(fees))
       : null,
